@@ -1,0 +1,78 @@
+@import "tailwindcss";
+
+/* 
+ * TaskPulse Typographic Architecture CDN Loading
+ * Satoshi: Premium modern display geometric grotesque (high mathematical and corporate authority)
+ * General Sans: High-legibility Swiss neo-grotesque (absolute prose reading stability)
+ */
+@import url('https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,900&f[]=general-sans@400,500,600,700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+@theme {
+  --color-brand-primary: #006948;
+  --color-brand-primary-container: #00855d;
+  --color-brand-on-primary: #ffffff;
+  
+  --color-brand-background: #f8f9ff;
+  --color-brand-on-background: #0b1c30;
+  
+  --color-brand-surface: #f8f9ff;
+  --color-brand-surface-dim: #cbdbf5;
+  --color-brand-surface-bright: #f8f9ff;
+  --color-brand-surface-low: #eff4ff;
+  --color-brand-surface-container: #e5eeff;
+  --color-brand-surface-high: #dce9ff;
+  --color-brand-surface-highest: #d3e4fe;
+  --color-brand-surface-lowest: #ffffff;
+  
+  --color-brand-on-surface: #0b1c30;
+  --color-brand-on-surface-variant: #3d4a42;
+  --color-brand-inverse-surface: #213145;
+  --color-brand-inverse-on-surface: #eaf1ff;
+  
+  --color-brand-secondary: #565e74;
+  --color-brand-secondary-container: #dae2fd;
+  
+  --color-brand-tertiary: #006194;
+  --color-brand-tertiary-container: #007bb9;
+  
+  --color-brand-error: #ba1a1a;
+  --color-brand-error-container: #ffdad6;
+  
+  --color-brand-primary-fixed: #85f8c4;
+  --color-brand-primary-fixed-dim: #68dba9;
+  
+  --font-sans: 'General Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-display: 'Satoshi', 'General Sans', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--color-brand-background);
+  color: var(--color-brand-on-background);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Hide scrollbars globally on scroll containers with this class */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  letter-spacing: -0.01em;
+}

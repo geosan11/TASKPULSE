@@ -1,0 +1,6 @@
+{
+  "name": "TaskPulse",
+  "description": "A clean, monochromatic, and simplistic micro-tasking and escrow payout platform.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
