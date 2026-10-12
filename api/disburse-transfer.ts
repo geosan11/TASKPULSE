@@ -63,11 +63,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // DEFENSE 4: HARD-CODED LIMITS (CANNOT BE MANIPULATED IN DEVTOOLS)
   // =========================================================================
   const transferAmount = Number(amount);
-  if (isNaN(transferAmount) || transferAmount < 2000) {
-    return res.status(400).json({ status: false, message: 'Minimum withdrawal amount is ₦2,000.' });
+  if (isNaN(transferAmount) || transferAmount < 3000) {
+    return res.status(400).json({ status: false, message: 'Minimum withdrawal amount is ₦3,000.' });
   }
-  if (transferAmount > 20000) {
-    return res.status(400).json({ status: false, message: 'Maximum single transfer limit is ₦20,000 (Level 2 Daily Ceiling).' });
+  if (transferAmount > 100000) {
+    return res.status(400).json({ status: false, message: 'Transfer limit exceeded for current tier.' });
   }
 
   if (verifiedState && transferAmount > verifiedState.withdrawableBalance) {
