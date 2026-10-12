@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { Analytics } from "@vercel/analytics/react";
 import { 
   Compass, 
   Wallet, 
@@ -3049,6 +3050,9 @@ export default function App() {
           <p className="text-[11px] opacity-80 leading-snug mt-0.5">{toast.subtitle}</p>
         </div>
       </div>
+
+      {/* Vercel Analytics Tracker */}
+      <Analytics />
 
     </div>
   );
