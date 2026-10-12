@@ -8,6 +8,8 @@ export interface VerifiedFinancialState {
   qualifiedReferralsCount: number;
   referralsVolume: number;
   withdrawableBalance: number;
+  tierId?: string;
+  hasUpgradedAfterLimit?: boolean;
 }
 
 /**
@@ -23,7 +25,9 @@ export function signFinancialState(state: VerifiedFinancialState, secretKey: str
     initialDeposit: state.initialDeposit,
     qualifiedReferralsCount: state.qualifiedReferralsCount,
     referralsVolume: state.referralsVolume,
-    withdrawableBalance: state.withdrawableBalance
+    withdrawableBalance: state.withdrawableBalance,
+    tierId: state.tierId || 'tier-1',
+    hasUpgradedAfterLimit: !!state.hasUpgradedAfterLimit
   });
 
   const signature = crypto

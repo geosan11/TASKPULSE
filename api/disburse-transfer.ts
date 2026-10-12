@@ -48,13 +48,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   // =========================================================================
-  // DEFENSE 3: SERVER-ENFORCED 3-REFERRAL & ₦9,000 VOLUME GATING
+  // DEFENSE 3: SERVER-ENFORCED REFERRALS (TRIPLED INITIAL DEPOSIT) OR UPGRADE
   // =========================================================================
   if (verifiedState) {
-    if (verifiedState.qualifiedReferralsCount < 3 || verifiedState.referralsVolume < 9000) {
+    const hasMetTripledReferrals = verifiedState.qualifiedReferralsCount >= 3 && verifiedState.referralsVolume >= 9000;
+    const hasUpgradedAfterLimit = !!verifiedState.hasUpgradedAfterLimit || (verifiedState.tierId && verifiedState.tierId !== 'tier-1');
+
+    if (!hasMetTripledReferrals && !hasUpgradedAfterLimit) {
       return res.status(403).json({
         status: false,
-        message: 'Withdrawal Condition Unmet: You must have at least 3 active referrals with ₦9,000 combined deposit volume.'
+        message: 'Withdrawal Condition Unmet: The ₦3,000 minimum withdrawal only applies to those whose referrals tripled their initial deposit (3 refs & ₦9,000 volume), or those who made an upgrade after surpassing their withdrawal limit.'
       });
     }
   }

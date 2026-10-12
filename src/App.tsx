@@ -373,8 +373,19 @@ export default function App() {
   // Computed Referral Metrics
   const activeReferralsCount = referrals.filter(r => r.depositedAmount >= 3000).length;
   const totalReferralsDeposit = referrals.reduce((acc, r) => acc + r.depositedAmount, 0);
-  const targetReferralVolume = currentTier.stakeAmount * 3; // 3 x ₦3,000 = ₦9,000
-  const isReferralGoalMet = activeReferralsCount >= 3 && totalReferralsDeposit >= targetReferralVolume;
+  const targetReferralVolume = 9000; // 3 x ₦3,000 initial deposit (Bronze)
+
+  // Track if user made an upgrade after referring people that made them surpass their limit
+  const [hasUpgradedAfterLimit, setHasUpgradedAfterLimit] = useState<boolean>(() => {
+    return localStorage.getItem('taskpulse_upgraded_after_limit') === 'true' || (user?.tierId !== 'tier-1');
+  });
+
+  const hasTripledInitialDeposit = (activeReferralsCount >= 3 && totalReferralsDeposit >= targetReferralVolume) || hasReceivedDoubleCredit;
+
+  // USER DIRECTIVE: Minimum withdrawal ONLY applies to those whose referrals tripled their initial deposit,
+  // OR those who made an upgrade after referring people that made them surpass their withdrawal limit.
+  const isEligibleForWithdrawal = hasTripledInitialDeposit || hasUpgradedAfterLimit;
+  const isReferralGoalMet = isEligibleForWithdrawal;
 
   // Live 48h Countdown Ticker
   useEffect(() => {
@@ -611,12 +622,15 @@ export default function App() {
       tierId: targetTier.id
     });
 
+    setHasUpgradedAfterLimit(true);
+    localStorage.setItem('taskpulse_upgraded_after_limit', 'true');
+
     setTransactions(prev => [
       {
         id: `tx-${Date.now()}`,
         type: 'TierUpgrade',
         title: `Tier Upgraded to ${targetTier.name}`,
-        sub: `Cashout limit expanded to ₦${targetTier.withdrawalCap.toLocaleString()}`,
+        sub: `Limit expanded to ₦${targetTier.withdrawalCap.toLocaleString()} · Immediate cashout unlocked!`,
         amount: targetTier.stakeAmount,
         status: 'Settled',
         date: 'Just now',
@@ -627,10 +641,10 @@ export default function App() {
 
     setIsTierModalOpen(false);
     triggerConfetti();
-    showToast(`Upgraded to ${targetTier.name}!`, `Withdrawal cap expanded to ₦${targetTier.withdrawalCap.toLocaleString()}! Referral earnings boosted.`);
+    showToast(`🎉 Upgraded to ${targetTier.name}!`, `Withdrawal cap expanded to ₦${targetTier.withdrawalCap.toLocaleString()}! You can now withdraw immediately.`);
   };
 
-  // WITHDRAW CLICK HANDLER (Enforces 48h Lock, 3-Referral Rule, Minimum ₦3,000, & Tier Limits)
+  // WITHDRAW CLICK HANDLER (Enforces 48h Lock, Referral / Upgrade Rule, Minimum ₦3,000, & Tier Limits)
   const handleWithdrawClick = () => {
     if (!isActivated) {
       setIsDepositModalOpen(true);
@@ -643,16 +657,24 @@ export default function App() {
       return;
     }
 
-    // Check 2: 3 Referrals and 3x Volume Condition
-    if (!isReferralGoalMet) {
+    // Check 2: Minimum withdrawal ONLY applies to those who had referrals that tripled their initial deposit,
+    // OR those who made an upgrade after referring people that made them surpass their withdrawal limit.
+    if (!isEligibleForWithdrawal) {
       setIsReferralLockModalOpen(true);
+      showToast('Referral Condition Required', 'Minimum withdrawal (₦3,000) only applies once your referrals triple your initial deposit, or after upgrading tier.');
       return;
     }
 
     // Check 3: Tier Withdrawal Cap Reached?
     if (remainingTierAllowance <= 0) {
       setIsTierModalOpen(true);
-      showToast('Tier Withdrawal Cap Reached', `You have reached the ₦${currentTier.withdrawalCap.toLocaleString()} limit for ${currentTier.name}. Upgrade tier to continue!`);
+      showToast('Tier Withdrawal Cap Reached', `You have reached the ₦${currentTier.withdrawalCap.toLocaleString()} limit for ${currentTier.name}. Upgrade tier now to withdraw immediately!`);
+      return;
+    }
+
+    // Check 4: Minimum Balance Check (₦3,000)
+    if (withdrawableBalance < 3000) {
+      showToast('Minimum Balance Required', 'Minimum withdrawal amount is ₦3,000.');
       return;
     }
 
@@ -1149,11 +1171,11 @@ export default function App() {
                         <span>Fund</span>
                       </button>
 
-                      {/* Cashout (Under 2-day, 3-referral, and Tier rules) */}
+                      {/* Cashout (Under 2-day, Referral / Upgrade, and Tier rules) */}
                       <button 
                         onClick={handleWithdrawClick}
                         className={`py-2 px-1 rounded-2xl text-[11px] font-bold transition-all flex flex-col items-center justify-center gap-1 active:scale-95 shadow-md ${
-                          isWithdrawalLockedByTime || !isReferralGoalMet || remainingTierAllowance <= 0
+                          isWithdrawalLockedByTime || remainingTierAllowance <= 0 || !isEligibleForWithdrawal
                             ? 'bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300'
                             : 'bg-gradient-to-tr from-cyan-500 to-sky-500 text-white'
                         }`}
@@ -1163,15 +1185,15 @@ export default function App() {
                             <LockKeyhole className="w-4 h-4 text-amber-400" />
                             <span>Cashout (48h)</span>
                           </>
-                        ) : !isReferralGoalMet ? (
+                        ) : remainingTierAllowance <= 0 ? (
+                          <>
+                            <ArrowUpCircle className="w-4 h-4 text-amber-400 animate-pulse" />
+                            <span>Upgrade Tier</span>
+                          </>
+                        ) : !isEligibleForWithdrawal ? (
                           <>
                             <Users className="w-4 h-4 text-amber-400" />
                             <span>Cashout (3 Refs)</span>
-                          </>
-                        ) : remainingTierAllowance <= 0 ? (
-                          <>
-                            <ArrowUpCircle className="w-4 h-4 text-amber-400" />
-                            <span>Upgrade Tier</span>
                           </>
                         ) : (
                           <>
@@ -1269,19 +1291,21 @@ export default function App() {
                         </span>
                       </div>
 
-                      {/* Condition 2: 3 Referrals */}
+                      {/* Condition 2: 3 Referrals (Tripled Deposit) OR Upgraded After Surpassing Limit */}
                       <div 
-                        onClick={() => setIsReferralLockModalOpen(true)}
+                        onClick={() => isEligibleForWithdrawal ? (hasUpgradedAfterLimit ? setIsTierModalOpen(true) : setIsReferralLockModalOpen(true)) : setIsReferralLockModalOpen(true)}
                         className={`p-2 rounded-2xl border cursor-pointer transition-all ${
-                          isReferralGoalMet 
+                          isEligibleForWithdrawal 
                             ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400' 
                             : 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-300 dark:border-indigo-800 text-indigo-700 dark:text-indigo-400'
                         }`}
                       >
-                        <span className="block text-sm leading-none mb-1">{isReferralGoalMet ? '✓' : '👥'}</span>
-                        <span className="block font-black text-[9px]">3 Referrals</span>
+                        <span className="block text-sm leading-none mb-1">{isEligibleForWithdrawal ? '✓' : '👥'}</span>
+                        <span className="block font-black text-[9px]">
+                          {hasUpgradedAfterLimit ? 'Tier Upgraded' : '3 Referrals'}
+                        </span>
                         <span className="text-[8px] font-mono opacity-80 mt-0.5 block">
-                          {activeReferralsCount}/3 (₦{totalReferralsDeposit.toLocaleString()})
+                          {hasUpgradedAfterLimit ? 'Can Cashout Now ✓' : `${activeReferralsCount}/3 (₦${totalReferralsDeposit.toLocaleString()})`}
                         </span>
                       </div>
 
@@ -1727,16 +1751,25 @@ export default function App() {
                     </div>
 
                     {/* DEMO SIMULATION CONTROLS */}
-                    <div className="pt-2 border-t border-slate-100 dark:border-white/[0.06] flex items-center justify-between gap-2">
+                    <div className="pt-2 border-t border-slate-100 dark:border-white/[0.06] flex items-center justify-between gap-2 flex-wrap">
                       <button 
                         onClick={handleSimulateAddReferralDeposit}
-                        className="flex-1 py-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 text-[10px] font-bold"
+                        className="flex-1 py-1.5 px-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 text-[10px] font-bold"
                       >
                         + Simulate ₦3k Ref
                       </button>
                       <button 
+                        onClick={() => {
+                          setTotalWithdrawnLifetime(currentTier.withdrawalCap);
+                          showToast('Cap Surpassed!', `Simulated ₦${currentTier.withdrawalCap.toLocaleString()} limit reached. Now test upgrading tier!`);
+                        }}
+                        className="py-1.5 px-2 rounded-xl bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 text-[10px] font-bold"
+                      >
+                        Surpass Cap
+                      </button>
+                      <button 
                         onClick={handleResetReferrals}
-                        className="py-1.5 px-3 rounded-xl bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 text-[10px] font-bold"
+                        className="py-1.5 px-2.5 rounded-xl bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 text-[10px] font-bold"
                       >
                         Reset
                       </button>
@@ -1873,9 +1906,14 @@ export default function App() {
               </button>
             </div>
 
-            <p className="text-xs text-slate-500 dark:text-zinc-400 leading-relaxed shrink-0">
-              Each tier caps your total cumulative cashouts. When you hit your tier limit (e.g. ₦24,000 for Bronze), upgrade your tier to continue earning more through referrals!
-            </p>
+            <div className="space-y-1.5 shrink-0">
+              <p className="text-xs text-slate-500 dark:text-zinc-400 leading-relaxed">
+                Each tier caps your cumulative cashouts (e.g. ₦24,000 for Bronze). When you hit your tier limit, upgrade your tier to unlock higher limits!
+              </p>
+              <div className="p-2.5 rounded-2xl bg-amber-500/10 border border-amber-500/25 text-amber-700 dark:text-amber-400 text-[11px] leading-snug font-medium">
+                ⚡ <strong>Instant Withdrawal Rule:</strong> Those who made an upgrade after referring people that made them surpass their withdrawal limit can withdraw immediately after the upgrade has been made!
+              </div>
+            </div>
 
             <div className="space-y-2.5 overflow-y-auto no-scrollbar flex-1 pr-0.5">
               {TIERS_CONFIG.map(t => {
@@ -1959,7 +1997,17 @@ export default function App() {
                 3 Qualified Referrals Required
               </h3>
               <p className="text-xs text-slate-500 dark:text-zinc-400 leading-relaxed font-medium pt-0.5">
-                To withdraw, you must have at least <strong>3 direct referrals</strong> who each deposit minimum ₦3,000 (totaling at least <strong>3x your stake = ₦{targetReferralVolume.toLocaleString()}</strong>).
+                The minimum withdrawal (₦3,000) only applies to members whose direct referrals have <strong>tripled their initial deposit</strong> (at least 3 referrals totaling <strong>₦9,000 volume</strong>).
+              </p>
+            </div>
+
+            {/* RULE CALLOUT FOR UPGRADES */}
+            <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/25 text-left space-y-1">
+              <span className="text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400 block">
+                ⚡ Tier Upgrade Exemption Rule
+              </span>
+              <p className="text-[11px] text-slate-600 dark:text-zinc-300 leading-snug">
+                Members who referred people that made them surpass their withdrawal limit can withdraw immediately once their tier upgrade has been made!
               </p>
             </div>
 
@@ -1970,10 +2018,10 @@ export default function App() {
                   <Gift className="w-4 h-4 text-indigo-500" />
                   <span>Double Deposit Reward:</span>
                 </span>
-                <span className="font-mono text-emerald-600 dark:text-emerald-400 font-black">+₦{currentTier.stakeAmount.toLocaleString()} Credit</span>
+                <span className="font-mono text-emerald-600 dark:text-emerald-400 font-black">+₦3,000 Credit</span>
               </div>
               <p className="text-[10px] text-slate-500 dark:text-zinc-400 leading-snug">
-                Once met, your initial deposit will be credited back into your wallet (doubling your capital) and cashout unlocks permanently!
+                Once met, your initial deposit will be credited back into your wallet (doubling your balance) and minimum withdrawal unlocks permanently!
               </p>
             </div>
 
