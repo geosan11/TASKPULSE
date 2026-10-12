@@ -45,7 +45,9 @@ import {
   LockKeyhole,
   FileText,
   BadgeCheck,
-  RefreshCw
+  RefreshCw,
+  Users,
+  UserPlus
 } from 'lucide-react';
 import { triggerConfetti } from './utils/confetti';
 
@@ -75,7 +77,7 @@ interface SavedBank {
 
 interface Transaction {
   id: string;
-  type: 'Payout' | 'Cashout' | 'Streak' | 'Deposit' | 'Escrow';
+  type: 'Payout' | 'Cashout' | 'Streak' | 'Deposit' | 'DepositMatch' | 'Escrow';
   title: string;
   sub: string;
   amount: number;
@@ -93,6 +95,15 @@ interface Submission {
   file: string;
   status: 'Active' | 'Approved';
   autoUnlockTime: string;
+}
+
+interface Referral {
+  id: string;
+  username: string;
+  name: string;
+  depositedAmount: number;
+  status: 'Qualified' | 'Pending Deposit';
+  joinedTime: string;
 }
 
 interface UserProfile {
@@ -237,6 +248,11 @@ const STREAK_DAYS_CONFIG = [
   { day: 7, reward: 1000, label: '₦1,000 🎁', status: 'locked' }
 ];
 
+const INITIAL_DEMO_REFERRALS: Referral[] = [
+  { id: 'ref-1', username: 'chinedu_o', name: 'Chinedu Okeke', depositedAmount: 3000, status: 'Qualified', joinedTime: 'Yesterday' },
+  { id: 'ref-2', username: 'amina_b', name: 'Amina Bello', depositedAmount: 3000, status: 'Qualified', joinedTime: 'Today, 9:30 AM' }
+];
+
 export default function App() {
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
     return localStorage.getItem('taskpulse_theme') !== 'light';
@@ -248,12 +264,15 @@ export default function App() {
     return saved === 'true';
   });
 
+  // User Initial Deposit Amount (Default ₦3,000)
+  const [initialDepositAmount, setInitialDepositAmount] = useState<number>(3000);
+
   // Balance Privacy (Eye toggle)
   const [isBalanceHidden, setIsBalanceHidden] = useState<boolean>(false);
 
   // User Profile matching Emmanuel @DOCTORR (from Screenshots)
   const [user, setUser] = useState<UserProfile | null>(() => {
-    const saved = localStorage.getItem('taskpulse_user_v5');
+    const saved = localStorage.getItem('taskpulse_user_v6');
     if (saved) return JSON.parse(saved);
     return {
       username: 'DOCTORR',
@@ -288,22 +307,41 @@ export default function App() {
   });
 
   // ========================================================
-  // RULE: 2 DAYS (48 HOURS) BEFORE FIRST WITHDRAWAL CAN BE MADE
+  // RULE 1: 2 DAYS (48 HOURS) BEFORE FIRST WITHDRAWAL
   // ========================================================
-  // Default to 1 day, 19 hours, 42 minutes, 15 seconds remaining (~43.7 hours left)
   const [cooldownSeconds, setCooldownSeconds] = useState<number>(() => {
     const saved = localStorage.getItem('taskpulse_cooldown_seconds');
     return saved !== null ? parseInt(saved, 10) : 157335; // 1d 19h 42m 15s
   });
 
-  // Developer / Reviewer Demo Override (lets tester fast-forward the 2 days anytime)
   const [is48hLockOverridden, setIs48hLockOverridden] = useState<boolean>(() => {
     return localStorage.getItem('taskpulse_48h_override') === 'true';
   });
 
   const [isSecurityLockModalOpen, setIsSecurityLockModalOpen] = useState<boolean>(false);
 
-  // Live Countdown Ticker
+  // ========================================================
+  // RULE 2: 3 REFERRALS & 3X VOLUME (₦9,000) TO DOUBLE & WITHDRAW
+  // ========================================================
+  const [referrals, setReferrals] = useState<Referral[]>(() => {
+    const saved = localStorage.getItem('taskpulse_referrals_list_v2');
+    if (saved) return JSON.parse(saved);
+    return INITIAL_DEMO_REFERRALS;
+  });
+
+  const [hasReceivedDoubleCredit, setHasReceivedDoubleCredit] = useState<boolean>(() => {
+    return localStorage.getItem('taskpulse_double_credited_v2') === 'true';
+  });
+
+  const [isReferralLockModalOpen, setIsReferralLockModalOpen] = useState<boolean>(false);
+
+  // Computed Referral Metrics
+  const activeReferralsCount = referrals.filter(r => r.depositedAmount >= 3000).length;
+  const totalReferralsDeposit = referrals.reduce((acc, r) => acc + r.depositedAmount, 0);
+  const targetReferralVolume = initialDepositAmount * 3; // 3 x ₦3,000 = ₦9,000
+  const isReferralGoalMet = activeReferralsCount >= 3 && totalReferralsDeposit >= targetReferralVolume;
+
+  // Live 48h Countdown Ticker
   useEffect(() => {
     if (is48hLockOverridden || cooldownSeconds <= 0) return;
     const interval = setInterval(() => {
@@ -331,8 +369,8 @@ export default function App() {
   };
 
   const countdownParts = formatCountdown(cooldownSeconds);
-  const isWithdrawalLocked = !is48hLockOverridden && cooldownSeconds > 0;
-  const progressPercent = Math.min(100, Math.round(((172800 - cooldownSeconds) / 172800) * 100));
+  const isWithdrawalLockedByTime = !is48hLockOverridden && cooldownSeconds > 0;
+  const seasoningProgressPercent = Math.min(100, Math.round(((172800 - cooldownSeconds) / 172800) * 100));
 
   // Ledger Transactions (FinTech Double-Entry Audit Trail)
   const [transactions, setTransactions] = useState<Transaction[]>([
@@ -422,13 +460,21 @@ export default function App() {
 
   useEffect(() => {
     if (user) {
-      localStorage.setItem('taskpulse_user_v5', JSON.stringify(user));
+      localStorage.setItem('taskpulse_user_v6', JSON.stringify(user));
     }
   }, [user]);
 
   useEffect(() => {
     localStorage.setItem('taskpulse_withdrawable', withdrawableBalance.toString());
   }, [withdrawableBalance]);
+
+  useEffect(() => {
+    localStorage.setItem('taskpulse_referrals_list_v2', JSON.stringify(referrals));
+  }, [referrals]);
+
+  useEffect(() => {
+    localStorage.setItem('taskpulse_double_credited_v2', hasReceivedDoubleCredit ? 'true' : 'false');
+  }, [hasReceivedDoubleCredit]);
 
   // Live Paystack NUBAN Resolution Simulation
   useEffect(() => {
@@ -444,6 +490,36 @@ export default function App() {
       setResolvedAccountName('');
     }
   }, [addAccountNum, user]);
+
+  // ========================================================
+  // CHECK & TRIGGER 100% INITIAL DEPOSIT DOUBLE MATCH BONUS
+  // ========================================================
+  const checkAndAwardDoubleCredit = (currentReferrals: Referral[]) => {
+    const qualifiedCount = currentReferrals.filter(r => r.depositedAmount >= 3000).length;
+    const totalVolume = currentReferrals.reduce((sum, r) => sum + r.depositedAmount, 0);
+
+    if (qualifiedCount >= 3 && totalVolume >= targetReferralVolume && !hasReceivedDoubleCredit) {
+      // Award the match bonus!
+      const bonus = initialDepositAmount;
+      setWithdrawableBalance(prev => prev + bonus);
+      setHasReceivedDoubleCredit(true);
+      setTransactions(prev => [
+        {
+          id: `tx-${Date.now()}`,
+          type: 'DepositMatch',
+          title: '100% Initial Deposit Double Credit',
+          sub: '3 Referrals & ₦9,000 Combined Volume Met (Wallet Doubled)',
+          amount: bonus,
+          status: 'Settled',
+          date: 'Just now',
+          reference: `ref_tp_match_${Math.floor(100000 + Math.random() * 900000)}`
+        },
+        ...prev
+      ]);
+      triggerConfetti();
+      showToast('🎉 Initial Deposit Doubled!', `3 referrals met with ₦${totalVolume.toLocaleString()} volume. +₦${bonus.toLocaleString()} credited to your wallet!`);
+    }
+  };
 
   // Execute 3,000 Activation Drop
   const handleCompleteActivation = () => {
@@ -467,7 +543,7 @@ export default function App() {
         ...prev
       ]);
       triggerConfetti();
-      showToast('Account Activated!', '₦3,000 credited to your balance. 48-hour seasoning timer initialized.');
+      showToast('Account Activated!', '₦3,000 credited to your balance. 48-hour seasoning and 3-referral requirement initialized.');
     }, 1200);
   };
 
@@ -489,44 +565,102 @@ export default function App() {
       ...prev
     ]);
     triggerConfetti();
-    showToast('Instant Activated!', '₦3,000 stake credited. 48-hour security seasoning timer running.');
+    showToast('Instant Activated!', '₦3,000 stake credited. 48h timer and 3-referral doubler running.');
   };
 
-  // Withdraw Click Handler (Respects 2-Day Rule)
+  // ========================================================
+  // WITHDRAW CLICK HANDLER (Enforces 48h Lock AND 3x Referrals Rule)
+  // ========================================================
   const handleWithdrawClick = () => {
     if (!isActivated) {
       setIsDepositModalOpen(true);
       return;
     }
 
-    if (isWithdrawalLocked) {
+    // Check 1: 48-Hour Security Lock
+    if (isWithdrawalLockedByTime) {
       setIsSecurityLockModalOpen(true);
-    } else {
-      setCashoutStep('amount');
-      setIsCashoutModalOpen(true);
+      return;
     }
+
+    // Check 2: 3 Referrals and 3x Volume Condition
+    if (!isReferralGoalMet) {
+      setIsReferralLockModalOpen(true);
+      return;
+    }
+
+    // All conditions satisfied! Open Cashout Modal
+    setCashoutStep('amount');
+    setIsCashoutModalOpen(true);
   };
 
-  // Override/Fast-Forward 48h Security Lock for Demo Review
+  // Fast-Forward 48h Security Lock
   const handleFastForwardLock = () => {
     setIs48hLockOverridden(true);
     localStorage.setItem('taskpulse_48h_override', 'true');
     setIsSecurityLockModalOpen(false);
     triggerConfetti();
-    showToast('48h Cooldown Bypassed!', 'Security check satisfied. Payout rails now unlocked!');
-    setTimeout(() => {
-      setCashoutStep('amount');
-      setIsCashoutModalOpen(true);
-    }, 400);
+    showToast('48h Cooldown Bypassed!', 'Security seasoning satisfied.');
+    
+    // Check if referral requirement is also met
+    if (!isReferralGoalMet) {
+      setTimeout(() => {
+        setIsReferralLockModalOpen(true);
+      }, 350);
+    } else {
+      setTimeout(() => {
+        setCashoutStep('amount');
+        setIsCashoutModalOpen(true);
+      }, 350);
+    }
   };
 
   // Reset 48h Lock back to active
   const handleReactivate48hLock = () => {
     setIs48hLockOverridden(false);
-    setCooldownSeconds(157335); // Reset back to ~43.7h
+    setCooldownSeconds(157335);
     localStorage.removeItem('taskpulse_48h_override');
     localStorage.setItem('taskpulse_cooldown_seconds', '157335');
     showToast('48h Security Lock Re-Engaged', 'Initial cashout cooling period is now active.');
+  };
+
+  // ========================================================
+  // REFERRAL SIMULATION & DEMO CONTROLS
+  // ========================================================
+  // Simulate 3rd Referral depositing ₦3,000
+  const handleSimulateAddReferralDeposit = () => {
+    const newRef: Referral = {
+      id: `ref-${Date.now()}`,
+      username: `favour_earner_${Math.floor(10 + Math.random() * 89)}`,
+      name: 'Favour Eze',
+      depositedAmount: 3000,
+      status: 'Qualified',
+      joinedTime: 'Just now'
+    };
+    const updated = [...referrals, newRef];
+    setReferrals(updated);
+    checkAndAwardDoubleCredit(updated);
+    showToast('Referral Activated!', 'Favour Eze deposited ₦3,000. 3x volume condition updated.');
+  };
+
+  // Fast-Forward all 3 referrals and award double deposit bonus immediately
+  const handleCompleteReferralsAndDoubleWallet = () => {
+    const completedRefs: Referral[] = [
+      { id: 'ref-1', username: 'chinedu_o', name: 'Chinedu Okeke', depositedAmount: 3000, status: 'Qualified', joinedTime: 'Yesterday' },
+      { id: 'ref-2', username: 'amina_b', name: 'Amina Bello', depositedAmount: 3000, status: 'Qualified', joinedTime: 'Today, 9:30 AM' },
+      { id: 'ref-3', username: 'favour_eze', name: 'Favour Eze', depositedAmount: 3000, status: 'Qualified', joinedTime: 'Just now' }
+    ];
+    setReferrals(completedRefs);
+    checkAndAwardDoubleCredit(completedRefs);
+    setIsReferralLockModalOpen(false);
+  };
+
+  // Reset Referrals back to 2 (to re-test locking gate)
+  const handleResetReferrals = () => {
+    setReferrals(INITIAL_DEMO_REFERRALS);
+    setHasReceivedDoubleCredit(false);
+    localStorage.removeItem('taskpulse_double_credited_v2');
+    showToast('Referrals Reset to 2/3', 'Withdrawal gate re-locked. Referral condition active.');
   };
 
   // Claim Daily Streak
@@ -695,6 +829,7 @@ export default function App() {
   };
 
   const selectedBank = savedBanks.find(b => b.id === selectedBankId) || savedBanks[0];
+  const referralVolumePercent = Math.min(100, Math.round((totalReferralsDeposit / targetReferralVolume) * 100));
 
   return (
     <div className={`h-screen w-full overflow-hidden flex flex-col items-center justify-center p-0 md:p-3 select-none transition-colors duration-300 ${isDarkMode ? 'dark bg-[#070709] text-white' : 'bg-[#f4f6f8] text-slate-900'}`}>
@@ -942,19 +1077,24 @@ export default function App() {
                         <span>Fund</span>
                       </button>
 
-                      {/* Cashout (Under 2-day security rule) */}
+                      {/* Cashout (Under 2-day security rule & 3-referral rule) */}
                       <button 
                         onClick={handleWithdrawClick}
                         className={`py-2 px-1 rounded-2xl text-[11px] font-bold transition-all flex flex-col items-center justify-center gap-1 active:scale-95 shadow-md ${
-                          isWithdrawalLocked
+                          isWithdrawalLockedByTime || !isReferralGoalMet
                             ? 'bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300'
                             : 'bg-gradient-to-tr from-cyan-500 to-sky-500 text-white'
                         }`}
                       >
-                        {isWithdrawalLocked ? (
+                        {isWithdrawalLockedByTime ? (
                           <>
                             <LockKeyhole className="w-4 h-4 text-amber-400" />
                             <span>Cashout (48h)</span>
+                          </>
+                        ) : !isReferralGoalMet ? (
+                          <>
+                            <Users className="w-4 h-4 text-amber-400" />
+                            <span>Cashout (3 Refs)</span>
                           </>
                         ) : (
                           <>
@@ -986,10 +1126,102 @@ export default function App() {
                   </div>
 
                   {/* ======================================================== */}
-                  {/* RULE REQUIREMENT: 48-HOUR (2-DAY) SECURITY LOCK WIDGET  */}
+                  {/* NEW REQUIREMENT: 3 REFERRALS & 3X DEPOSIT DOUBLER WIDGET */}
                   {/* ======================================================== */}
                   <div className={`rounded-3xl p-4 border transition-all ${
-                    isWithdrawalLocked 
+                    !isReferralGoalMet 
+                      ? 'bg-indigo-50/70 dark:bg-zinc-900/90 border-indigo-200 dark:border-indigo-500/30 shadow-md shadow-indigo-500/5' 
+                      : 'bg-emerald-50/70 dark:bg-zinc-900/90 border-emerald-200 dark:border-emerald-500/30'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <div className={`w-9 h-9 rounded-2xl flex items-center justify-center shrink-0 ${
+                          !isReferralGoalMet 
+                            ? 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400' 
+                            : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400'
+                        }`}>
+                          <Users className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <h4 className="text-xs font-black text-slate-900 dark:text-white leading-tight">
+                              {!isReferralGoalMet ? '3 Referrals Required to Withdraw' : 'Referral Milestone Met · Deposit Doubled!'}
+                            </h4>
+                            <span className={`text-[9px] font-extrabold uppercase px-1.5 py-0.2 rounded-md ${
+                              !isReferralGoalMet 
+                                ? 'bg-indigo-200/60 dark:bg-indigo-500/20 text-indigo-800 dark:text-indigo-300' 
+                                : 'bg-emerald-200/60 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300'
+                            }`}>
+                              {!isReferralGoalMet ? `${activeReferralsCount}/3 Qualified` : 'Unlocked ✓'}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-slate-500 dark:text-zinc-400 mt-0.5">
+                            {!isReferralGoalMet 
+                              ? `Referrals must deposit 3x your stake (₦${targetReferralVolume.toLocaleString()}) to double initial deposit & unlock cashout.`
+                              : `Initial deposit matched (+₦${initialDepositAmount.toLocaleString()} credited). Cashout unlocked!`}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* SIMULATE OR VIEW BUTTON */}
+                      <button 
+                        onClick={() => setIsReferralLockModalOpen(true)}
+                        className="px-2.5 py-1 rounded-xl text-[10px] font-black border transition-all shrink-0 bg-white dark:bg-zinc-800 hover:scale-105 active:scale-95 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-white/10 shadow-xs"
+                      >
+                        {!isReferralGoalMet ? '⚡ Inspect' : 'View Network'}
+                      </button>
+                    </div>
+
+                    {/* PROGRESS BAR & VOLUME COUNTER */}
+                    <div className="mt-3 pt-3 border-t border-indigo-200/60 dark:border-white/[0.06] space-y-2">
+                      <div className="flex justify-between items-center text-[10px] font-bold text-slate-600 dark:text-zinc-300">
+                        <span className="flex items-center gap-1">
+                          <span>Deposit Volume:</span>
+                          <strong className="font-mono text-indigo-600 dark:text-indigo-400">₦{totalReferralsDeposit.toLocaleString()}</strong>
+                          <span className="text-slate-400">/ ₦{targetReferralVolume.toLocaleString()} (3x Target)</span>
+                        </span>
+                        <span className="font-mono text-emerald-600 dark:text-emerald-400">
+                          {hasReceivedDoubleCredit ? '+₦3,000 Matched ✓' : 'Reward: +₦3,000 Match'}
+                        </span>
+                      </div>
+
+                      <div className="w-full bg-indigo-100 dark:bg-zinc-800 h-1.5 rounded-full overflow-hidden">
+                        <div 
+                          className="bg-gradient-to-r from-indigo-500 to-cyan-400 h-full rounded-full transition-all duration-500" 
+                          style={{ width: `${referralVolumePercent}%` }}
+                        ></div>
+                      </div>
+
+                      {/* 3 REFERRAL SLOTS */}
+                      <div className="grid grid-cols-3 gap-2 pt-1 font-mono text-[10px]">
+                        {[0, 1, 2].map(idx => {
+                          const ref = referrals[idx];
+                          const isDone = ref && ref.depositedAmount >= 3000;
+                          return (
+                            <div 
+                              key={idx}
+                              className={`p-1.5 rounded-xl border text-center ${
+                                isDone 
+                                  ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-400' 
+                                  : 'bg-white dark:bg-zinc-800/60 border-slate-200 dark:border-white/10 text-slate-400'
+                              }`}
+                            >
+                              <span className="block font-bold text-[9px]">Ref {idx + 1}</span>
+                              <span className="block font-extrabold mt-0.5 truncate">
+                                {isDone ? `✓ ₦${ref.depositedAmount.toLocaleString()}` : 'Pending ₦3k'}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* ======================================================== */}
+                  {/* 48-HOUR (2-DAY) SECURITY LOCK WIDGET                     */}
+                  {/* ======================================================== */}
+                  <div className={`rounded-3xl p-4 border transition-all ${
+                    isWithdrawalLockedByTime 
                       ? 'bg-amber-50/70 dark:bg-zinc-900/90 border-amber-200 dark:border-amber-500/30 shadow-md shadow-amber-500/5' 
                       : 'bg-emerald-50/70 dark:bg-zinc-900/90 border-emerald-200 dark:border-emerald-500/30'
                   }`}>
@@ -997,45 +1229,45 @@ export default function App() {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2.5">
                         <div className={`w-9 h-9 rounded-2xl flex items-center justify-center shrink-0 ${
-                          isWithdrawalLocked 
+                          isWithdrawalLockedByTime 
                             ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400' 
                             : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400'
                         }`}>
-                          {isWithdrawalLocked ? <Lock className="w-4 h-4" /> : <BadgeCheck className="w-5 h-5" />}
+                          {isWithdrawalLockedByTime ? <Lock className="w-4 h-4" /> : <BadgeCheck className="w-5 h-5" />}
                         </div>
                         <div>
                           <div className="flex items-center gap-1.5">
                             <h4 className="text-xs font-black text-slate-900 dark:text-white leading-tight">
-                              {isWithdrawalLocked ? '48h First Cashout Security Lock' : '48h Security Seasoning Completed'}
+                              {isWithdrawalLockedByTime ? '48h First Cashout Security Lock' : '48h Security Seasoning Completed'}
                             </h4>
                             <span className={`text-[9px] font-extrabold uppercase px-1.5 py-0.2 rounded-md ${
-                              isWithdrawalLocked 
+                              isWithdrawalLockedByTime 
                                 ? 'bg-amber-200/60 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300' 
                                 : 'bg-emerald-200/60 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300'
                             }`}>
-                              {isWithdrawalLocked ? 'Anti-Fraud Active' : 'Unlocked ✓'}
+                              {isWithdrawalLockedByTime ? 'Anti-Fraud Active' : 'Unlocked ✓'}
                             </span>
                           </div>
                           <p className="text-[10px] text-slate-500 dark:text-zinc-400 mt-0.5">
-                            {isWithdrawalLocked 
+                            {isWithdrawalLockedByTime 
                               ? 'Mandatory 2-day cooling window following ₦3k activation deposit.'
-                              : 'Your account is fully seasoned. Paystack direct transfers are ready.'}
+                              : 'Your account is fully seasoned. Paystack direct transfers ready.'}
                           </p>
                         </div>
                       </div>
 
                       {/* FAST FORWARD OR RESET DEMO TOGGLE */}
                       <button 
-                        onClick={isWithdrawalLocked ? handleFastForwardLock : handleReactivate48hLock}
+                        onClick={isWithdrawalLockedByTime ? handleFastForwardLock : handleReactivate48hLock}
                         className="px-2.5 py-1 rounded-xl text-[10px] font-black border transition-all shrink-0 bg-white dark:bg-zinc-800 hover:scale-105 active:scale-95 text-sky-600 dark:text-cyan-400 border-sky-200 dark:border-white/10 shadow-xs"
                         title="Toggle 48h Lock State for Demo Review"
                       >
-                        {isWithdrawalLocked ? '⚡ Fast-Forward' : '↺ Reset 48h'}
+                        {isWithdrawalLockedByTime ? '⚡ Fast-Forward' : '↺ Reset 48h'}
                       </button>
                     </div>
 
                     {/* LIVE 4-SEGMENT COUNTDOWN DISPLAY */}
-                    {isWithdrawalLocked && (
+                    {isWithdrawalLockedByTime && (
                       <div className="mt-3 pt-3 border-t border-amber-200/60 dark:border-white/[0.06] space-y-2">
                         <div className="grid grid-cols-4 gap-2 text-center font-mono">
                           <div className="p-1.5 rounded-xl bg-white dark:bg-zinc-800/80 border border-amber-200/80 dark:border-white/10">
@@ -1068,11 +1300,11 @@ export default function App() {
                         <div className="w-full bg-amber-200/50 dark:bg-zinc-800 h-1.5 rounded-full overflow-hidden">
                           <div 
                             className="bg-gradient-to-r from-amber-500 to-yellow-400 h-full rounded-full transition-all duration-500" 
-                            style={{ width: `${progressPercent}%` }}
+                            style={{ width: `${seasoningProgressPercent}%` }}
                           ></div>
                         </div>
                         <div className="flex justify-between text-[10px] text-slate-400 dark:text-zinc-500 font-semibold">
-                          <span>Seasoning: {progressPercent}% Complete</span>
+                          <span>Seasoning: {seasoningProgressPercent}% Complete</span>
                           <span>Unlocks: Tomorrow 11:20 AM</span>
                         </div>
                       </div>
@@ -1491,6 +1723,52 @@ export default function App() {
                     </div>
                   </div>
 
+                  {/* REFERRAL NETWORK MANAGEMENT (Matches the 3x Doubler Rule) */}
+                  <div className="bg-white dark:bg-zinc-900/80 border border-slate-100 dark:border-white/[0.08] rounded-3xl p-4 shadow-sm space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-zinc-300">
+                        Referral Network ({activeReferralsCount}/3 Qualified)
+                      </span>
+                      <button 
+                        onClick={() => setIsReferralLockModalOpen(true)}
+                        className="text-xs font-bold text-cyan-500 hover:underline"
+                      >
+                        Inspect Rule
+                      </button>
+                    </div>
+
+                    <div className="space-y-2">
+                      {referrals.map(r => (
+                        <div key={r.id} className="p-3 rounded-2xl border border-slate-100 dark:border-white/[0.06] bg-slate-50/50 dark:bg-zinc-800/40 flex items-center justify-between text-xs">
+                          <div>
+                            <span className="font-bold text-slate-900 dark:text-white block">{r.name} (@{r.username})</span>
+                            <span className="text-[10px] text-slate-400 font-mono">Joined {r.joinedTime}</span>
+                          </div>
+                          <div className="text-right">
+                            <span className="font-mono font-black text-emerald-600 dark:text-emerald-400 block">₦{r.depositedAmount.toLocaleString()}</span>
+                            <span className="text-[9px] font-bold text-slate-400">{r.status}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* DEMO SIMULATION CONTROLS */}
+                    <div className="pt-2 border-t border-slate-100 dark:border-white/[0.06] flex items-center justify-between gap-2">
+                      <button 
+                        onClick={handleSimulateAddReferralDeposit}
+                        className="flex-1 py-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 text-[10px] font-bold"
+                      >
+                        + Simulate ₦3k Ref
+                      </button>
+                      <button 
+                        onClick={handleResetReferrals}
+                        className="py-1.5 px-3 rounded-xl bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 text-[10px] font-bold"
+                      >
+                        Reset
+                      </button>
+                    </div>
+                  </div>
+
                   {/* LINKED PAYSTACK BANKS */}
                   <div className="bg-white dark:bg-zinc-900/80 border border-slate-100 dark:border-white/[0.08] rounded-3xl p-4 shadow-sm space-y-3">
                     <div className="flex items-center justify-between">
@@ -1618,6 +1896,121 @@ export default function App() {
       </div>
 
       {/* ======================================================== */}
+      {/* MODAL: 3 REFERRALS & 3X DEPOSIT WITHDRAWAL GATEKEEPER    */}
+      {/* ======================================================== */}
+      {isReferralLockModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-[#111218] border border-indigo-400/50 dark:border-indigo-500/40 rounded-3xl max-w-sm w-full p-6 space-y-4 shadow-2xl text-center relative overflow-hidden">
+            
+            {/* Top Indigo Halo */}
+            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-indigo-500 via-cyan-400 to-indigo-500"></div>
+
+            <div className="relative mx-auto w-16 h-16 rounded-3xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-300 dark:border-indigo-500/40 flex items-center justify-center text-indigo-500 shadow-lg shadow-indigo-500/10">
+              <Users className="w-8 h-8 text-indigo-500 animate-pulse-subtle" />
+            </div>
+
+            <div className="space-y-1">
+              <span className="text-[10px] font-black uppercase tracking-wider text-indigo-500 dark:text-indigo-400">
+                Viral FinTech Withdrawal Rule
+              </span>
+              <h3 className="text-lg font-black text-slate-900 dark:text-white">
+                3 Qualified Referrals Required
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-zinc-400 leading-relaxed font-medium pt-0.5">
+                To withdraw, you must have at least <strong>3 direct referrals</strong> who each deposit the minimum ₦3,000 (totaling at least <strong>3x your deposit = ₦{targetReferralVolume.toLocaleString()}</strong>).
+              </p>
+            </div>
+
+            {/* REWARD CALLOUT: 100% INITIAL DEPOSIT DOUBLE MATCH */}
+            <div className="p-3 rounded-2xl bg-gradient-to-br from-indigo-50 to-cyan-50 dark:from-indigo-950/40 dark:to-zinc-900 border border-indigo-200 dark:border-white/[0.08] text-left space-y-1.5">
+              <div className="flex items-center justify-between text-xs font-bold text-slate-900 dark:text-white">
+                <span className="flex items-center gap-1.5">
+                  <Gift className="w-4 h-4 text-indigo-500" />
+                  <span>Double Deposit Reward:</span>
+                </span>
+                <span className="font-mono text-emerald-600 dark:text-emerald-400 font-black">+₦{initialDepositAmount.toLocaleString()} Credit</span>
+              </div>
+              <p className="text-[10px] text-slate-500 dark:text-zinc-400 leading-snug">
+                Once conditions are met, your initial ₦3,000 deposit will be credited back into your wallet (doubling your capital) and cashout unlocks permanently!
+              </p>
+            </div>
+
+            {/* PROGRESS STATUS */}
+            <div className="p-3 rounded-2xl bg-slate-50 dark:bg-zinc-900/80 border border-slate-200 dark:border-white/[0.08] space-y-2.5">
+              <div className="flex justify-between items-center text-xs font-bold text-slate-700 dark:text-zinc-300">
+                <span>Active Referrals:</span>
+                <span className="font-mono text-indigo-600 dark:text-indigo-400">{activeReferralsCount} / 3 Referrals</span>
+              </div>
+
+              {/* 3 Referral Cards */}
+              <div className="space-y-1.5 text-left text-[11px]">
+                {[0, 1, 2].map(idx => {
+                  const ref = referrals[idx];
+                  const isDone = ref && ref.depositedAmount >= 3000;
+                  return (
+                    <div 
+                      key={idx}
+                      className={`p-2 rounded-xl border flex items-center justify-between font-mono ${
+                        isDone 
+                          ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300' 
+                          : 'bg-white dark:bg-zinc-800 border-slate-200 dark:border-white/10 text-slate-400'
+                      }`}
+                    >
+                      <span>Slot {idx + 1}: {isDone ? ref.name : 'Awaiting Referral Deposit'}</span>
+                      <span className="font-black">{isDone ? `₦${ref.depositedAmount.toLocaleString()} ✓` : '₦0 / ₦3k'}</span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="flex justify-between text-[10px] text-slate-400 font-semibold pt-1">
+                <span>Combined Volume: <strong>₦{totalReferralsDeposit.toLocaleString()}</strong></span>
+                <span>Target: <strong>₦{targetReferralVolume.toLocaleString()}</strong></span>
+              </div>
+            </div>
+
+            {/* ACTION & DEMO SIMULATION BUTTONS */}
+            <div className="space-y-2 pt-1">
+              <button 
+                onClick={() => {
+                  navigator.clipboard.writeText(`https://taskpulse.ng/join?ref=${user?.referralCode}`);
+                  triggerConfetti();
+                  showToast('Referral Link Copied', 'Share your link: Earn when referrals deposit ₦3,000!');
+                }}
+                className="w-full h-11 rounded-full bg-gradient-to-r from-indigo-500 via-sky-500 to-blue-600 hover:opacity-95 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-indigo-500/25 active:scale-95 transition-all flex items-center justify-center gap-1.5"
+              >
+                <Share2 className="w-4 h-4" />
+                <span>Copy Referral Invite Link</span>
+              </button>
+
+              <button 
+                onClick={handleSimulateAddReferralDeposit}
+                className="w-full h-10 rounded-full bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 text-slate-800 dark:text-zinc-200 font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
+              >
+                <UserPlus className="w-3.5 h-3.5 text-indigo-500" />
+                <span>Simulate 3rd Referral Deposit (+₦3,000)</span>
+              </button>
+
+              <button 
+                onClick={handleCompleteReferralsAndDoubleWallet}
+                className="w-full h-10 rounded-full bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
+              >
+                <Zap className="w-3.5 h-3.5" />
+                <span>⚡ Complete All 3 & Double Wallet Now</span>
+              </button>
+            </div>
+
+            <button 
+              onClick={() => setIsReferralLockModalOpen(false)}
+              className="text-xs font-bold text-slate-400 hover:text-slate-600 block mx-auto pt-1"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
       {/* MODAL: 48-HOUR FIRST CASHOUT SECURITY LOCK SCREEN        */}
       {/* ======================================================== */}
       {isSecurityLockModalOpen && (
@@ -1666,7 +2059,7 @@ export default function App() {
 
               <div className="flex justify-between items-center text-[10px] text-slate-400 dark:text-zinc-400 font-semibold pt-1">
                 <span>Escrow Balance: <strong className="text-emerald-500 font-mono">₦{withdrawableBalance.toLocaleString()}</strong></span>
-                <span>Seasoning: <strong className="text-amber-500 font-mono">{progressPercent}%</strong></span>
+                <span>Seasoning: <strong className="text-amber-500 font-mono">{seasoningProgressPercent}%</strong></span>
               </div>
             </div>
 
@@ -1677,7 +2070,7 @@ export default function App() {
                 className="w-full h-11 rounded-full bg-gradient-to-r from-amber-500 to-yellow-500 hover:opacity-95 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg shadow-amber-500/20 active:scale-95 transition-all flex items-center justify-center gap-1.5"
               >
                 <Zap className="w-4 h-4 fill-current" />
-                <span>Fast-Forward 48h (Demo Test Cashout)</span>
+                <span>Fast-Forward 48h (Test Next Check)</span>
               </button>
 
               <button 
@@ -2025,14 +2418,24 @@ export default function App() {
                   <div>
                     <div className="flex items-center gap-1.5">
                       <span className="font-bold text-slate-900 dark:text-white">{tx.title}</span>
-                      <span className="text-[8px] font-mono px-1.5 py-0.2 rounded bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 uppercase font-black">
+                      <span className={`text-[8px] font-mono px-1.5 py-0.2 rounded uppercase font-black ${
+                        tx.type === 'DepositMatch' 
+                          ? 'bg-purple-100 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400' 
+                          : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400'
+                      }`}>
                         {tx.status}
                       </span>
                     </div>
                     <p className="text-[10px] text-slate-400 dark:text-zinc-500 mt-0.5">{tx.sub} · {tx.date}</p>
                     <p className="text-[9px] font-mono text-cyan-600 dark:text-cyan-400">{tx.reference}</p>
                   </div>
-                  <span className={`font-mono font-black text-sm ${tx.type === 'Cashout' ? 'text-rose-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                  <span className={`font-mono font-black text-sm ${
+                    tx.type === 'Cashout' 
+                      ? 'text-rose-500' 
+                      : tx.type === 'DepositMatch' 
+                        ? 'text-purple-500 dark:text-purple-400' 
+                        : 'text-emerald-600 dark:text-emerald-400'
+                  }`}>
                     {tx.type === 'Cashout' ? '-' : '+'}₦{tx.amount.toLocaleString()}
                   </span>
                 </div>
