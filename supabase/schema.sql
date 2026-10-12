@@ -172,6 +172,20 @@ DECLARE
     v_new_withdrawn NUMERIC(14,2);
     v_tx_id UUID;
 BEGIN
+    -- 0. Anti-Double Entry Guard (Prevents duplicate charges/credits on network retries)
+    SELECT id INTO v_tx_id
+    FROM public.transactions
+    WHERE reference = p_reference;
+
+    IF FOUND THEN
+        RETURN jsonb_build_object(
+            'success', true,
+            'is_duplicate_prevented', true,
+            'transaction_id', v_tx_id,
+            'message', 'Double entry prevented: Transaction already settled under this reference.'
+        );
+    END IF;
+
     -- 1. Lock the user profile row for atomic update (Pessimistic concurrency)
     SELECT * INTO v_profile
     FROM public.profiles

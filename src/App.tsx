@@ -557,28 +557,45 @@ export default function App() {
     }
   }, [addAccountNum, user]);
 
+  // ========================================================
+  // ANTI-DOUBLE ENTRY & IDEMPOTENCY DEFENSES
+  // ========================================================
+  const [processedIdempotencyKeys] = useState<Set<string>>(() => new Set());
+
+  const addTransactionSafe = (newTx: Transaction) => {
+    setTransactions(prev => {
+      // Check if reference or ID already exists in ledger
+      if (prev.some(t => t.reference === newTx.reference || t.id === newTx.id)) {
+        console.warn(`[Anti-Double Entry] Blocked duplicate transaction reference: ${newTx.reference}`);
+        return prev;
+      }
+      return [newTx, ...prev];
+    });
+  };
+
   // CHECK & TRIGGER 100% INITIAL DEPOSIT DOUBLE MATCH BONUS
   const checkAndAwardDoubleCredit = (currentReferrals: Referral[]) => {
     const qualifiedCount = currentReferrals.filter(r => r.depositedAmount >= 3000).length;
     const totalVolume = currentReferrals.reduce((sum, r) => sum + r.depositedAmount, 0);
 
     if (qualifiedCount >= 3 && totalVolume >= targetReferralVolume && !hasReceivedDoubleCredit) {
+      const matchKey = `match_3k_${user?.username}`;
+      if (processedIdempotencyKeys.has(matchKey)) return;
+      processedIdempotencyKeys.add(matchKey);
+
       const bonus = currentTier.stakeAmount;
       setWithdrawableBalance(prev => prev + bonus);
       setHasReceivedDoubleCredit(true);
-      setTransactions(prev => [
-        {
-          id: `tx-${Date.now()}`,
-          type: 'DepositMatch',
-          title: '100% Initial Deposit Double Credit',
-          sub: `3 Referrals & ₦${totalVolume.toLocaleString()} Volume Met (Wallet Doubled)`,
-          amount: bonus,
-          status: 'Settled',
-          date: 'Just now',
-          reference: `ref_tp_match_${Math.floor(100000 + Math.random() * 900000)}`
-        },
-        ...prev
-      ]);
+      addTransactionSafe({
+        id: `tx-${Date.now()}`,
+        type: 'DepositMatch',
+        title: '100% Initial Deposit Double Credit',
+        sub: `3 Referrals & ₦${totalVolume.toLocaleString()} Volume Met (Wallet Doubled)`,
+        amount: bonus,
+        status: 'Settled',
+        date: 'Just now',
+        reference: `ref_tp_match_${Math.floor(100000 + Math.random() * 900000)}`
+      });
       triggerConfetti();
       showToast('🎉 Initial Deposit Doubled!', `3 referrals met with ₦${totalVolume.toLocaleString()} volume. +₦${bonus.toLocaleString()} credited to your wallet!`);
     }
@@ -586,25 +603,23 @@ export default function App() {
 
   // Execute 3,000 Activation Drop
   const handleCompleteActivation = () => {
+    if (isProcessingDeposit || isActivated) return;
     setIsProcessingDeposit(true);
     setTimeout(() => {
       setIsProcessingDeposit(false);
       setIsDepositModalOpen(false);
       setIsActivated(true);
       setWithdrawableBalance(prev => prev + 3000);
-      setTransactions(prev => [
-        {
-          id: `tx-${Date.now()}`,
-          type: 'Deposit',
-          title: 'Bronze Pulse Activation Deposit',
-          sub: '100% credited to wallet via Paystack',
-          amount: 3000,
-          status: 'Settled',
-          date: 'Just now',
-          reference: `ref_tp_${Math.floor(100000 + Math.random() * 900000)}`
-        },
-        ...prev
-      ]);
+      addTransactionSafe({
+        id: `tx-${Date.now()}`,
+        type: 'Deposit',
+        title: 'Bronze Pulse Activation Deposit',
+        sub: '100% credited to wallet via Paystack',
+        amount: 3000,
+        status: 'Settled',
+        date: 'Just now',
+        reference: `ref_tp_dep_${Math.floor(100000 + Math.random() * 900000)}`
+      });
       triggerConfetti();
       showToast('Account Activated!', '₦3,000 credited to your balance. Bronze Pulse tier unlocked!');
     }, 1200);
@@ -612,21 +627,22 @@ export default function App() {
 
   // Instant Demo Activation
   const handleInstantDemoActivate = () => {
+    if (isActivated) {
+      showToast('Already Activated', 'Account is already running Bronze Pulse.');
+      return;
+    }
     setIsActivated(true);
     setWithdrawableBalance(prev => prev + 3000);
-    setTransactions(prev => [
-      {
-        id: `tx-${Date.now()}`,
-        type: 'Deposit',
-        title: 'Bronze Pulse Activation Deposit (Demo)',
-        sub: '100% credited to wallet via Paystack',
-        amount: 3000,
-        status: 'Settled',
-        date: 'Just now',
-        reference: `ref_tp_${Math.floor(100000 + Math.random() * 900000)}`
-      },
-      ...prev
-    ]);
+    addTransactionSafe({
+      id: `tx-${Date.now()}`,
+      type: 'Deposit',
+      title: 'Bronze Pulse Activation Deposit (Demo)',
+      sub: '100% credited to wallet via Paystack',
+      amount: 3000,
+      status: 'Settled',
+      date: 'Just now',
+      reference: `ref_tp_dep_${Math.floor(100000 + Math.random() * 900000)}`
+    });
     triggerConfetti();
     showToast('Instant Activated!', '₦3,000 stake credited. 48h timer and Bronze tier running.');
   };
@@ -647,19 +663,16 @@ export default function App() {
     setHasUpgradedAfterLimit(true);
     localStorage.setItem('taskpulse_upgraded_after_limit', 'true');
 
-    setTransactions(prev => [
-      {
-        id: `tx-${Date.now()}`,
-        type: 'TierUpgrade',
-        title: `Tier Upgraded to ${targetTier.name}`,
-        sub: `Limit expanded to ₦${targetTier.withdrawalCap.toLocaleString()} · Immediate cashout unlocked!`,
-        amount: targetTier.stakeAmount,
-        status: 'Settled',
-        date: 'Just now',
-        reference: `ref_tp_tier_${Math.floor(100000 + Math.random() * 900000)}`
-      },
-      ...prev
-    ]);
+    addTransactionSafe({
+      id: `tx-${Date.now()}`,
+      type: 'TierUpgrade',
+      title: `Tier Upgraded to ${targetTier.name}`,
+      sub: `Limit expanded to ₦${targetTier.withdrawalCap.toLocaleString()} · Immediate cashout unlocked!`,
+      amount: targetTier.stakeAmount,
+      status: 'Settled',
+      date: 'Just now',
+      reference: `ref_tp_tier_${targetTier.id}_${Date.now()}`
+    });
 
     setIsTierModalOpen(false);
     triggerConfetti();
@@ -789,6 +802,13 @@ export default function App() {
       showToast('Streak Protected', '5-day streak active! 0% Paystack fees are unlocked.');
       return;
     }
+    const streakKey = `streak_day_${user.streakDays}_${user.username}`;
+    if (processedIdempotencyKeys.has(streakKey)) {
+      showToast('Already Claimed', 'Today’s reward has already been settled.');
+      return;
+    }
+    processedIdempotencyKeys.add(streakKey);
+
     const bonus = 300;
     setWithdrawableBalance(prev => prev + bonus);
     setUser({
@@ -796,19 +816,16 @@ export default function App() {
       streakDays: user.streakDays + 1,
       streakClaimedToday: true
     });
-    setTransactions(prev => [
-      {
-        id: `tx-${Date.now()}`,
-        type: 'Streak',
-        title: 'Day 5 Login Multiplier',
-        sub: '0% Paystack withdrawal fee active',
-        amount: bonus,
-        status: 'Settled',
-        date: 'Just now',
-        reference: `ref_tp_${Math.floor(100000 + Math.random() * 900000)}`
-      },
-      ...prev
-    ]);
+    addTransactionSafe({
+      id: `tx-${Date.now()}`,
+      type: 'Streak',
+      title: 'Day 5 Login Multiplier',
+      sub: '0% Paystack withdrawal fee active',
+      amount: bonus,
+      status: 'Settled',
+      date: 'Just now',
+      reference: `ref_tp_streak_${Date.now()}`
+    });
     triggerConfetti();
     showToast('🔥 +₦300 Claimed!', 'Your 5-day streak is blazing! 0% Paystack fees unlocked.');
     setIsStreakModalOpen(false);
@@ -829,7 +846,7 @@ export default function App() {
     showToast('Task Reserved', `${task.title} allocated to your active workspace.`);
   };
 
-  // Submit Task Proof
+  // Submit Task Proof (Escrow Settlement)
   const handleSubmitTaskProof = () => {
     if (!activeTask) return;
     if (!taskProofInput && !uploadedScreenshot) {
@@ -837,12 +854,27 @@ export default function App() {
       return;
     }
 
-    setPendingBalance(prev => prev + activeTask.reward);
+    const taskReward = activeTask.reward;
+    const taskTitle = activeTask.title;
+    const taskRef = `ref_tp_task_${activeTask.id}_${Date.now()}`;
+
+    setPendingBalance(prev => prev + taskReward);
+    addTransactionSafe({
+      id: `tx-${Date.now()}`,
+      type: 'Payout',
+      title: `Task Escrow: ${taskTitle}`,
+      sub: `${activeTask.company} · SLA Under Review`,
+      amount: taskReward,
+      status: 'Escrowed',
+      date: 'Just now',
+      reference: taskRef
+    });
+
     setActiveTask(null);
     setTaskProofInput('');
     setUploadedScreenshot(null);
     triggerConfetti();
-    showToast('Proof Submitted', `₦${activeTask.reward} locked in escrow. 24h SLA review started.`);
+    showToast('Proof Submitted', `₦${taskReward} locked in escrow. 24h SLA review started.`);
   };
 
   // Paystack Cashout Initiation (Enforces Minimum ₦3,000 & Tier Remaining Allowance)
@@ -874,31 +906,43 @@ export default function App() {
     setPaystackOtp('');
   };
 
-  // Paystack OTP Final Confirmation
+  // Paystack OTP Final Confirmation (Strict Idempotency & Replay Defense)
   const handleConfirmPaystackOtp = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isCashoutProcessing) return; // Strict Multi-Click Lockout
+
     const amt = parseFloat(cashoutAmount);
+    if (amt > withdrawableBalance) {
+      showToast('Insufficient Balance', 'Available balance is insufficient.');
+      return;
+    }
+
+    // Generate unique idempotency key based on bank, account, and amount
+    const idempotencyKey = `co_${selectedBank.accountNumber}_${amt}_${Date.now()}`;
+    if (processedIdempotencyKeys.has(idempotencyKey)) {
+      showToast('Duplicate Request Blocked', 'This cashout has already been dispatched.');
+      return;
+    }
+    processedIdempotencyKeys.add(idempotencyKey);
+
     setIsCashoutProcessing(true);
 
     setTimeout(() => {
-      setWithdrawableBalance(prev => prev - amt);
+      setWithdrawableBalance(prev => Math.max(0, prev - amt));
       setTotalWithdrawnLifetime(prev => prev + amt);
       setIsCashoutProcessing(false);
-      const ref = `TRF_pstk_${Math.random().toString(36).substring(2, 9)}`;
+      const ref = `TRF_pstk_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
       setTransferRef(ref);
-      setTransactions(prev => [
-        {
-          id: `tx-${Date.now()}`,
-          type: 'Cashout',
-          title: `Cashout to ${selectedBank.bankName}`,
-          sub: `NIP Transfer to ${selectedBank.accountNumber}`,
-          amount: amt,
-          status: 'Disbursed',
-          date: 'Just now',
-          reference: ref
-        },
-        ...prev
-      ]);
+      addTransactionSafe({
+        id: `tx-${Date.now()}`,
+        type: 'Cashout',
+        title: `Cashout to ${selectedBank.bankName}`,
+        sub: `NIP Transfer to •••• ${selectedBank.accountNumber.slice(-4)}`,
+        amount: amt,
+        status: 'Disbursed',
+        date: 'Just now',
+        reference: ref
+      });
       setCashoutStep('success');
       triggerConfetti();
     }, 1500);

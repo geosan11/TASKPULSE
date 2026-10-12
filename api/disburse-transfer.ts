@@ -104,7 +104,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // =========================================================================
     // DEFENSE 6: IDEMPOTENT PAYSTACK TRANSFER WITH REPLAY ATTACK DEFENSE
     // =========================================================================
-    const idempotentRef = `trf_tp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    const clientKey = req.body?.idempotencyKey || req.headers['x-idempotency-key'];
+    const idempotentRef = clientKey 
+      ? `trf_tp_${String(clientKey).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 45)}`
+      : `trf_tp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
     // Create Recipient
     const recipientRes = await fetch('https://api.paystack.co/transferrecipient', {
