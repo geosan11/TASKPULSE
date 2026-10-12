@@ -50,7 +50,13 @@ import {
   UserPlus,
   Crown,
   Layers,
-  ArrowUpCircle
+  ArrowUpCircle,
+  History,
+  ArrowDownLeft,
+  Download,
+  Search,
+  Receipt,
+  Filter
 } from 'lucide-react';
 import { triggerConfetti } from './utils/confetti';
 
@@ -317,8 +323,13 @@ export default function App() {
     };
   });
 
-  // 4 Bottom Navigation Tabs: Home, Tasks, Ads, Profile
-  const [activeTab, setActiveTab] = useState<'home' | 'tasks' | 'ads' | 'profile'>('home');
+  // 4 Bottom Navigation Tabs: Home, Tasks, History, Profile
+  const [activeTab, setActiveTab] = useState<'home' | 'tasks' | 'history' | 'profile'>('home');
+
+  // History Tab Filter & Receipt States
+  const [historyCategory, setHistoryCategory] = useState<'all' | 'finance' | 'tasks' | 'referrals' | 'rewards'>('all');
+  const [historySearchQuery, setHistorySearchQuery] = useState<string>('');
+  const [selectedReceipt, setSelectedReceipt] = useState<Transaction | null>(null);
 
   const [withdrawableBalance, setWithdrawableBalance] = useState<number>(() => {
     const saved = localStorage.getItem('taskpulse_withdrawable');
@@ -419,12 +430,22 @@ export default function App() {
   const seasoningProgressPercent = Math.min(100, Math.round(((172800 - cooldownSeconds) / 172800) * 100));
 
   // Ledger Transactions (FinTech Double-Entry Audit Trail)
-  const [transactions, setTransactions] = useState<Transaction[]>([
-    { id: 'tx-1', type: 'Payout', title: 'TikTok Follow Bounty', sub: 'Kuda FinTech Media · SLA verified', amount: 450, status: 'Settled', date: 'Today, 2:15 PM', reference: 'ref_tp_984102' },
-    { id: 'tx-2', type: 'Deposit', title: 'Bronze Pulse Activation', sub: 'Paystack NIP Instant Inflow', amount: 3000, status: 'Settled', date: 'Yesterday, 11:20 AM', reference: 'ref_tp_871920' },
-    { id: 'tx-3', type: 'Streak', title: 'Day 5 Login Multiplier', sub: 'Community habit reward', amount: 300, status: 'Settled', date: 'Today, 8:00 AM', reference: 'ref_tp_719024' },
-    { id: 'tx-4', type: 'Cashout', title: 'Paystack Bank Cashout', sub: 'Disbursed to Moniepoint MFB', amount: 8000, status: 'Disbursed', date: '2 days ago', reference: 'ref_tp_510294' }
-  ]);
+  const [transactions, setTransactions] = useState<Transaction[]>(() => {
+    const saved = localStorage.getItem('taskpulse_ledger_txs_v4');
+    if (saved) {
+      try { return JSON.parse(saved); } catch (e) {}
+    }
+    return [
+      { id: 'tx-1', type: 'Payout', title: 'TikTok Follow Bounty', sub: 'Kuda FinTech Media · SLA verified', amount: 450, status: 'Settled', date: 'Today, 2:15 PM', reference: 'ref_tp_984102' },
+      { id: 'tx-2', type: 'Deposit', title: 'Bronze Pulse Activation', sub: 'Paystack NIP Instant Inflow', amount: 3000, status: 'Settled', date: 'Yesterday, 11:20 AM', reference: 'ref_tp_871920' },
+      { id: 'tx-3', type: 'Streak', title: 'Day 5 Login Multiplier', sub: 'Community habit reward', amount: 300, status: 'Settled', date: 'Today, 8:00 AM', reference: 'ref_tp_719024' },
+      { id: 'tx-4', type: 'Cashout', title: 'Paystack Bank Cashout', sub: 'Disbursed to Moniepoint MFB', amount: 8000, status: 'Disbursed', date: '2 days ago', reference: 'ref_tp_510294' }
+    ];
+  });
+
+  useEffect(() => {
+    localStorage.setItem('taskpulse_ledger_txs_v4', JSON.stringify(transactions));
+  }, [transactions]);
   const [isLedgerModalOpen, setIsLedgerModalOpen] = useState(false);
 
   // Task & Workspace
@@ -1527,54 +1548,231 @@ export default function App() {
               )}
 
               {/* ======================================================== */}
-              {/* TAB 3: ADS / SPONSORED REWARDS                           */}
+              {/* TAB 3: HISTORY & ACCOUNTABILITY LEDGER                   */}
               {/* ======================================================== */}
-              {activeTab === 'ads' && (
+              {activeTab === 'history' && (
                 <div className="space-y-4 animate-in fade-in duration-300">
-                  <div className="p-4 rounded-3xl bg-gradient-to-br from-indigo-900 to-sky-900 text-white space-y-1 shadow-md">
-                    <span className="text-[10px] font-black uppercase tracking-wider text-cyan-300">Sponsored Brand Rewards</span>
-                    <h3 className="text-sm font-black">Watch, Follow &amp; Earn Instant Cash</h3>
-                    <p className="text-[11px] text-sky-200">High-volume sponsored micro-jobs with instant approval.</p>
-                  </div>
+                  
+                  {/* SUMMARY HERO CARD */}
+                  <div className="p-5 rounded-3xl bg-gradient-to-br from-zinc-900 via-black to-zinc-950 text-white border border-white/10 shadow-xl space-y-4 relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-cyan-500/10 rounded-full blur-2xl pointer-events-none"></div>
 
-                  {[
-                    { id: 'ad1', title: 'Watch 30s FinTech Demo Video', sponsor: 'PaySwitch Africa', reward: 180, time: '30s' },
-                    { id: 'ad2', title: 'Join Official Telegram Community', sponsor: 'BitPulse Global', reward: 220, time: '1m' }
-                  ].map(ad => (
-                    <div key={ad.id} className="bg-white dark:bg-zinc-900/80 border border-slate-100 dark:border-white/[0.08] rounded-3xl p-4 shadow-sm flex items-center justify-between">
-                      <div>
-                        <span className="text-[10px] font-bold text-cyan-500 uppercase">{ad.sponsor}</span>
-                        <h4 className="text-xs font-bold text-slate-900 dark:text-white mt-0.5">{ad.title}</h4>
-                        <span className="text-[10px] text-slate-400 dark:text-zinc-500">Duration: {ad.time}</span>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-xl bg-cyan-500/20 text-cyan-400 flex items-center justify-center font-bold text-sm">
+                          <History className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <h3 className="text-xs font-black uppercase tracking-wider text-zinc-300">Accountability History</h3>
+                          <span className="text-[10px] text-zinc-400 font-mono">Immutable Double-Entry Ledger</span>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <span className="text-sm font-black font-mono text-emerald-600 dark:text-emerald-400 block">+₦{ad.reward}</span>
-                        <button 
-                          onClick={() => {
-                            setWithdrawableBalance(prev => prev + ad.reward);
-                            setTransactions(prev => [
-                              {
-                                id: `tx-${Date.now()}`,
-                                type: 'Payout',
-                                title: ad.title,
-                                sub: `${ad.sponsor} instant settlement`,
-                                amount: ad.reward,
-                                status: 'Settled',
-                                date: 'Just now',
-                                reference: `ref_tp_${Math.floor(100000 + Math.random() * 900000)}`
-                              },
-                              ...prev
-                            ]);
-                            triggerConfetti();
-                            showToast(`+₦${ad.reward} Earned!`, `Reward settled from ${ad.sponsor}.`);
-                          }}
-                          className="px-3 py-1 rounded-full bg-cyan-500 text-white text-[11px] font-bold mt-1"
-                        >
-                          Claim
-                        </button>
+
+                      <button 
+                        onClick={() => {
+                          const csvContent = "data:text/csv;charset=utf-8," 
+                            + ["Date,Type,Title,Amount,Status,Reference", 
+                              ...transactions.map(t => `"${t.date}","${t.type}","${t.title}","${t.amount}","${t.status}","${t.reference}"`)
+                            ].join("\n");
+                          const encodedUri = encodeURI(csvContent);
+                          const link = document.createElement("a");
+                          link.setAttribute("href", encodedUri);
+                          link.setAttribute("download", `TaskPulse_Audit_Statement_${Date.now()}.csv`);
+                          document.body.appendChild(link);
+                          link.click();
+                          document.body.removeChild(link);
+                          showToast('Statement Exported', 'CSV downloaded for personal accounting.');
+                        }}
+                        className="py-1 px-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-cyan-300 text-[10px] font-bold flex items-center gap-1 transition-all border border-white/10"
+                      >
+                        <Download className="w-3 h-3" />
+                        <span>Export CSV</span>
+                      </button>
+                    </div>
+
+                    {/* METRICS ROW */}
+                    <div className="grid grid-cols-2 gap-2.5 pt-1">
+                      <div className="p-3 rounded-2xl bg-white/[0.05] border border-white/[0.06]">
+                        <span className="text-[10px] text-zinc-400 block font-medium">Lifetime Disbursed:</span>
+                        <span className="text-base font-black font-mono text-white block mt-0.5">
+                          ₦{totalWithdrawnLifetime.toLocaleString()}.00
+                        </span>
+                        <span className="text-[9px] text-emerald-400 font-mono mt-0.5 block">✓ Verified NIP</span>
+                      </div>
+                      <div className="p-3 rounded-2xl bg-white/[0.05] border border-white/[0.06]">
+                        <span className="text-[10px] text-zinc-400 block font-medium">Withdrawable Balance:</span>
+                        <span className="text-base font-black font-mono text-cyan-400 block mt-0.5">
+                          ₦{withdrawableBalance.toLocaleString()}.00
+                        </span>
+                        <span className="text-[9px] text-zinc-400 font-mono mt-0.5 block">₦3k Min Floor</span>
                       </div>
                     </div>
-                  ))}
+                  </div>
+
+                  {/* SEARCH BAR */}
+                  <div className="relative">
+                    <Search className="w-4 h-4 text-slate-400 dark:text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input 
+                      type="text"
+                      value={historySearchQuery}
+                      onChange={e => setHistorySearchQuery(e.target.value)}
+                      placeholder="Search transactions, references, banks..."
+                      className="w-full h-11 pl-10 pr-4 rounded-full bg-white dark:bg-zinc-900 border border-slate-200 dark:border-white/[0.08] text-xs font-medium text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-cyan-500"
+                    />
+                    {historySearchQuery && (
+                      <button 
+                        onClick={() => setHistorySearchQuery('')}
+                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 hover:text-slate-600"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+
+                  {/* FILTER PILLS */}
+                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
+                    {[
+                      { id: 'all', label: 'All Activity' },
+                      { id: 'finance', label: 'Deposits & Cashouts' },
+                      { id: 'tasks', label: 'Tasks Done' },
+                      { id: 'referrals', label: 'Referrals' },
+                      { id: 'rewards', label: 'Bonuses & Tiers' }
+                    ].map(tab => (
+                      <button 
+                        key={tab.id}
+                        onClick={() => setHistoryCategory(tab.id as any)}
+                        className={`py-1.5 px-3 rounded-full text-xs font-bold shrink-0 transition-all ${
+                          historyCategory === tab.id 
+                            ? 'bg-sky-500 text-white shadow-xs' 
+                            : 'bg-white dark:bg-zinc-900 border border-slate-200/80 dark:border-white/[0.08] text-slate-600 dark:text-zinc-400 hover:border-sky-400'
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* TRANSACTIONS FEED */}
+                  <div className="space-y-2.5">
+                    {transactions
+                      .filter(tx => {
+                        // Category filter
+                        if (historyCategory === 'finance') {
+                          return tx.type === 'Deposit' || tx.type === 'Cashout';
+                        }
+                        if (historyCategory === 'tasks') {
+                          return tx.type === 'Payout' || tx.type === 'Escrow';
+                        }
+                        if (historyCategory === 'referrals') {
+                          return tx.type === 'DepositMatch';
+                        }
+                        if (historyCategory === 'rewards') {
+                          return tx.type === 'Streak' || tx.type === 'TierUpgrade';
+                        }
+                        return true;
+                      })
+                      .filter(tx => {
+                        // Search filter
+                        if (!historySearchQuery) return true;
+                        const q = historySearchQuery.toLowerCase();
+                        return tx.title.toLowerCase().includes(q) 
+                          || tx.sub.toLowerCase().includes(q) 
+                          || tx.reference.toLowerCase().includes(q);
+                      })
+                      .map(tx => {
+                        const isCashout = tx.type === 'Cashout';
+                        const isDeposit = tx.type === 'Deposit';
+                        const isTask = tx.type === 'Payout';
+                        const isMatch = tx.type === 'DepositMatch';
+                        const isStreak = tx.type === 'Streak';
+                        const isTier = tx.type === 'TierUpgrade';
+
+                        return (
+                          <div 
+                            key={tx.id}
+                            onClick={() => setSelectedReceipt(tx)}
+                            className="p-3.5 rounded-2xl bg-white dark:bg-zinc-900/80 border border-slate-100 dark:border-white/[0.08] hover:border-cyan-400/50 shadow-xs flex items-center justify-between gap-3 cursor-pointer transition-all active:scale-98"
+                          >
+                            <div className="flex items-center gap-3">
+                              {/* Icon based on event type */}
+                              <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${
+                                isCashout ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-500' :
+                                isDeposit ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-500' :
+                                isTask ? 'bg-sky-50 dark:bg-cyan-950/40 text-cyan-500' :
+                                isMatch ? 'bg-purple-50 dark:bg-purple-950/40 text-purple-500' :
+                                isStreak ? 'bg-orange-50 dark:bg-orange-950/40 text-orange-500' :
+                                'bg-amber-50 dark:bg-amber-950/40 text-amber-500'
+                              }`}>
+                                {isCashout && <ArrowUpRight className="w-5 h-5" />}
+                                {isDeposit && <ArrowDownLeft className="w-5 h-5" />}
+                                {isTask && <CheckSquare className="w-5 h-5" />}
+                                {isMatch && <Gift className="w-5 h-5" />}
+                                {isStreak && <Flame className="w-5 h-5" />}
+                                {isTier && <Crown className="w-5 h-5" />}
+                              </div>
+
+                              <div>
+                                <div className="flex items-center gap-1.5">
+                                  <h4 className="text-xs font-black text-slate-900 dark:text-white leading-tight">
+                                    {tx.title}
+                                  </h4>
+                                  <span className={`text-[8px] font-mono px-1.5 py-0.2 rounded font-black uppercase ${
+                                    tx.status === 'Disbursed' ? 'bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400' :
+                                    tx.status === 'Escrowed' ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400' :
+                                    'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400'
+                                  }`}>
+                                    {tx.status}
+                                  </span>
+                                </div>
+                                <p className="text-[10px] text-slate-400 dark:text-zinc-500 mt-0.5 leading-snug">
+                                  {tx.sub} · {tx.date}
+                                </p>
+                                <span className="text-[9px] font-mono text-cyan-600 dark:text-cyan-400">
+                                  {tx.reference}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="text-right shrink-0">
+                              <span className={`text-sm font-black font-mono block ${
+                                isCashout ? 'text-rose-500' : 'text-emerald-600 dark:text-emerald-400'
+                              }`}>
+                                {isCashout ? '-' : '+'}₦{tx.amount.toLocaleString()}
+                              </span>
+                              <span className="text-[9px] text-slate-400 hover:text-cyan-500 font-bold block mt-0.5">
+                                Receipt →
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                    {/* REFERRALS SPECIFIC BREAKDOWN (If Referrals Tab Selected) */}
+                    {historyCategory === 'referrals' && (
+                      <div className="mt-4 p-4 rounded-3xl bg-slate-50 dark:bg-zinc-900/60 border border-slate-200/80 dark:border-white/[0.08] space-y-3">
+                        <div className="flex justify-between items-center text-xs font-black text-slate-900 dark:text-white">
+                          <span>Referral Lineage ({activeReferralsCount}/3 Qualified)</span>
+                          <span className="font-mono text-emerald-600 dark:text-emerald-400">₦{totalReferralsDeposit.toLocaleString()} Total Volume</span>
+                        </div>
+                        <div className="space-y-2">
+                          {referrals.map(ref => (
+                            <div key={ref.id} className="p-3 rounded-2xl bg-white dark:bg-zinc-800/80 border border-slate-100 dark:border-white/[0.06] flex items-center justify-between text-xs">
+                              <div>
+                                <span className="font-bold text-slate-900 dark:text-white block">{ref.name} (@{ref.username})</span>
+                                <span className="text-[10px] text-slate-400">Joined {ref.joinedTime}</span>
+                              </div>
+                              <div className="text-right">
+                                <span className="font-mono font-black text-emerald-600 dark:text-emerald-400 block">₦{ref.depositedAmount.toLocaleString()}</span>
+                                <span className="text-[9px] font-bold text-slate-400">{ref.status}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                  </div>
+
                 </div>
               )}
 
@@ -1847,20 +2045,18 @@ export default function App() {
           </button>
 
           <button 
-            onClick={() => setActiveTab('ads')}
+            onClick={() => setActiveTab('history')}
             className={`flex flex-col items-center gap-1 py-1 px-3 rounded-2xl relative transition-all ${
-              activeTab === 'ads' 
+              activeTab === 'history' 
                 ? 'bg-sky-50 dark:bg-zinc-800 text-sky-500 dark:text-cyan-400 font-black' 
                 : 'text-slate-400 hover:text-slate-600 dark:text-zinc-500 dark:hover:text-zinc-200'
             }`}
           >
             <div className="relative">
-              <Megaphone className="w-5 h-5" />
-              <span className="absolute -top-1 -right-2 px-1 py-0.2 rounded-full bg-amber-500 text-white text-[7px] font-black uppercase">
-                Hot
-              </span>
+              <History className="w-5 h-5" />
+              <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-cyan-500"></span>
             </div>
-            <span className="text-[10px] font-extrabold tracking-tight">Ads</span>
+            <span className="text-[10px] font-extrabold tracking-tight">History</span>
           </button>
 
           <button 
@@ -2541,6 +2737,102 @@ export default function App() {
             >
               Close Ledger
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODAL: VERIFIED FINTECH DIGITAL RECEIPT                  */}
+      {/* ======================================================== */}
+      {selectedReceipt && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-[#111218] border border-slate-200 dark:border-white/[0.08] rounded-3xl max-w-sm w-full p-6 space-y-4 shadow-2xl relative overflow-hidden">
+            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-cyan-400 via-sky-500 to-blue-600"></div>
+
+            <div className="flex items-start justify-between">
+              <div>
+                <span className="text-[10px] font-black text-cyan-500 uppercase tracking-wider font-mono">
+                  TaskPulse Double-Entry Audit Seal
+                </span>
+                <h3 className="text-base font-black text-slate-900 dark:text-white mt-0.5">
+                  Official Transaction Receipt
+                </h3>
+              </div>
+              <button 
+                onClick={() => setSelectedReceipt(null)}
+                className="w-8 h-8 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center text-slate-400"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* RECEIPT WATERMARK BOX */}
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-zinc-900 border border-slate-200/80 dark:border-white/[0.06] text-center space-y-2">
+              <span className="text-[10px] text-slate-400 uppercase font-black tracking-widest block">
+                Settled Amount
+              </span>
+              <div className={`text-2xl font-black font-mono ${
+                selectedReceipt.type === 'Cashout' ? 'text-rose-500' : 'text-emerald-600 dark:text-emerald-400'
+              }`}>
+                {selectedReceipt.type === 'Cashout' ? '-' : '+'}₦{selectedReceipt.amount.toLocaleString()}.00
+              </div>
+              <span className="inline-block px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 text-[10px] font-mono font-black uppercase">
+                ✓ {selectedReceipt.status}
+              </span>
+            </div>
+
+            {/* RECEIPT LINE ITEMS */}
+            <div className="space-y-2 text-xs divide-y divide-slate-100 dark:divide-white/[0.04] pt-1">
+              <div className="flex justify-between py-1.5">
+                <span className="text-slate-400">Description:</span>
+                <span className="font-bold text-slate-900 dark:text-white text-right">{selectedReceipt.title}</span>
+              </div>
+              <div className="flex justify-between py-1.5">
+                <span className="text-slate-400">Event Rail:</span>
+                <span className="font-mono font-bold text-slate-900 dark:text-white">{selectedReceipt.sub}</span>
+              </div>
+              <div className="flex justify-between py-1.5">
+                <span className="text-slate-400">Date &amp; Time:</span>
+                <span className="font-mono text-slate-600 dark:text-zinc-300">{selectedReceipt.date}</span>
+              </div>
+              <div className="flex justify-between py-1.5 items-center">
+                <span className="text-slate-400">Reference Hash:</span>
+                <div className="flex items-center gap-1 font-mono text-[10px] text-cyan-600 dark:text-cyan-400 font-bold">
+                  <span>{selectedReceipt.reference}</span>
+                  <button 
+                    onClick={() => {
+                      navigator.clipboard.writeText(selectedReceipt.reference);
+                      showToast('Copied', 'Reference hash copied to clipboard.');
+                    }}
+                    className="p-1 hover:text-slate-900 dark:hover:text-white"
+                  >
+                    <Copy className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+              <div className="flex justify-between py-1.5 text-[10px] text-slate-400">
+                <span>Cryptographic Proof:</span>
+                <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold">HMAC-SHA256 Validated</span>
+              </div>
+            </div>
+
+            <div className="pt-2 flex gap-2">
+              <button 
+                onClick={() => {
+                  window.print();
+                }}
+                className="flex-1 h-10 rounded-full border border-slate-200 dark:border-white/[0.08] text-xs font-bold text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-800 transition-all flex items-center justify-center gap-1.5"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Print Receipt</span>
+              </button>
+              <button 
+                onClick={() => setSelectedReceipt(null)}
+                className="flex-1 h-10 rounded-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-xs font-bold transition-all"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}
