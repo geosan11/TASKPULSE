@@ -4,55 +4,69 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { 
   Compass, 
-  Inbox, 
   Wallet, 
-  CheckCircle, 
+  CheckCircle2, 
   ArrowRight, 
   ArrowUpRight, 
-  ArrowDownLeft, 
   Lock, 
   Shield, 
-  Smartphone, 
   Plus, 
   X, 
-  Download, 
-  Video, 
-  HelpCircle, 
-  ChevronRight, 
   User, 
   Phone, 
   Eye, 
   EyeOff, 
-  Trash2, 
-  MapPin, 
-  Mic, 
-  Activity,
+  Copy, 
+  Check, 
+  Moon, 
+  Sun, 
+  Flame, 
+  Sparkles, 
+  Award, 
+  Megaphone, 
+  Share2, 
+  ExternalLink, 
+  Gift, 
+  TrendingUp, 
+  Bell, 
+  Camera, 
+  CheckSquare, 
+  Menu,
+  CreditCard,
+  KeyRound,
   AlertTriangle,
-  Copy,
-  Check,
-  CheckCircle2,
-  LifeBuoy
+  ChevronRight,
+  Inbox,
+  Timer,
+  Clock,
+  Zap,
+  LockKeyhole,
+  FileText,
+  BadgeCheck,
+  RefreshCw
 } from 'lucide-react';
+import { triggerConfetti } from './utils/confetti';
 
 interface Task {
   id: string;
   title: string;
   company: string;
   reward: number;
-  category: 'App Tests' | 'Surveys' | 'Field Audits' | 'Micro Tasks';
+  category: 'Social' | 'App Tests' | 'Surveys' | 'Field Audits';
   time: string;
   SLA: string;
   spotsLeft: number;
   spotsTotal: number;
   description: string;
   steps: string[];
+  platformIcon?: string;
 }
 
 interface SavedBank {
   id: string;
+  bankCode: string;
   bankName: string;
   accountName: string;
   accountNumber: string;
@@ -61,12 +75,13 @@ interface SavedBank {
 
 interface Transaction {
   id: string;
-  type: 'Payout' | 'Cashout' | 'Data';
+  type: 'Payout' | 'Cashout' | 'Streak' | 'Deposit' | 'Escrow';
   title: string;
   sub: string;
   amount: number;
-  status: 'Settled' | 'Disbursed' | 'Delivered';
+  status: 'Settled' | 'Disbursed' | 'Escrowed';
   date: string;
+  reference: string;
 }
 
 interface Submission {
@@ -76,14 +91,80 @@ interface Submission {
   timeAgo: string;
   device: string;
   file: string;
-  status: 'Active' | 'Approved' | 'Action';
+  status: 'Active' | 'Approved';
   autoUnlockTime: string;
 }
 
+interface UserProfile {
+  username: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  accountStatus: string;
+  kycLevel: string;
+  tier: string;
+  level: number;
+  dailyCashoutLimit: number;
+  streakDays: number;
+  streakClaimedToday: boolean;
+  dailyQuestProgress: number;
+  referralCode: string;
+  wagerActive: boolean;
+  activationDate: string;
+}
+
+const PAYSTACK_BANKS = [
+  { code: '50515', name: 'Moniepoint MFB' },
+  { code: '999992', name: 'OPay Digital Services' },
+  { code: '50211', name: 'Kuda Bank' },
+  { code: '044', name: 'Access Bank PLC' },
+  { code: '058', name: 'Guaranty Trust Bank (GTB)' },
+  { code: '057', name: 'Zenith Bank' },
+  { code: '033', name: 'United Bank for Africa (UBA)' },
+  { code: '011', name: 'First Bank of Nigeria' }
+];
+
 const DEFAULT_TASKS: Task[] = [
   {
+    id: 't-soc-1',
+    title: 'Follow & Like Brand Announcement on TikTok',
+    company: 'Kuda FinTech Media',
+    reward: 450,
+    category: 'Social',
+    time: '2m',
+    SLA: 'Instant SLA Approval',
+    spotsLeft: 34,
+    spotsTotal: 150,
+    description: 'Follow @kudabank on TikTok, like their latest pinned video, and submit your TikTok username or profile screenshot for instant escrow settlement.',
+    steps: [
+      'Open TikTok and navigate to official @kudabank profile.',
+      'Tap Follow and Like the first pinned video regarding virtual card upgrades.',
+      'Upload a screenshot or input your TikTok username to verify.'
+    ],
+    platformIcon: '🎵'
+  },
+  {
+    id: 't-soc-2',
+    title: 'Retweet & Quote LeadsAfrica Launch',
+    company: 'LeadsAfrica Growth',
+    reward: 550,
+    category: 'Social',
+    time: '3m',
+    SLA: 'Instant SLA Approval',
+    spotsLeft: 18,
+    spotsTotal: 80,
+    description: 'Retweet the official LeadsAfrica 2026 digital journey campaign, tag 2 friends, and submit your post link.',
+    steps: [
+      'Visit the pinned tweet on X (@LeadsAfricaOfficial).',
+      'Quote tweet with #LeadsAfrica and mention 2 active friends.',
+      'Paste your tweet URL in the proof box below.'
+    ],
+    platformIcon: '𝕏'
+  },
+  {
     id: 't1',
-    title: 'Test New Banking App Onboarding',
+    title: 'Test New Banking App Onboarding & OTP',
     company: 'PayFlow Labs',
     reward: 1500,
     category: 'App Tests',
@@ -96,7 +177,8 @@ const DEFAULT_TASKS: Task[] = [
       'Download and install the staging PayFlow test application from the link below.',
       'Input test phone number and trigger the SMS OTP. Verify the autofill sequence completes under 3 seconds.',
       'Record your screen showing the final successful BVN status screen with standard Android status bar visible.'
-    ]
+    ],
+    platformIcon: '📱'
   },
   {
     id: 't2',
@@ -113,7 +195,8 @@ const DEFAULT_TASKS: Task[] = [
       'Travel to the geofenced Ikeja Plaza agent merchant location.',
       'Verify with the merchant that their POS terminal is fully operational and note current downtime metrics.',
       'Capture a clear, geotagged photograph of the storefront clearly displaying the orange logo banner.'
-    ]
+    ],
+    platformIcon: '📍'
   },
   {
     id: 't3',
@@ -130,1628 +213,2053 @@ const DEFAULT_TASKS: Task[] = [
       'Open the Moniepoint interactive survey terminal form.',
       'Provide objective responses regarding daily agent transaction failures and average KYC verification latency.',
       'Submit the form after completing all 12 quantitative rating questions.'
-    ]
-  },
-  {
-    id: 't4',
-    title: 'Airtel P2P Transaction Load Evaluation',
-    company: 'Airtel Microfinance',
-    reward: 950,
-    category: 'App Tests',
-    time: '10m',
-    SLA: '12h SLA',
-    spotsLeft: 4,
-    spotsTotal: 30,
-    description: 'Verify phone number verification and test wallet funding speed using an active Airtel line on the sandbox application.',
-    steps: [
-      'Launch sandbox Airtel Money evaluation application.',
-      'Attempt mock peer-to-peer payout verification with dynamic OTP sequence.',
-      'Screenshot network diagnostic report with standard timestamp visible.'
-    ]
-  },
-  {
-    id: 't5',
-    title: 'Lekki General Merchant Retail Audit',
-    company: 'Sabi Retail',
-    reward: 1200,
-    category: 'Field Audits',
-    time: '20m field',
-    SLA: '24h review',
-    spotsLeft: 15,
-    spotsTotal: 40,
-    description: 'Visit general merchant retail shop in Lekki Phase 1, audit stock level of essential products, and record inventory state.',
-    steps: [
-      'Identify merchant agent shop located at Lekki Block 14.',
-      'Verify physical presence of standard Sabi inventory tablet.',
-      'Log stock levels for 5 major FMCG brands inside Sabi terminal.'
-    ]
+    ],
+    platformIcon: '📝'
   }
 ];
 
-interface CompletedHistoryItem {
-  id: string;
-  taskTitle: string;
-  reward: number;
-  completedDate: string;
-  device: string;
-}
-
-const COMPLETED_TASKS_MOCK: CompletedHistoryItem[] = [
-  { id: 'hist1', taskTitle: 'BVN Registration Onboarding Test', reward: 1500, completedDate: 'Yesterday, 10:14 AM', device: 'Samsung Galaxy A53 (Verified)' },
-  { id: 'hist2', taskTitle: 'Ikeja Storefront Audit & GPS Verification', reward: 2400, completedDate: 'Oct 04, 2026', device: 'GPS 100m Geofenced (Ikeja Plaza)' },
-  { id: 'hist3', taskTitle: 'MTN Network Diagnostic Sample', reward: 950, completedDate: 'Oct 02, 2026', device: 'Airtel/MTN Sandbox' }
+const LIVE_COMMUNITY_PAYOUTS = [
+  { user: 'Grace O.', action: 'withdrew ₦15,000 via Moniepoint', bank: 'Moniepoint', time: '1m ago' },
+  { user: 'Doctorr', action: 'earned ₦1,500 on Banking KYC Test', bank: 'Escrow', time: '3m ago' },
+  { user: 'Chinedu A.', action: 'claimed ₦300 Day 5 Streak Bonus', bank: 'Wallet', time: '5m ago' },
+  { user: 'Blessing K.', action: 'withdrew ₦24,000 via OPay', bank: 'OPay', time: '8m ago' },
+  { user: 'Tunde M.', action: 'withdrew ₦9,500 via Kuda Bank', bank: 'Kuda', time: '12m ago' },
+  { user: 'Favour E.', action: 'earned ₦2,400 on POS Audit', bank: 'Escrow', time: '15m ago' }
 ];
 
-// Custom Recharts Tooltip for elegant monochromatic earnings display
-const CustomTooltip = ({ active, payload }: any) => {
-  if (active && payload && payload.length) {
-    return (
-      <div className="bg-brand-on-background text-white px-2.5 py-1.5 rounded-lg border border-brand-inverse-surface shadow-md text-[10px] font-bold font-mono">
-        <p className="leading-none text-brand-primary-fixed">₦{payload[0].value.toLocaleString()}</p>
-      </div>
-    );
-  }
-  return null;
-};
+const STREAK_DAYS_CONFIG = [
+  { day: 1, reward: 50, label: '₦50', status: 'claimed' },
+  { day: 2, reward: 100, label: '₦100', status: 'claimed' },
+  { day: 3, reward: 150, label: '₦150', status: 'claimed' },
+  { day: 4, reward: 200, label: '₦200', status: 'claimed' },
+  { day: 5, reward: 300, label: '₦300', status: 'active' },
+  { day: 6, reward: 450, label: '₦450', status: 'locked' },
+  { day: 7, reward: 1000, label: '₦1,000 🎁', status: 'locked' }
+];
 
 export default function App() {
-  // Authentication state
-  const [user, setUser] = useState<{ 
-    username: string; 
-    phone: string; 
-    referralCode?: string; 
-    referredBy?: string | null; 
-    hasCompletedFirstTask?: boolean;
-  } | null>(() => {
-    const saved = localStorage.getItem('taskpulse_user');
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (!parsed.referralCode) {
-        parsed.referralCode = `TP-${parsed.username.toUpperCase().slice(0, 5)}-${Math.floor(1000 + Math.random() * 9000)}`;
-        parsed.hasCompletedFirstTask = parsed.hasCompletedFirstTask || false;
-        parsed.referredBy = parsed.referredBy || null;
-        localStorage.setItem('taskpulse_user', JSON.stringify(parsed));
-      }
-      return parsed;
-    }
-    return null;
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
+    return localStorage.getItem('taskpulse_theme') !== 'light';
   });
 
-  const [authMode, setAuthMode] = useState<'signin' | 'register'>('register');
-  const [phone, setPhone] = useState('');
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [referralInput, setReferralInput] = useState('');
-  const [authError, setAuthError] = useState('');
+  // Mandatory ₦3,000 Minimum Drop Rule
+  const [isActivated, setIsActivated] = useState<boolean>(() => {
+    const saved = localStorage.getItem('taskpulse_activated');
+    return saved === 'true';
+  });
 
-  // Navigation state
-  const [activeTab, setActiveTab] = useState<'earn' | 'submissions' | 'wallet'>('earn');
+  // Balance Privacy (Eye toggle)
+  const [isBalanceHidden, setIsBalanceHidden] = useState<boolean>(false);
 
-  // Wallet & Payout balances
+  // User Profile matching Emmanuel @DOCTORR (from Screenshots)
+  const [user, setUser] = useState<UserProfile | null>(() => {
+    const saved = localStorage.getItem('taskpulse_user_v5');
+    if (saved) return JSON.parse(saved);
+    return {
+      username: 'DOCTORR',
+      firstName: 'EMMANUEL',
+      lastName: 'ONUABUGHICHI',
+      email: 'emmanuelonuabughichi@gmail.com',
+      phone: '08165961134',
+      accountStatus: 'Fully Verified',
+      kycLevel: 'Level 2 KYC',
+      tier: 'Black Elite Earner',
+      level: 2,
+      dailyCashoutLimit: 20000,
+      streakDays: 5,
+      streakClaimedToday: false,
+      dailyQuestProgress: 2,
+      referralCode: 'TP-DOCTORR-2026',
+      wagerActive: false,
+      activationDate: 'Oct 11, 2026'
+    };
+  });
+
+  // 4 Bottom Navigation Tabs (matching LeadsAfrica screenshot: Home, Tasks, Ads, Profile)
+  const [activeTab, setActiveTab] = useState<'home' | 'tasks' | 'ads' | 'profile'>('home');
+
   const [withdrawableBalance, setWithdrawableBalance] = useState<number>(() => {
     const saved = localStorage.getItem('taskpulse_withdrawable');
-    return saved ? parseInt(saved, 10) : 14250;
+    return saved ? parseInt(saved, 10) : 18750;
   });
   const [pendingBalance, setPendingBalance] = useState<number>(() => {
     const saved = localStorage.getItem('taskpulse_pending');
     return saved ? parseInt(saved, 10) : 3800;
   });
-  const [lifetimeDisbursed, setLifetimeDisbursed] = useState<number>(() => {
-    const saved = localStorage.getItem('taskpulse_lifetime');
-    return saved ? parseInt(saved, 10) : 182400;
+
+  // ========================================================
+  // RULE: 2 DAYS (48 HOURS) BEFORE FIRST WITHDRAWAL CAN BE MADE
+  // ========================================================
+  // Default to 1 day, 19 hours, 42 minutes, 15 seconds remaining (~43.7 hours left)
+  const [cooldownSeconds, setCooldownSeconds] = useState<number>(() => {
+    const saved = localStorage.getItem('taskpulse_cooldown_seconds');
+    return saved !== null ? parseInt(saved, 10) : 157335; // 1d 19h 42m 15s
   });
 
-  // Saved Banks list
-  const [savedBanks, setSavedBanks] = useState<SavedBank[]>(() => {
-    const saved = localStorage.getItem('taskpulse_banks');
-    if (saved) return JSON.parse(saved);
-    return [
-      { id: '1', bankName: 'Moniepoint MFB', accountName: 'Tunde Emmanuel Adeleke', accountNumber: '8012', type: 'Current' },
-      { id: '2', bankName: 'Access Bank PLC', accountName: 'Tunde Emmanuel Adeleke', accountNumber: '4920', type: 'Savings' }
-    ];
+  // Developer / Reviewer Demo Override (lets tester fast-forward the 2 days anytime)
+  const [is48hLockOverridden, setIs48hLockOverridden] = useState<boolean>(() => {
+    return localStorage.getItem('taskpulse_48h_override') === 'true';
   });
 
-  const [isAddingBank, setIsAddingBank] = useState(false);
-  const [newBankName, setNewBankName] = useState('Access Bank PLC');
-  const [newAccountNumber, setNewAccountNumber] = useState('');
-  const [newAccountName, setNewAccountName] = useState('Tunde Emmanuel Adeleke');
+  const [isSecurityLockModalOpen, setIsSecurityLockModalOpen] = useState<boolean>(false);
 
-  // Transactions list
-  const [transactions, setTransactions] = useState<Transaction[]>(() => {
-    const saved = localStorage.getItem('taskpulse_transactions');
-    if (saved) return JSON.parse(saved);
-    return [
-      { id: 'tr1', type: 'Payout', title: 'Task Payout: App Onboarding', sub: 'PayFlow Labs', amount: 1500, status: 'Settled', date: 'Today, 10:14 AM' },
-      { id: 'tr2', type: 'Cashout', title: 'Instant Bank Cashout', sub: 'Moniepoint MFB', amount: -10000, status: 'Disbursed', date: 'Yesterday' },
-      { id: 'tr3', type: 'Data', title: 'Data Bundle Purchase', sub: 'MTN 5GB SME', amount: -1200, status: 'Delivered', date: 'Oct 04' }
-    ];
-  });
+  // Live Countdown Ticker
+  useEffect(() => {
+    if (is48hLockOverridden || cooldownSeconds <= 0) return;
+    const interval = setInterval(() => {
+      setCooldownSeconds(prev => {
+        const next = Math.max(0, prev - 1);
+        localStorage.setItem('taskpulse_cooldown_seconds', next.toString());
+        return next;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [is48hLockOverridden, cooldownSeconds]);
 
-  // Task feed filters
-  const [taskFilter, setTaskFilter] = useState<'all' | 'App Tests' | 'Surveys' | 'Field Audits' | 'Micro Tasks'>('all');
+  const formatCountdown = (totalSecs: number) => {
+    const d = Math.floor(totalSecs / 86400);
+    const h = Math.floor((totalSecs % 86400) / 3600);
+    const m = Math.floor((totalSecs % 3600) / 60);
+    const s = totalSecs % 60;
+    return {
+      d: String(d).padStart(2, '0'),
+      h: String(h).padStart(2, '0'),
+      m: String(m).padStart(2, '0'),
+      s: String(s).padStart(2, '0'),
+      fullString: `${d}d ${h}h ${m}m ${s}s`
+    };
+  };
 
-  // Active / Accepted Task in the Workspace
-  const [activeTask, setActiveTask] = useState<Task | null>(() => {
-    const saved = localStorage.getItem('taskpulse_active_task');
-    return saved ? JSON.parse(saved) : null;
-  });
+  const countdownParts = formatCountdown(cooldownSeconds);
+  const isWithdrawalLocked = !is48hLockOverridden && cooldownSeconds > 0;
+  const progressPercent = Math.min(100, Math.round(((172800 - cooldownSeconds) / 172800) * 100));
 
-  // Workspace interaction state
-  const [workspaceTimer, setWorkspaceTimer] = useState<number>(2304); // 38m 24s default timer in seconds
-  const [uploadedFile, setUploadedFile] = useState<string | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
-  const [declarationChecked, setDeclarationChecked] = useState(true);
-  const [activeStepsStatus, setActiveStepsStatus] = useState<boolean[]>([false, false, false]);
+  // Ledger Transactions (FinTech Double-Entry Audit Trail)
+  const [transactions, setTransactions] = useState<Transaction[]>([
+    { id: 'tx-1', type: 'Payout', title: 'TikTok Follow Bounty', sub: 'Kuda FinTech Media · SLA verified', amount: 450, status: 'Settled', date: 'Today, 2:15 PM', reference: 'ref_tp_984102' },
+    { id: 'tx-2', type: 'Deposit', title: 'Activation Deposit', sub: 'Paystack NIP Instant Inflow', amount: 3000, status: 'Settled', date: 'Yesterday, 11:20 AM', reference: 'ref_tp_871920' },
+    { id: 'tx-3', type: 'Streak', title: 'Day 5 Login Multiplier', sub: 'Community habit reward', amount: 300, status: 'Settled', date: 'Today, 8:00 AM', reference: 'ref_tp_719024' },
+    { id: 'tx-4', type: 'Payout', title: 'Banking KYC Friction Survey', sub: 'Moniepoint Research Corp', amount: 650, status: 'Settled', date: 'Yesterday, 4:10 PM', reference: 'ref_tp_610294' }
+  ]);
+  const [isLedgerModalOpen, setIsLedgerModalOpen] = useState(false);
 
-  // Submissions list
-  const [submissions, setSubmissions] = useState<Submission[]>(() => {
-    const saved = localStorage.getItem('taskpulse_submissions');
-    if (saved) return JSON.parse(saved);
-    return [
-      { id: 'sub1', taskTitle: 'Test New Banking App Onboarding', reward: 1500, timeAgo: '22 mins ago', device: 'Samsung Galaxy A53 (Verified)', file: 'Screen_KYC.mp4', status: 'Active', autoUnlockTime: '23h 38m' },
-      { id: 'sub2', taskTitle: 'Lagos Retail POS Geolocation Audit', reward: 2400, timeAgo: '3 hours ago', device: 'GPS 100m Geofenced (Ikeja Plaza)', file: 'Screen_POS_Lekki.png', status: 'Active', autoUnlockTime: '20h 52m' },
-      { id: 'sub3', taskTitle: 'Agency Banking Voice Sample', reward: 850, timeAgo: '6 hours ago', device: 'Mic Authenticated', file: 'Voice_KYC_Sample.wav', status: 'Approved', autoUnlockTime: 'Settled' }
-    ];
-  });
+  // Tasks & Submissions
+  const [tasksList, setTasksList] = useState<Task[]>(DEFAULT_TASKS);
+  const [taskFilter, setTaskFilter] = useState<'all' | 'Social' | 'App Tests' | 'Surveys' | 'Field Audits'>('all');
+  const [selectedTaskForModal, setSelectedTaskForModal] = useState<Task | null>(null);
+  const [activeTask, setActiveTask] = useState<Task | null>(null);
+  const [workspaceTimer, setWorkspaceTimer] = useState<number>(1800);
+  const [taskProofInput, setTaskProofInput] = useState('');
+  const [uploadedScreenshot, setUploadedScreenshot] = useState<string | null>(null);
 
-  const [submissionTab, setSubmissionTab] = useState<'Active' | 'Approved' | 'Action'>('Active');
+  const [submissions, setSubmissions] = useState<Submission[]>([
+    { id: 'sub-101', taskTitle: 'Follow & Like Brand Announcement on TikTok', reward: 450, timeAgo: '15 mins ago', device: 'TikTok @doctorr_ng', file: 'Proof_Verified.png', status: 'Active', autoUnlockTime: '23h 45m' },
+    { id: 'sub-102', taskTitle: 'Test New Banking App Onboarding', reward: 1500, timeAgo: '2 hours ago', device: 'Samsung Galaxy A53', file: 'Screen_KYC.mp4', status: 'Active', autoUnlockTime: '21h 10m' }
+  ]);
 
-  // Notification Toast state
+  // Paystack Deposit Modal for the 3k Drop
+  const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
+  const [depositChannel, setDepositChannel] = useState<'transfer' | 'card' | 'ussd'>('transfer');
+  const [isProcessingDeposit, setIsProcessingDeposit] = useState(false);
+
+  // Saved Banks with Paystack bank codes
+  const [savedBanks, setSavedBanks] = useState<SavedBank[]>([
+    { id: '1', bankCode: '50515', bankName: 'Moniepoint MFB', accountName: 'EMMANUEL ONUABUGHICHI', accountNumber: '8012394012', type: 'Current' },
+    { id: '2', bankCode: '044', bankName: 'Access Bank PLC', accountName: 'EMMANUEL ONUABUGHICHI', accountNumber: '0816596113', type: 'Savings' }
+  ]);
+  const [selectedBankId, setSelectedBankId] = useState('1');
+
+  // Paystack Withdrawal Modal Workflow
+  const [isCashoutModalOpen, setIsCashoutModalOpen] = useState(false);
+  const [cashoutAmount, setCashoutAmount] = useState('10000');
+  const [cashoutStep, setCashoutStep] = useState<'amount' | 'otp' | 'success'>('amount');
+  const [paystackOtp, setPaystackOtp] = useState('');
+  const [isCashoutProcessing, setIsCashoutProcessing] = useState(false);
+  const [transferRef, setTransferRef] = useState('');
+
+  // Add Bank Modal with Live Paystack Resolution
+  const [isAddBankModalOpen, setIsAddBankModalOpen] = useState(false);
+  const [addBankCode, setAddBankCode] = useState('999992');
+  const [addAccountNum, setAddAccountNum] = useState('');
+  const [resolvedAccountName, setResolvedAccountName] = useState('');
+  const [isResolvingAccount, setIsResolvingAccount] = useState(false);
+
+  // Daily Streak Modal
+  const [isStreakModalOpen, setIsStreakModalOpen] = useState(false);
+
+  // Profile Edit fields
+  const [editFirstName, setEditFirstName] = useState(user?.firstName || 'EMMANUEL');
+  const [editLastName, setEditLastName] = useState(user?.lastName || 'ONUABUGHICHI');
+  const [editEmail, setEditEmail] = useState(user?.email || 'emmanuelonuabughichi@gmail.com');
+  const [editPhone, setEditPhone] = useState(user?.phone || '08165961134');
+
+  // Toast
   const [toast, setToast] = useState<{ title: string; subtitle: string; show: boolean }>({
     title: '',
     subtitle: '',
     show: false
   });
 
-  // Direct cashout modal & amount selected state
-  const [cashoutAmountInput, setCashoutAmountInput] = useState<string>('14250');
-  const [selectedBankId, setSelectedBankId] = useState<string>('1');
-  const [isCashoutConfirming, setIsCashoutConfirming] = useState(false);
-  const [isCashoutProcessing, setIsCashoutProcessing] = useState(false);
+  const showToast = (title: string, subtitle: string) => {
+    setToast({ title, subtitle, show: true });
+    setTimeout(() => {
+      setToast(prev => ({ ...prev, show: false }));
+    }, 4000);
+  };
 
-  // UTU Utility Data Redemption
-  const [isUtilityRedeeming, setIsUtilityRedeeming] = useState<boolean>(false);
-  const [utilitySelected, setUtilitySelected] = useState<{ provider: string; name: string; price: number } | null>(null);
-
-  // Support Dispute dialog state
-  const [isSupportOpen, setIsSupportOpen] = useState(false);
-  const [supportMessage, setSupportMessage] = useState('');
-  const [supportSubmitted, setSupportSubmitted] = useState(false);
-
-  // Password visibility
-  const [showPassword, setShowPassword] = useState(false);
-
-  // Referral copy state
-  const [copiedReferral, setCopiedReferral] = useState(false);
-
-  // Active workspace count down effect
   useEffect(() => {
-    let interval: any = null;
-    if (activeTask) {
-      interval = setInterval(() => {
-        setWorkspaceTimer((prev) => {
-          if (prev <= 1) {
-            clearInterval(interval);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
+    localStorage.setItem('taskpulse_theme', isDarkMode ? 'dark' : 'light');
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
     } else {
-      setWorkspaceTimer(2304);
+      document.documentElement.classList.remove('dark');
     }
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [activeTask]);
+  }, [isDarkMode]);
 
-  // Synchronize local storage when crucial states update
+  useEffect(() => {
+    localStorage.setItem('taskpulse_activated', isActivated ? 'true' : 'false');
+  }, [isActivated]);
+
+  useEffect(() => {
+    if (user) {
+      localStorage.setItem('taskpulse_user_v5', JSON.stringify(user));
+    }
+  }, [user]);
+
   useEffect(() => {
     localStorage.setItem('taskpulse_withdrawable', withdrawableBalance.toString());
   }, [withdrawableBalance]);
 
+  // Live Paystack NUBAN Resolution Simulation
   useEffect(() => {
-    localStorage.setItem('taskpulse_pending', pendingBalance.toString());
-  }, [pendingBalance]);
-
-  useEffect(() => {
-    localStorage.setItem('taskpulse_lifetime', lifetimeDisbursed.toString());
-  }, [lifetimeDisbursed]);
-
-  useEffect(() => {
-    localStorage.setItem('taskpulse_banks', JSON.stringify(savedBanks));
-  }, [savedBanks]);
-
-  useEffect(() => {
-    localStorage.setItem('taskpulse_transactions', JSON.stringify(transactions));
-  }, [transactions]);
-
-  useEffect(() => {
-    localStorage.setItem('taskpulse_submissions', JSON.stringify(submissions));
-  }, [submissions]);
-
-  useEffect(() => {
-    if (activeTask) {
-      localStorage.setItem('taskpulse_active_task', JSON.stringify(activeTask));
+    if (addAccountNum.length === 10) {
+      setIsResolvingAccount(true);
+      setResolvedAccountName('');
+      const timer = setTimeout(() => {
+        setIsResolvingAccount(false);
+        setResolvedAccountName(`${user?.firstName || 'EMMANUEL'} ${user?.lastName || 'ONUABUGHICHI'}`);
+      }, 700);
+      return () => clearTimeout(timer);
     } else {
-      localStorage.removeItem('taskpulse_active_task');
+      setResolvedAccountName('');
     }
-  }, [activeTask]);
+  }, [addAccountNum, user]);
 
-  // Show dynamic self-dismissing toast
-  const triggerToast = (title: string, subtitle: string) => {
-    setToast({ title, subtitle, show: true });
+  // Execute 3,000 Activation Drop
+  const handleCompleteActivation = () => {
+    setIsProcessingDeposit(true);
     setTimeout(() => {
-      setToast((prev) => ({ ...prev, show: false }));
-    }, 4500);
+      setIsProcessingDeposit(false);
+      setIsDepositModalOpen(false);
+      setIsActivated(true);
+      setWithdrawableBalance(prev => prev + 3000);
+      setTransactions(prev => [
+        {
+          id: `tx-${Date.now()}`,
+          type: 'Deposit',
+          title: 'Account Activation Deposit',
+          sub: '100% credited to wallet via Paystack',
+          amount: 3000,
+          status: 'Settled',
+          date: 'Just now',
+          reference: `ref_tp_${Math.floor(100000 + Math.random() * 900000)}`
+        },
+        ...prev
+      ]);
+      triggerConfetti();
+      showToast('Account Activated!', '₦3,000 credited to your balance. 48-hour seasoning timer initialized.');
+    }, 1200);
   };
 
-  // Simplified Authentication logic: Strictly Username, Phone Number, Password
-  const handleAuthentication = (e: React.FormEvent) => {
-    e.preventDefault();
-    setAuthError('');
-
-    if (!phone || !username || !password) {
-      setAuthError('All fields (Phone, Username, and Password) are strictly required.');
-      return;
-    }
-
-    if (phone.length < 8) {
-      setAuthError('Please enter a valid phone number (minimum 8 characters).');
-      return;
-    }
-
-    if (username.length < 3) {
-      setAuthError('Username must be at least 3 characters.');
-      return;
-    }
-
-    if (password.length < 6) {
-      setAuthError('Password must be at least 6 characters.');
-      return;
-    }
-
-    // Success flow - mock login or signup
-    const generatedCode = `TP-${username.toUpperCase().slice(0, 5)}-${Math.floor(1000 + Math.random() * 9000)}`;
-    const loggedUser = { 
-      username, 
-      phone,
-      referralCode: generatedCode,
-      referredBy: authMode === 'register' && referralInput.trim() ? referralInput.trim().toUpperCase() : null,
-      hasCompletedFirstTask: false
-    };
-    setUser(loggedUser);
-    localStorage.setItem('taskpulse_user', JSON.stringify(loggedUser));
-    triggerToast(
-      authMode === 'register' ? 'Account Created' : 'Welcome Back',
-      `Logged in as @${username} (${phone})`
-    );
+  // Instant Demo Activation
+  const handleInstantDemoActivate = () => {
+    setIsActivated(true);
+    setWithdrawableBalance(prev => prev + 3000);
+    setTransactions(prev => [
+      {
+        id: `tx-${Date.now()}`,
+        type: 'Deposit',
+        title: 'Account Activation Deposit (Demo)',
+        sub: '100% credited to wallet via Paystack',
+        amount: 3000,
+        status: 'Settled',
+        date: 'Just now',
+        reference: `ref_tp_${Math.floor(100000 + Math.random() * 900000)}`
+      },
+      ...prev
+    ]);
+    triggerConfetti();
+    showToast('Instant Activated!', '₦3,000 stake credited. 48-hour security seasoning timer running.');
   };
 
-  const handleSignOut = () => {
-    setUser(null);
-    localStorage.removeItem('taskpulse_user');
-    setActiveTask(null);
-    triggerToast('Logged Out', 'Your session has been cleared.');
+  // Withdraw Click Handler (Respects 2-Day Rule)
+  const handleWithdrawClick = () => {
+    if (!isActivated) {
+      setIsDepositModalOpen(true);
+      return;
+    }
+
+    if (isWithdrawalLocked) {
+      setIsSecurityLockModalOpen(true);
+    } else {
+      setCashoutStep('amount');
+      setIsCashoutModalOpen(true);
+    }
   };
 
-  // Task Interaction Handlers
-  const handleAcceptTask = (task: Task) => {
-    if (activeTask) {
-      triggerToast('Active Task Already In Progress', 'Please complete or abandon your current task first.');
+  // Override/Fast-Forward 48h Security Lock for Demo Review
+  const handleFastForwardLock = () => {
+    setIs48hLockOverridden(true);
+    localStorage.setItem('taskpulse_48h_override', 'true');
+    setIsSecurityLockModalOpen(false);
+    triggerConfetti();
+    showToast('48h Cooldown Bypassed!', 'Security check satisfied. Payout rails now unlocked!');
+    setTimeout(() => {
+      setCashoutStep('amount');
+      setIsCashoutModalOpen(true);
+    }, 400);
+  };
+
+  // Reset 48h Lock back to active
+  const handleReactivate48hLock = () => {
+    setIs48hLockOverridden(false);
+    setCooldownSeconds(157335); // Reset back to ~43.7h
+    localStorage.removeItem('taskpulse_48h_override');
+    localStorage.setItem('taskpulse_cooldown_seconds', '157335');
+    showToast('48h Security Lock Re-Engaged', 'Initial cashout cooling period is now active.');
+  };
+
+  // Claim Daily Streak
+  const handleClaimDailyStreak = () => {
+    if (!user) return;
+    if (user.streakClaimedToday) {
+      showToast('Streak Protected', '5-day streak active! 0% Paystack fees are unlocked.');
+      return;
+    }
+    const bonus = 300;
+    setWithdrawableBalance(prev => prev + bonus);
+    setUser({
+      ...user,
+      streakDays: user.streakDays + 1,
+      streakClaimedToday: true
+    });
+    setTransactions(prev => [
+      {
+        id: `tx-${Date.now()}`,
+        type: 'Streak',
+        title: 'Day 5 Login Multiplier',
+        sub: '0% Paystack withdrawal fee active',
+        amount: bonus,
+        status: 'Settled',
+        date: 'Just now',
+        reference: `ref_tp_${Math.floor(100000 + Math.random() * 900000)}`
+      },
+      ...prev
+    ]);
+    triggerConfetti();
+    showToast('🔥 +₦300 Claimed!', 'Your 5-day streak is blazing! 0% Paystack fees unlocked.');
+    setIsStreakModalOpen(false);
+  };
+
+  // Start Task
+  const handleStartTask = (task: Task) => {
+    if (!isActivated) {
+      setIsDepositModalOpen(true);
       return;
     }
     setActiveTask(task);
-    setWorkspaceTimer(2700); // 45:00 minutes
-    setUploadedFile(null);
-    setActiveStepsStatus([false, false, false]);
-    setActiveTab('earn'); // Keep view on dashboard / active task
-    triggerToast('Task Reserved', `${task.title} allocated to your active workspace.`);
+    setWorkspaceTimer(1800);
+    setTaskProofInput('');
+    setUploadedScreenshot(null);
+    setSelectedTaskForModal(null);
+    setActiveTab('tasks');
+    showToast('Task Reserved', `${task.title} allocated to your active workspace.`);
   };
 
-  const handleAbandonTask = () => {
+  // Submit Task Proof
+  const handleSubmitTaskProof = () => {
     if (!activeTask) return;
-    setActiveTask(null);
-    setUploadedFile(null);
-    triggerToast('Task Abandoned', 'The reservation has been returned to the pool.');
-  };
-
-  // Mock upload interaction for proof submission
-  const handleMockUpload = () => {
-    setIsUploading(true);
-    setTimeout(() => {
-      setIsUploading(false);
-      const randomId = Math.floor(1000 + Math.random() * 9000);
-      setUploadedFile(`Screen_KYC_Verification_${randomId}.mp4`);
-      triggerToast('Proof Loaded', 'EXIF metadata and Nigerian GPS telemetry verified successfully.');
-    }, 1500);
-  };
-
-  const handleSubmitProof = () => {
-    if (!activeTask) return;
-    if (!uploadedFile) {
-      triggerToast('Missing Proof', 'Please capture or upload your video screen sequence.');
-      return;
-    }
-    if (!declarationChecked) {
-      triggerToast('Attestation Required', 'You must verify the physical, authentic device declaration checkbox.');
+    if (!taskProofInput && !uploadedScreenshot) {
+      showToast('Proof Required', 'Please enter your handle/link or upload a screenshot.');
       return;
     }
 
-    // Move task to submissions list as "Active Review"
-    const newSubmission: Submission = {
+    const newSub: Submission = {
       id: `sub-${Date.now()}`,
       taskTitle: activeTask.title,
       reward: activeTask.reward,
       timeAgo: 'Just now',
-      device: 'Samsung Galaxy A53 (Verified)',
-      file: uploadedFile,
+      device: taskProofInput ? `@${taskProofInput}` : 'Screenshot Verified',
+      file: uploadedScreenshot || 'Link_Proof_Submitted',
       status: 'Active',
       autoUnlockTime: '23h 59m'
     };
 
-    setSubmissions([newSubmission, ...submissions]);
-    setPendingBalance((prev) => prev + activeTask.reward);
+    setSubmissions([newSub, ...submissions]);
+    setPendingBalance(prev => prev + activeTask.reward);
     setActiveTask(null);
-    setUploadedFile(null);
-    setActiveTab('submissions');
-    setSubmissionTab('Active');
-    
-    // Referral bonus check
-    if (user && user.referredBy && !user.hasCompletedFirstTask) {
-      const bonusAmount = 500;
-      setWithdrawableBalance((prev) => prev + bonusAmount);
-      
-      const refTx: Transaction = {
-        id: `tr-ref-${Date.now()}`,
-        type: 'Payout',
-        title: 'Referral Sign-Up Bonus',
-        sub: `Referred by ${user.referredBy}`,
-        amount: bonusAmount,
-        status: 'Settled',
-        date: 'Today, Just now'
-      };
-      
-      setTransactions((prev) => [refTx, ...prev]);
-      
-      // Update user state to mark first task completed
-      const updatedUser = { ...user, hasCompletedFirstTask: true };
-      setUser(updatedUser);
-      localStorage.setItem('taskpulse_user', JSON.stringify(updatedUser));
-      
-      triggerToast('₦500 Referral Bonus Credited!', `Sign-up reward settled. Referrer @${user.referredBy.split('-')[1] || 'arbitrage_ref'} also rewarded +₦500.`);
-    } else {
-      triggerToast('Submission Received', `₦${newSubmission.reward.toLocaleString()} locked in escrow. 24h SLA review started.`);
-    }
+    setTaskProofInput('');
+    setUploadedScreenshot(null);
+    triggerConfetti();
+    showToast('Proof Submitted', `₦${activeTask.reward} locked in escrow. 24h SLA review started.`);
   };
 
-  // Dynamic SLA simulation for immediate approval evaluation
-  const handleSimulateApproval = (submissionId: string) => {
-    const targetSub = submissions.find(s => s.id === submissionId);
-    if (!targetSub) return;
-
-    // Change status
-    const updatedSubmissions = submissions.map(s => {
-      if (s.id === submissionId) {
-        return { ...s, status: 'Approved' as const, autoUnlockTime: 'Settled' };
-      }
-      return s;
-    });
-    setSubmissions(updatedSubmissions);
-
-    // Update balances
-    setPendingBalance((prev) => Math.max(0, prev - targetSub.reward));
-    setWithdrawableBalance((prev) => prev + targetSub.reward);
-
-    // Add settlement ledger transaction
-    const newTx: Transaction = {
-      id: `tr-settle-${Date.now()}`,
-      type: 'Payout',
-      title: `Task Payout: Approved`,
-      sub: targetSub.taskTitle,
-      amount: targetSub.reward,
-      status: 'Settled',
-      date: 'Today, Just now'
-    };
-    setTransactions((prev) => [newTx, ...prev]);
-
-    triggerToast('Escrow Funds Released', `₦${targetSub.reward.toLocaleString()} settled to your withdrawable balance.`);
-  };
-
-  // Wallet Cashout Action
-  const handleCashout = (e: React.FormEvent) => {
+  // Paystack Cashout Initiation
+  const handleInitiateCashout = (e: React.FormEvent) => {
     e.preventDefault();
-    const amount = parseFloat(cashoutAmountInput);
+    const amt = parseFloat(cashoutAmount);
 
-    if (isNaN(amount) || amount <= 0) {
-      triggerToast('Invalid Amount', 'Please input a valid withdrawable amount.');
+    if (amt < 2000) {
+      showToast('Minimum Withdrawal is ₦2,000', 'Tiered minimum withdrawal threshold for verified earners is ₦2,000.');
+      return;
+    }
+    if (amt > withdrawableBalance) {
+      showToast('Insufficient Balance', `Available balance is ₦${withdrawableBalance.toLocaleString()}`);
+      return;
+    }
+    if (user && amt > user.dailyCashoutLimit) {
+      showToast('Daily Limit Exceeded', `Your Level ${user.level} limit is ₦${user.dailyCashoutLimit.toLocaleString()}/day.`);
       return;
     }
 
-    if (amount > withdrawableBalance) {
-      triggerToast('Insufficient Balance', `Your withdrawable balance is ₦${withdrawableBalance.toLocaleString()}.`);
-      return;
-    }
+    setCashoutStep('otp');
+    setPaystackOtp('');
+  };
 
-    setIsCashoutConfirming(false);
+  // Paystack OTP Final Confirmation
+  const handleConfirmPaystackOtp = (e: React.FormEvent) => {
+    e.preventDefault();
+    const amt = parseFloat(cashoutAmount);
     setIsCashoutProcessing(true);
 
     setTimeout(() => {
-      setWithdrawableBalance((prev) => prev - amount);
-      setLifetimeDisbursed((prev) => prev + amount);
-
-      const targetBank = savedBanks.find((b) => b.id === selectedBankId) || savedBanks[0];
-      const newTx: Transaction = {
-        id: `tr-${Date.now()}`,
-        type: 'Cashout',
-        title: 'Instant Bank Cashout',
-        sub: targetBank.bankName,
-        amount: -amount,
-        status: 'Disbursed',
-        date: 'Today, Just now'
-      };
-
-      setTransactions([newTx, ...transactions]);
+      setWithdrawableBalance(prev => prev - amt);
       setIsCashoutProcessing(false);
-      triggerToast('Cashout Disbursed', `₦${amount.toLocaleString()} settled to ${targetBank.bankName} (${targetBank.accountNumber}).`);
-    }, 2000);
-  };
-
-  // Saved Bank Addition
-  const handleAddBank = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newAccountNumber || newAccountNumber.length < 10) {
-      triggerToast('Invalid Account Number', 'Please enter a valid 10-digit NUBAN account number.');
-      return;
-    }
-
-    const newBank: SavedBank = {
-      id: `bank-${Date.now()}`,
-      bankName: newBankName,
-      accountName: newAccountName,
-      accountNumber: newAccountNumber,
-      type: 'Savings'
-    };
-
-    setSavedBanks([...savedBanks, newBank]);
-    setSelectedBankId(newBank.id);
-    setIsAddingBank(false);
-    setNewAccountNumber('');
-    triggerToast('Bank Added', `${newBank.bankName} successfully linked to your profile.`);
-  };
-
-  // Data Bundle Purchase
-  const handleRedeemUtility = (provider: string, name: string, price: number) => {
-    setUtilitySelected({ provider, name, price });
-    setIsUtilityRedeeming(true);
-  };
-
-  const handleConfirmUtility = () => {
-    if (!utilitySelected) return;
-    if (utilitySelected.price > withdrawableBalance) {
-      triggerToast('Insufficient Funds', 'Redeem amount exceeds your withdrawable balance.');
-      setIsUtilityRedeeming(false);
-      return;
-    }
-
-    setWithdrawableBalance((prev) => prev - utilitySelected.price);
-    
-    const newTx: Transaction = {
-      id: `tr-${Date.now()}`,
-      type: 'Data',
-      title: `${utilitySelected.provider} ${utilitySelected.name}`,
-      sub: 'Instant VTU',
-      amount: -utilitySelected.price,
-      status: 'Delivered',
-      date: 'Today, Just now'
-    };
-
-    setTransactions([newTx, ...transactions]);
-    setIsUtilityRedeeming(false);
-    setUtilitySelected(null);
-    triggerToast('Voucher Redeemed', `Your ${utilitySelected.provider} subscription was loaded successfully.`);
-  };
-
-  // Support / Dispute Submission
-  const handleSupportSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!supportMessage.trim()) return;
-    setSupportSubmitted(true);
-    setTimeout(() => {
-      setSupportSubmitted(false);
-      setSupportMessage('');
-      setIsSupportOpen(false);
-      triggerToast('Dispute Filed', 'Our 24/7 arbitration specialists have initiated a priority review.');
+      const ref = `TRF_pstk_${Math.random().toString(36).substring(2, 9)}`;
+      setTransferRef(ref);
+      setTransactions(prev => [
+        {
+          id: `tx-${Date.now()}`,
+          type: 'Cashout',
+          title: `Cashout to ${selectedBank.bankName}`,
+          sub: `NIP Transfer to ${selectedBank.accountNumber}`,
+          amount: amt,
+          status: 'Disbursed',
+          date: 'Just now',
+          reference: ref
+        },
+        ...prev
+      ]);
+      setCashoutStep('success');
+      triggerConfetti();
     }, 1500);
   };
 
-  // Helper formatting for timer
-  const formatTimer = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+  // Add Bank
+  const handleAddBank = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (addAccountNum.length !== 10) {
+      showToast('Invalid NUBAN', 'Please enter a valid 10-digit NUBAN account.');
+      return;
+    }
+    const bankMeta = PAYSTACK_BANKS.find(b => b.code === addBankCode) || PAYSTACK_BANKS[0];
+    const newBank: SavedBank = {
+      id: `bank-${Date.now()}`,
+      bankCode: bankMeta.code,
+      bankName: bankMeta.name,
+      accountName: resolvedAccountName || `${user?.firstName || 'EMMANUEL'} ${user?.lastName || 'ONUABUGHICHI'}`,
+      accountNumber: addAccountNum,
+      type: 'Savings'
+    };
+    setSavedBanks([...savedBanks, newBank]);
+    setSelectedBankId(newBank.id);
+    setIsAddBankModalOpen(false);
+    setAddAccountNum('');
+    triggerConfetti();
+    showToast('Paystack Recipient Saved', `${newBank.bankName} verified & linked for instant payouts.`);
   };
 
+  // Save Profile
+  const handleSaveProfile = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    setUser({
+      ...user,
+      firstName: editFirstName,
+      lastName: editLastName,
+      email: editEmail,
+      phone: editPhone
+    });
+    triggerConfetti();
+    showToast('Profile Updated', 'Your profile details have been saved successfully.');
+  };
+
+  const selectedBank = savedBanks.find(b => b.id === selectedBankId) || savedBanks[0];
+
   return (
-    <div className="h-screen w-full overflow-hidden bg-brand-background text-brand-on-background flex flex-col items-center justify-center p-0 sm:p-4 select-none">
+    <div className={`h-screen w-full overflow-hidden flex flex-col items-center justify-center p-0 md:p-3 select-none transition-colors duration-300 ${isDarkMode ? 'dark bg-[#070709] text-white' : 'bg-[#f4f6f8] text-slate-900'}`}>
       
-      {/* PROFESSIONAL BACKGROUND ACCENTS AND MESH GRADIENTS */}
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,var(--color-brand-surface-highest),transparent)] pointer-events-none z-0 opacity-75"></div>
-      <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-brand-surface-dim/40 rounded-full blur-3xl pointer-events-none z-0 opacity-60"></div>
+      {/* AMBIENT AURORA BACKGROUND GLOWS */}
+      <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
+        <div className="absolute top-[-10%] right-[-10%] w-[550px] h-[550px] rounded-full bg-cyan-500/10 dark:bg-cyan-500/15 blur-[140px] animate-float-slow"></div>
+        <div className="absolute bottom-[-10%] left-[-10%] w-[650px] h-[650px] rounded-full bg-blue-600/10 dark:bg-sky-500/10 blur-[150px] animate-float-slow [animation-delay:2.5s]"></div>
+      </div>
 
-      {/* PARENT RESPONSIVE CONTAINER */}
-      <div className="relative z-10 w-full max-w-6xl h-full max-h-full sm:max-h-[840px] grid grid-cols-1 lg:grid-cols-12 gap-8 items-center justify-items-center overflow-hidden">
+      {/* PHONE CANVAS CONTAINER (Revolut / LeadsAfrica Ultra-Chic Frame) */}
+      <div className="relative z-10 w-full max-w-md h-full md:max-h-[852px] bg-white dark:bg-[#0c0d12] md:rounded-[46px] shadow-2xl md:border md:border-slate-200/90 dark:md:border-white/[0.08] overflow-hidden flex flex-col transition-colors duration-300">
         
-        {/* DESKTOP BRAND LEFT COLUMN - Hidden on Mobile */}
-        <div className="hidden lg:flex lg:col-span-5 flex-col space-y-6 text-left max-w-md">
-          
-          <div className="inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-brand-surface-container border border-brand-surface-high text-xs font-semibold text-brand-primary uppercase tracking-widest leading-none">
-            <span className="w-1.5 h-1.5 rounded-full bg-brand-primary animate-pulse"></span>
-            Escrow Network Spec: Active
-          </div>
-          
-          <div className="space-y-3">
-            <h1 className="text-4xl font-extrabold tracking-tight text-brand-on-background leading-tight">
-              A High-Trust <br />
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-primary to-brand-tertiary">Decentralized</span> <br />
-              NIP Escrow Switch.
-            </h1>
-            <p className="text-sm text-brand-on-surface-variant leading-relaxed font-medium">
-              An institutional crowd-testing platform built strictly to coordinate verified telemetry checks, hardware diagnostic validations, and autonomous instant payouts across Nigeria.
-            </p>
-          </div>
-
-          {/* Claim-to-Proof Adjacency Security Trust items */}
-          <div className="border-t border-brand-surface-container pt-6 space-y-4 text-xs text-brand-on-surface-variant">
-            
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-brand-surface-low border border-brand-surface-container flex items-center justify-center text-brand-primary">
-                <Shield className="w-4 h-4" />
+        {/* ======================================================== */}
+        {/* TOP STATUS BAR & HEADER                                  */}
+        {/* ======================================================== */}
+        <header className="px-5 py-3.5 bg-white/95 dark:bg-[#0c0d12]/95 backdrop-blur-xl border-b border-slate-100 dark:border-white/[0.06] flex items-center justify-between shrink-0 z-40 transition-colors">
+          <div className="flex items-center gap-3">
+            <button 
+              onClick={() => setIsLedgerModalOpen(true)}
+              className="w-9 h-9 rounded-2xl bg-slate-100 dark:bg-zinc-900 border border-slate-200/60 dark:border-white/[0.08] hover:bg-slate-200 dark:hover:bg-zinc-800 flex items-center justify-center text-slate-700 dark:text-zinc-300 transition-colors"
+              title="View Double-Entry Ledger"
+            >
+              <FileText className="w-4 h-4 text-sky-500" />
+            </button>
+            <div className="flex items-center gap-2 cursor-pointer" onClick={() => setActiveTab('home')}>
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-sky-500 via-cyan-400 to-blue-600 flex items-center justify-center text-white font-black text-sm shadow-md shadow-sky-500/30">
+                ⚡
               </div>
               <div>
-                <strong className="text-brand-on-background block font-bold">100% Escrow Protection</strong>
-                <span className="text-[11px]">Employer task funds are pre-funded and held in custody.</span>
+                <span className="text-base font-black tracking-tight bg-gradient-to-r from-sky-600 via-cyan-500 to-blue-600 dark:from-sky-400 dark:via-cyan-300 dark:to-blue-400 bg-clip-text text-transparent">
+                  TaskPulse
+                </span>
+                <span className="text-[9px] block font-extrabold text-sky-600 dark:text-cyan-400 tracking-wider uppercase leading-none">
+                  FinTech Bounties
+                </span>
               </div>
             </div>
+          </div>
 
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-brand-surface-low border border-brand-surface-container flex items-center justify-center text-brand-tertiary">
-                <Activity className="w-4 h-4" />
+          <div className="flex items-center gap-2">
+            {/* Dark / Light Toggle Pill */}
+            <button 
+              onClick={() => setIsDarkMode(!isDarkMode)}
+              className="w-9 h-9 rounded-2xl bg-slate-100 dark:bg-zinc-900 border border-slate-200/60 dark:border-white/[0.08] hover:bg-slate-200 dark:hover:bg-zinc-800 flex items-center justify-center text-slate-700 dark:text-yellow-400 transition-all shadow-xs"
+              title="Toggle theme"
+            >
+              {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4 text-slate-700" />}
+            </button>
+
+            {/* Profile Avatar Pill */}
+            <button 
+              onClick={() => setActiveTab('profile')}
+              className="flex items-center gap-1.5 pl-1.5 pr-2.5 py-1 rounded-2xl bg-sky-50 dark:bg-zinc-900 border border-sky-200 dark:border-white/[0.08] hover:border-sky-400 transition-all"
+            >
+              <div className="w-6 h-6 rounded-xl bg-gradient-to-tr from-sky-500 to-cyan-400 text-white flex items-center justify-center text-[10px] font-black shadow-xs">
+                {user?.username.slice(0, 1)}
               </div>
-              <div>
-                <strong className="text-brand-on-background block font-bold">Automated Autocut SLA</strong>
-                <span className="text-[11px]">If manual review fails within 24h, the escrow locks auto-release.</span>
-              </div>
+              <span className="text-[11px] font-bold text-sky-600 dark:text-zinc-200 max-w-[70px] truncate">
+                @{user?.username}
+              </span>
+            </button>
+          </div>
+        </header>
+
+        {/* ======================================================== */}
+        {/* LIVE SOCIAL PROOF TICKER                                 */}
+        {/* ======================================================== */}
+        <div className="bg-sky-50/70 dark:bg-zinc-950/80 border-b border-sky-100 dark:border-white/[0.04] px-3 py-1.5 overflow-hidden shrink-0 flex items-center">
+          <div className="flex items-center gap-1.5 shrink-0 pr-3 border-r border-sky-200 dark:border-white/10">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span className="text-[9px] font-black uppercase tracking-wider text-sky-700 dark:text-cyan-400">Verified Payouts</span>
+          </div>
+          <div className="overflow-hidden flex-1 pl-3">
+            <div className="animate-marquee whitespace-nowrap flex items-center gap-6 text-[11px] font-medium text-slate-600 dark:text-zinc-300">
+              {LIVE_COMMUNITY_PAYOUTS.map((item, idx) => (
+                <span key={idx} className="flex items-center gap-1.5">
+                  <strong className="text-sky-600 dark:text-cyan-400 font-bold">{item.user}</strong>
+                  <span>{item.action}</span>
+                  <span className="px-1.5 py-0.2 rounded-md bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 text-[9px] font-mono font-bold">✓ {item.bank}</span>
+                  <span className="text-[9px] text-slate-400 dark:text-zinc-500">({item.time})</span>
+                  <span className="text-slate-300 dark:text-zinc-700">•</span>
+                </span>
+              ))}
             </div>
-
           </div>
         </div>
 
-        {/* HIGH-FIDELITY SMARTPHONE VIEWPORT WRAPPER */}
-        <div className="col-span-1 lg:col-span-7 w-full h-full max-h-full sm:max-h-[812px] flex justify-center items-center overflow-hidden">
-          
-          <div className="relative w-full max-w-[375px] h-full sm:max-h-[812px] rounded-none sm:rounded-[40px] bg-brand-on-background sm:shadow-[0_25px_60px_-15px_rgba(11,28,48,0.4),0_0_0_10px_#213145,0_0_0_12px_#3f465c] overflow-hidden flex flex-col text-brand-on-surface border-0 sm:border border-brand-inverse-surface z-10">
-            
-            {/* SCREEN TOP HEADER BAR */}
-            <div className="bg-brand-surface-lowest border-b border-brand-surface-container/60 px-4 py-3 flex items-center justify-between shrink-0 relative z-40">
-              <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-lg bg-brand-primary flex items-center justify-center text-brand-on-primary font-extrabold text-[13px] tracking-tighter shadow-sm">
-                  TP
+        {/* ======================================================== */}
+        {/* MAIN SCROLLABLE APP BODY                                 */}
+        {/* ======================================================== */}
+        <div className="flex-1 overflow-y-auto no-scrollbar flex flex-col p-4 space-y-4">
+
+          {/* ======================================================== */}
+          {/* MANDATORY ₦3,000 ACTIVATION STAKE GATEKEEPER             */}
+          {/* ======================================================== */}
+          {!isActivated ? (
+            <div className="flex-1 flex flex-col justify-center items-center py-6 px-2 text-center space-y-5 animate-in fade-in duration-300">
+              
+              <div className="relative">
+                <div className="w-20 h-20 rounded-3xl bg-gradient-to-tr from-sky-500 via-cyan-400 to-blue-600 text-white flex items-center justify-center text-3xl shadow-xl shadow-cyan-500/20">
+                  💎
                 </div>
-                <div>
-                  <h2 className="text-xs font-black tracking-tight text-brand-on-surface leading-none">TaskPulse</h2>
-                  {user && (
-                    <p className="text-[9px] text-brand-on-surface-variant font-bold leading-none mt-0.5">@_{user.username}</p>
-                  )}
+                <div className="absolute -bottom-1 -right-1 w-8 h-8 rounded-2xl bg-amber-500 border-2 border-white dark:border-[#0c0d12] flex items-center justify-center text-white text-xs shadow-md">
+                  🔒
                 </div>
               </div>
 
-              {user ? (
-                <div className="flex items-center gap-2">
-                  <div className="text-right">
-                    <p className="text-[8px] font-bold text-brand-on-surface-variant uppercase tracking-widest leading-none">withdrawable</p>
-                    <p className="text-xs font-black text-brand-primary font-mono mt-0.5">₦{withdrawableBalance.toLocaleString()}</p>
-                  </div>
-                  <button 
-                    onClick={handleSignOut}
-                    className="text-[9px] font-black uppercase tracking-wider px-2 py-1 rounded bg-brand-surface-low hover:bg-brand-surface-container text-brand-on-surface transition-colors border border-brand-surface-container/80"
-                  >
-                    Exit
-                  </button>
+              <div className="space-y-1">
+                <h2 className="text-xl font-black text-slate-900 dark:text-white">
+                  Drop ₦3,000 to Activate
+                </h2>
+                <p className="text-xs text-slate-500 dark:text-zinc-400 max-w-xs mx-auto leading-relaxed font-medium">
+                  A minimum deposit of ₦3,000 is required before starting. 100% credited to your wallet balance.
+                </p>
+              </div>
+
+              {/* CLEAN SIMPLE 3-ROW CARD */}
+              <div className="w-full bg-white dark:bg-zinc-900/80 border border-slate-100 dark:border-white/[0.08] rounded-3xl p-5 shadow-xl text-left space-y-3">
+                <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-zinc-400">
+                  <span>Activation Stake Required:</span>
+                  <span className="font-mono text-base font-black text-slate-900 dark:text-white">₦3,000</span>
                 </div>
-              ) : (
-                <span className="text-[8px] font-extrabold text-brand-on-surface-variant uppercase tracking-wider bg-brand-surface-low px-2 py-1 rounded">SECURED SWITCH</span>
-              )}
-            </div>
+                <div className="flex items-center justify-between text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                  <span>Credited to Your Balance:</span>
+                  <span className="font-mono text-base font-black">+₦3,000.00</span>
+                </div>
+                <div className="pt-2 border-t border-slate-100 dark:border-zinc-800 flex items-center justify-between text-[11px] text-slate-500 dark:text-zinc-400 font-semibold">
+                  <span>Paystack Instant Rails:</span>
+                  <span className="text-cyan-500 font-black uppercase">UNLOCKED ✓</span>
+                </div>
+              </div>
 
-            {/* PHONE CANVAS BODY CONTAINER */}
-            <div className="flex-1 overflow-hidden bg-brand-surface flex flex-col">
-              
-              {/* AUTHENTICATION OVERLAY SHEET - Requires exactly Phone, Username, Password */}
-              {!user ? (
-                <div className="flex-1 flex flex-col justify-center px-5 py-6 space-y-5 overflow-y-auto no-scrollbar">
-                  <div className="text-center space-y-1.5">
-                    <div className="w-10 h-10 rounded-xl bg-brand-primary text-brand-on-primary flex items-center justify-center mx-auto shadow-sm">
-                      <Lock className="w-5 h-5" />
+              {/* SIMPLE ACTION BUTTONS */}
+              <div className="w-full space-y-2.5 pt-1">
+                <button 
+                  onClick={() => setIsDepositModalOpen(true)}
+                  className="w-full h-12 rounded-full bg-gradient-to-r from-sky-500 via-cyan-500 to-blue-600 hover:opacity-95 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-sky-500/25 active:scale-98 transition-all flex items-center justify-center gap-2"
+                >
+                  <CreditCard className="w-4 h-4" />
+                  <span>Drop ₦3,000 via Paystack</span>
+                </button>
+
+                <button 
+                  onClick={handleInstantDemoActivate}
+                  className="w-full h-11 rounded-full bg-slate-100 dark:bg-zinc-900 border border-slate-200/60 dark:border-white/[0.08] hover:bg-slate-200 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-200 font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Instant 1-Tap Activate (Demo Test)</span>
+                </button>
+              </div>
+
+              <div className="inline-flex items-center gap-1.5 text-[10px] text-slate-400 dark:text-zinc-500 font-semibold">
+                <Shield className="w-3.5 h-3.5 text-emerald-500" />
+                <span>Secured 256-bit encryption by Paystack</span>
+              </div>
+
+            </div>
+          ) : (
+            <>
+              {/* ======================================================== */}
+              {/* TAB 1: HOME (Hero Balance, Streak, Payout Ticker)        */}
+              {/* ======================================================== */}
+              {activeTab === 'home' && (
+                <div className="space-y-4 animate-in fade-in duration-300">
+                  
+                  {/* ULTRA-PREMIUM OBSIDIAN / REVOLUT BLACK CARD */}
+                  <div className="relative rounded-3xl bg-gradient-to-br from-zinc-900 via-black to-zinc-950 text-white p-5 border border-white/10 shadow-2xl overflow-hidden group">
+                    
+                    {/* HOLOGRAPHIC CARD SHINE SWEEP */}
+                    <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-3xl">
+                      <div className="w-1/2 h-full bg-gradient-to-r from-transparent via-white/[0.08] to-transparent animate-card-shine"></div>
                     </div>
-                    <h3 className="text-sm font-black tracking-tight text-brand-on-surface">
-                      {authMode === 'register' ? 'Register Escrow Profile' : 'Authenticate Session'}
-                    </h3>
-                    <p className="text-[10px] text-brand-on-surface-variant max-w-xs mx-auto leading-relaxed">
-                      Surgical monochromatic validation. Use the preset demo login below for immediate evaluation access.
-                    </p>
+
+                    {/* AMBIENT RADIAL CORNER GLOW */}
+                    <div className="absolute top-0 right-0 w-36 h-36 bg-gradient-to-bl from-cyan-500/20 to-transparent rounded-full blur-2xl pointer-events-none"></div>
+
+                    {/* CARD HEADER ROW */}
+                    <div className="relative z-10 flex items-center justify-between text-xs font-semibold text-zinc-400">
+                      <div className="flex items-center gap-2">
+                        {/* EMV Microchip Icon */}
+                        <div className="w-7 h-5 rounded bg-gradient-to-tr from-amber-400 to-yellow-200 border border-yellow-500/50 flex items-center justify-center shadow-xs">
+                          <div className="w-4 h-3 border border-amber-700/60 rounded-[2px] opacity-70"></div>
+                        </div>
+                        {/* Contactless RFID waves symbol */}
+                        <span className="text-zinc-500 font-mono text-[10px]">))))</span>
+                        <span className="text-[10px] font-mono tracking-widest uppercase text-zinc-400">
+                          TASKPULSE BLACK
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <span className="px-2 py-0.5 rounded-full bg-white/[0.08] border border-white/10 text-[9px] font-mono font-bold tracking-wider text-cyan-300 uppercase">
+                          LEVEL 2 VERIFIED
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* MAIN BALANCE ROW WITH PRIVACY TOGGLE */}
+                    <div className="relative z-10 my-4">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-medium text-zinc-400 flex items-center gap-1.5">
+                          <span>Withdrawable Balance</span>
+                          <button 
+                            onClick={() => setIsBalanceHidden(!isBalanceHidden)}
+                            className="text-zinc-400 hover:text-white transition-colors p-0.5"
+                            title="Toggle Balance Visibility"
+                          >
+                            {isBalanceHidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                          </button>
+                        </span>
+                        <span className="text-[10px] font-mono text-zinc-400">
+                          ₦20k Daily Limit
+                        </span>
+                      </div>
+
+                      <div className="mt-1 flex items-baseline gap-2">
+                        <h2 className="text-3xl font-black font-mono tracking-tight text-white">
+                          {isBalanceHidden ? '₦ ••••••••' : `₦${withdrawableBalance.toLocaleString()}.00`}
+                        </h2>
+                      </div>
+
+                      {/* ESCROW & STREAK PILLS */}
+                      <div className="flex items-center gap-2 mt-2">
+                        <div className="px-2.5 py-1 rounded-xl bg-white/[0.05] border border-white/[0.08] text-[10px] text-zinc-300 font-medium flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                          <span>Escrow: <strong className="font-mono text-white">₦{pendingBalance.toLocaleString()}</strong></span>
+                        </div>
+                        <div className="px-2.5 py-1 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[10px] text-amber-300 font-bold flex items-center gap-1">
+                          <Flame className="w-3 h-3 text-amber-400 fill-current" />
+                          <span>0% Paystack Fee Active</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* CARD QUICK ACTIONS (Deposit, Withdraw, Streak, Ledger) */}
+                    <div className="relative z-10 grid grid-cols-4 gap-2 pt-3 border-t border-white/[0.08]">
+                      
+                      {/* Fund / 3k Drop */}
+                      <button 
+                        onClick={() => setIsDepositModalOpen(true)}
+                        className="py-2 px-1 bg-white/[0.08] hover:bg-white/[0.14] border border-white/10 text-white rounded-2xl text-[11px] font-bold transition-all flex flex-col items-center justify-center gap-1 active:scale-95"
+                      >
+                        <Plus className="w-4 h-4 text-cyan-400" />
+                        <span>Fund</span>
+                      </button>
+
+                      {/* Cashout (Under 2-day security rule) */}
+                      <button 
+                        onClick={handleWithdrawClick}
+                        className={`py-2 px-1 rounded-2xl text-[11px] font-bold transition-all flex flex-col items-center justify-center gap-1 active:scale-95 shadow-md ${
+                          isWithdrawalLocked
+                            ? 'bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300'
+                            : 'bg-gradient-to-tr from-cyan-500 to-sky-500 text-white'
+                        }`}
+                      >
+                        {isWithdrawalLocked ? (
+                          <>
+                            <LockKeyhole className="w-4 h-4 text-amber-400" />
+                            <span>Cashout (48h)</span>
+                          </>
+                        ) : (
+                          <>
+                            <ArrowUpRight className="w-4 h-4 text-white" />
+                            <span>Cashout</span>
+                          </>
+                        )}
+                      </button>
+
+                      {/* Streak Calendar */}
+                      <button 
+                        onClick={() => setIsStreakModalOpen(true)}
+                        className="py-2 px-1 bg-white/[0.08] hover:bg-white/[0.14] border border-white/10 text-white rounded-2xl text-[11px] font-bold transition-all flex flex-col items-center justify-center gap-1 active:scale-95"
+                      >
+                        <Flame className="w-4 h-4 text-amber-400" />
+                        <span>Streak 🔥</span>
+                      </button>
+
+                      {/* Double-Entry Ledger */}
+                      <button 
+                        onClick={() => setIsLedgerModalOpen(true)}
+                        className="py-2 px-1 bg-white/[0.08] hover:bg-white/[0.14] border border-white/10 text-white rounded-2xl text-[11px] font-bold transition-all flex flex-col items-center justify-center gap-1 active:scale-95"
+                      >
+                        <FileText className="w-4 h-4 text-emerald-400" />
+                        <span>Ledger</span>
+                      </button>
+                    </div>
+
                   </div>
 
-                  {authError && (
-                    <div className="p-3 bg-brand-error-container border border-brand-error/20 rounded-lg flex gap-2 text-[10px] text-brand-error leading-snug">
-                      <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-brand-error" />
-                      <span>{authError}</span>
-                    </div>
-                  )}
-
-                  <form onSubmit={handleAuthentication} className="space-y-3.5">
+                  {/* ======================================================== */}
+                  {/* RULE REQUIREMENT: 48-HOUR (2-DAY) SECURITY LOCK WIDGET  */}
+                  {/* ======================================================== */}
+                  <div className={`rounded-3xl p-4 border transition-all ${
+                    isWithdrawalLocked 
+                      ? 'bg-amber-50/70 dark:bg-zinc-900/90 border-amber-200 dark:border-amber-500/30 shadow-md shadow-amber-500/5' 
+                      : 'bg-emerald-50/70 dark:bg-zinc-900/90 border-emerald-200 dark:border-emerald-500/30'
+                  }`}>
                     
-                    {/* INPUT 1: Phone */}
-                    <div className="space-y-1">
-                      <label htmlFor="phone" className="text-[9px] font-bold text-brand-on-surface-variant uppercase tracking-wider block">Phone Number (+234 / Standard)</label>
-                      <div className="relative">
-                        <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-brand-on-surface-variant">
-                          <Phone className="w-3.5 h-3.5" />
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <div className={`w-9 h-9 rounded-2xl flex items-center justify-center shrink-0 ${
+                          isWithdrawalLocked 
+                            ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400' 
+                            : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400'
+                        }`}>
+                          {isWithdrawalLocked ? <Lock className="w-4 h-4" /> : <BadgeCheck className="w-5 h-5" />}
                         </div>
-                        <input 
-                          id="phone"
-                          type="tel"
-                          placeholder="e.g. 08012345678"
-                          value={phone}
-                          onChange={(e) => setPhone(e.target.value)}
-                          className="w-full h-10 pl-8 pr-3 rounded-lg border border-brand-surface-container bg-brand-surface-lowest text-xs font-semibold text-brand-on-surface placeholder:text-brand-on-surface-variant/40 focus:outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20"
-                          required
-                        />
-                      </div>
-                    </div>
-
-                    {/* INPUT 2: Username */}
-                    <div className="space-y-1">
-                      <label htmlFor="username" className="text-[9px] font-bold text-brand-on-surface-variant uppercase tracking-wider block">Contributor Username</label>
-                      <div className="relative">
-                        <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-brand-on-surface-variant">
-                          <User className="w-3.5 h-3.5" />
-                        </div>
-                        <input 
-                          id="username"
-                          type="text"
-                          placeholder="e.g. tunde_adeleke"
-                          value={username}
-                          onChange={(e) => setUsername(e.target.value)}
-                          className="w-full h-10 pl-8 pr-3 rounded-lg border border-brand-surface-container bg-brand-surface-lowest text-xs font-semibold text-brand-on-surface placeholder:text-brand-on-surface-variant/40 focus:outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20"
-                          required
-                        />
-                      </div>
-                    </div>
-
-                    {/* INPUT 3: Password */}
-                    <div className="space-y-1">
-                      <label htmlFor="pass" className="text-[9px] font-bold text-brand-on-surface-variant uppercase tracking-wider block">Escrow Security Password</label>
-                      <div className="relative">
-                        <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-brand-on-surface-variant">
-                          <Lock className="w-3.5 h-3.5" />
-                        </div>
-                        <input 
-                          id="pass"
-                          type={showPassword ? 'text' : 'password'}
-                          placeholder="••••••••"
-                          value={password}
-                          onChange={(e) => setPassword(e.target.value)}
-                          className="w-full h-10 pl-8 pr-9 rounded-lg border border-brand-surface-container bg-brand-surface-lowest text-xs font-semibold text-brand-on-surface placeholder:text-brand-on-surface-variant/40 focus:outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20"
-                          required
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowPassword(!showPassword)}
-                          className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-brand-on-surface-variant"
-                        >
-                          {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* INPUT 4: Referral */}
-                    {authMode === 'register' && (
-                      <div className="space-y-1">
-                        <label htmlFor="ref" className="text-[9px] font-bold text-brand-on-surface-variant uppercase tracking-wider block">Invite Code (Optional)</label>
-                        <div className="relative">
-                          <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-brand-on-surface-variant">
-                            <Plus className="w-3.5 h-3.5" />
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <h4 className="text-xs font-black text-slate-900 dark:text-white leading-tight">
+                              {isWithdrawalLocked ? '48h First Cashout Security Lock' : '48h Security Seasoning Completed'}
+                            </h4>
+                            <span className={`text-[9px] font-extrabold uppercase px-1.5 py-0.2 rounded-md ${
+                              isWithdrawalLocked 
+                                ? 'bg-amber-200/60 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300' 
+                                : 'bg-emerald-200/60 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300'
+                            }`}>
+                              {isWithdrawalLocked ? 'Anti-Fraud Active' : 'Unlocked ✓'}
+                            </span>
                           </div>
-                          <input 
-                            id="ref"
-                            type="text"
-                            placeholder="e.g. TP-DEMO-9999"
-                            value={referralInput}
-                            onChange={(e) => setReferralInput(e.target.value)}
-                            className="w-full h-10 pl-8 pr-3 rounded-lg border border-brand-surface-container bg-brand-surface-lowest text-xs font-semibold text-brand-on-surface focus:outline-none focus:border-brand-primary"
-                          />
+                          <p className="text-[10px] text-slate-500 dark:text-zinc-400 mt-0.5">
+                            {isWithdrawalLocked 
+                              ? 'Mandatory 2-day cooling window following ₦3k activation deposit.'
+                              : 'Your account is fully seasoned. Paystack direct transfers are ready.'}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* FAST FORWARD OR RESET DEMO TOGGLE */}
+                      <button 
+                        onClick={isWithdrawalLocked ? handleFastForwardLock : handleReactivate48hLock}
+                        className="px-2.5 py-1 rounded-xl text-[10px] font-black border transition-all shrink-0 bg-white dark:bg-zinc-800 hover:scale-105 active:scale-95 text-sky-600 dark:text-cyan-400 border-sky-200 dark:border-white/10 shadow-xs"
+                        title="Toggle 48h Lock State for Demo Review"
+                      >
+                        {isWithdrawalLocked ? '⚡ Fast-Forward' : '↺ Reset 48h'}
+                      </button>
+                    </div>
+
+                    {/* LIVE 4-SEGMENT COUNTDOWN DISPLAY */}
+                    {isWithdrawalLocked && (
+                      <div className="mt-3 pt-3 border-t border-amber-200/60 dark:border-white/[0.06] space-y-2">
+                        <div className="grid grid-cols-4 gap-2 text-center font-mono">
+                          <div className="p-1.5 rounded-xl bg-white dark:bg-zinc-800/80 border border-amber-200/80 dark:border-white/10">
+                            <span className="text-base font-black text-amber-600 dark:text-amber-400 block leading-none">
+                              {countdownParts.d}
+                            </span>
+                            <span className="text-[8px] font-bold text-slate-400 uppercase mt-0.5 block">Days</span>
+                          </div>
+                          <div className="p-1.5 rounded-xl bg-white dark:bg-zinc-800/80 border border-amber-200/80 dark:border-white/10">
+                            <span className="text-base font-black text-amber-600 dark:text-amber-400 block leading-none">
+                              {countdownParts.h}
+                            </span>
+                            <span className="text-[8px] font-bold text-slate-400 uppercase mt-0.5 block">Hours</span>
+                          </div>
+                          <div className="p-1.5 rounded-xl bg-white dark:bg-zinc-800/80 border border-amber-200/80 dark:border-white/10">
+                            <span className="text-base font-black text-amber-600 dark:text-amber-400 block leading-none">
+                              {countdownParts.m}
+                            </span>
+                            <span className="text-[8px] font-bold text-slate-400 uppercase mt-0.5 block">Mins</span>
+                          </div>
+                          <div className="p-1.5 rounded-xl bg-white dark:bg-zinc-800/80 border border-amber-200/80 dark:border-white/10">
+                            <span className="text-base font-black text-amber-600 dark:text-amber-400 block leading-none animate-pulse">
+                              {countdownParts.s}
+                            </span>
+                            <span className="text-[8px] font-bold text-slate-400 uppercase mt-0.5 block">Secs</span>
+                          </div>
+                        </div>
+
+                        {/* PROGRESS BAR */}
+                        <div className="w-full bg-amber-200/50 dark:bg-zinc-800 h-1.5 rounded-full overflow-hidden">
+                          <div 
+                            className="bg-gradient-to-r from-amber-500 to-yellow-400 h-full rounded-full transition-all duration-500" 
+                            style={{ width: `${progressPercent}%` }}
+                          ></div>
+                        </div>
+                        <div className="flex justify-between text-[10px] text-slate-400 dark:text-zinc-500 font-semibold">
+                          <span>Seasoning: {progressPercent}% Complete</span>
+                          <span>Unlocks: Tomorrow 11:20 AM</span>
                         </div>
                       </div>
                     )}
-
-                    <button
-                      type="submit"
-                      className="w-full h-11 bg-brand-primary hover:bg-brand-primary-container text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-sm active:scale-[0.98] transition-transform"
-                    >
-                      <span>{authMode === 'register' ? 'Register Escrow Account' : 'Resume Escrow Session'}</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
-
-                    {/* DEMO BYPASS BUTTON */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const demoUser = { 
-                          username: 'tunde_adeleke', 
-                          phone: '08012345678',
-                          referralCode: 'TP-TUNDE-8012',
-                          referredBy: 'TP-DEMO-9999',
-                          hasCompletedFirstTask: false
-                        };
-                        setUser(demoUser);
-                        localStorage.setItem('taskpulse_user', JSON.stringify(demoUser));
-                        triggerToast('Demo Session Loaded', 'Referral program active (@tunde_adeleke)');
-                      }}
-                      className="w-full h-11 bg-brand-surface-low hover:bg-brand-surface-container text-brand-on-surface border border-brand-surface-high font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all active:scale-[0.98]"
-                    >
-                      <span>Quick Demo Login</span>
-                      <User className="w-3.5 h-3.5 text-brand-primary" />
-                    </button>
-
-                  </form>
-
-                  <div className="text-center pt-1 text-[10px]">
-                    <button
-                      onClick={() => {
-                        setAuthMode(authMode === 'register' ? 'signin' : 'register');
-                        setAuthError('');
-                      }}
-                      className="font-bold text-brand-secondary hover:text-brand-on-surface underline"
-                    >
-                      {authMode === 'register' ? 'Already registered? Sign In' : 'Need NIP escrow access? Sign Up'}
-                    </button>
                   </div>
 
-                </div>
-              ) : (
-                /* AUTHENTICATED ACTIVE WORKER DASHBOARD */
-                <div className="flex-1 flex flex-col p-4 space-y-4 overflow-y-auto no-scrollbar">
-                  
-                  {/* ACTIVE DIRECTIVE WORKSPACE WINDOW - If task accepted */}
-                  {activeTask && (
-                    <div className="bg-brand-inverse-surface text-brand-inverse-on-surface rounded-2xl p-4 border border-brand-inverse-surface shadow-md space-y-3 relative overflow-hidden">
-                      <div className="absolute top-0 right-0 p-1.5 bg-brand-primary text-brand-on-primary text-[8px] font-black tracking-wider uppercase rounded-bl-lg">
-                        ACTIVE DIRECTIVE
-                      </div>
-
-                      <div>
-                        <div className="flex items-center gap-1 text-[9px] text-brand-inverse-on-surface/75">
-                          <span className="font-extrabold uppercase">{activeTask.company}</span>
-                          <span aria-hidden="true">·</span>
-                          <span>{activeTask.category}</span>
+                  {/* DAILY HABIT STREAK CARD */}
+                  <div className="bg-white dark:bg-zinc-900/80 border border-slate-100 dark:border-white/[0.08] rounded-3xl p-4 shadow-sm space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-2xl bg-orange-100 dark:bg-orange-950/50 flex items-center justify-center text-orange-500 font-bold">
+                          🔥
                         </div>
-                        <h3 className="text-xs font-black tracking-tight text-white leading-tight mt-0.5">{activeTask.title}</h3>
-                      </div>
-
-                      {/* Timer */}
-                      <div className="flex items-center justify-between bg-brand-on-background/40 p-2 rounded-lg text-xs border border-brand-inverse-surface/30">
                         <div>
-                          <span className="text-[8px] font-bold text-brand-surface-dim block uppercase leading-none">COUNTDOWN</span>
-                          <span className="text-sm font-black font-mono mt-0.5 block leading-none text-brand-primary-fixed-dim">{formatTimer(workspaceTimer)}</span>
-                        </div>
-                        <button 
-                          onClick={handleAbandonTask}
-                          className="text-[9px] font-bold text-brand-inverse-on-surface/85 hover:text-white"
-                        >
-                          Abandon
-                        </button>
-                      </div>
-
-                      {/* Step Guides */}
-                      <div className="space-y-3 pt-2 text-[11px] border-t border-brand-inverse-surface/30">
-                        <div className="space-y-2">
-                          {/* Step 1 download */}
-                          <div className="flex gap-2">
-                            <div className="w-4 h-4 rounded-full bg-brand-primary text-brand-on-primary text-[9px] font-bold flex items-center justify-center shrink-0">1</div>
-                            <div className="space-y-1 flex-1 text-left">
-                              <span className="font-bold text-white block">Download secure APK sandbox</span>
-                              <p className="text-[10px] text-brand-surface-dim leading-snug">{activeTask.steps[0]}</p>
-                              
-                              <button
-                                onClick={() => {
-                                  setActiveStepsStatus([true, activeStepsStatus[1], activeStepsStatus[2]]);
-                                  triggerToast('Sandbox Download Triggered', 'APK stream starting.');
-                                }}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 bg-brand-surface-lowest text-brand-primary rounded text-[9px] font-bold hover:bg-brand-surface-low transition-colors shadow-xs"
-                              >
-                                <Download className="w-2.5 h-2.5" />
-                                <span>Get Sandbox APK</span>
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* Step 2 simulation */}
-                          <div className="flex gap-2 text-left">
-                            <div className="w-4 h-4 rounded-full bg-brand-primary text-brand-on-primary text-[9px] font-bold flex items-center justify-center shrink-0">2</div>
-                            <div className="flex-1">
-                              <span className="font-bold text-white block">Simulate input test sequence</span>
-                              <p className="text-[10px] text-brand-surface-dim leading-snug">{activeTask.steps[1]}</p>
-                            </div>
-                          </div>
-
-                          {/* Step 3 Screenshot upload */}
-                          <div className="flex gap-2 text-left">
-                            <div className="w-4 h-4 rounded-full bg-brand-primary text-brand-on-primary text-[9px] font-bold flex items-center justify-center shrink-0">3</div>
-                            <div className="flex-1 space-y-2">
-                              <span className="font-bold text-white block">Screenshot or Video evaluation</span>
-                              <p className="text-[10px] text-brand-surface-dim leading-snug">{activeTask.steps[2]}</p>
-                              
-                              <div 
-                                onClick={handleMockUpload}
-                                className="border border-dashed border-brand-inverse-on-surface/20 bg-brand-on-background/20 hover:bg-brand-on-background/30 rounded-xl p-3 text-center cursor-pointer relative"
-                              >
-                                {isUploading ? (
-                                  <div className="w-4 h-4 rounded-full border border-white border-t-transparent animate-spin mx-auto"></div>
-                                ) : uploadedFile ? (
-                                  <div className="space-y-0.5 text-center">
-                                    <Video className="w-4 h-4 text-white mx-auto" />
-                                    <p className="text-[10px] text-white font-mono truncate">{uploadedFile}</p>
-                                    <span className="text-[8px] text-brand-primary-fixed font-black uppercase">TELEMETRY SECURED</span>
-                                  </div>
-                                ) : (
-                                  <div className="space-y-1">
-                                    <Video className="w-4 h-4 text-brand-inverse-on-surface/40 mx-auto" />
-                                    <p className="text-[9px] text-white font-bold">Tap to trigger device camera</p>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-
+                          <h3 className="text-xs font-black text-slate-900 dark:text-white leading-tight">
+                            {user?.streakDays}-Day Login Streak
+                          </h3>
+                          <p className="text-[10px] text-slate-500 dark:text-zinc-400">
+                            {user?.streakClaimedToday ? 'Today’s reward claimed · 0% Paystack fees active' : 'Claim today’s cash bonus before midnight'}
+                          </p>
                         </div>
                       </div>
-
-                      {/* Declaration attestation */}
-                      <div className="border-t border-brand-inverse-surface/30 pt-3 space-y-2 text-left">
-                        <label className="flex items-start gap-2 select-none cursor-pointer">
-                          <input 
-                            type="checkbox" 
-                            checked={declarationChecked}
-                            onChange={() => setDeclarationChecked(!declarationChecked)}
-                            className="mt-0.5 w-3.5 h-3.5 rounded border-brand-inverse-surface bg-brand-on-background accent-brand-primary shrink-0" 
-                          />
-                          <span className="text-[10px] text-brand-surface-dim leading-snug">
-                            I verify this evaluation is on an authentic physical device.
-                          </span>
-                        </label>
-
-                        <button 
-                          onClick={handleSubmitProof}
-                          disabled={!uploadedFile}
-                          className={`w-full h-10 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-transform active:scale-[0.98] ${
-                            uploadedFile 
-                              ? 'bg-brand-primary text-white hover:bg-brand-primary-container' 
-                              : 'bg-brand-inverse-surface text-brand-surface-dim/40 cursor-not-allowed border border-brand-inverse-on-surface/10'
-                          }`}
-                        >
-                          <CheckCircle className="w-3.5 h-3.5" />
-                          <span>Submit Evaluation Proof (₦{activeTask.reward})</span>
-                        </button>
-                      </div>
-
+                      <button 
+                        onClick={handleClaimDailyStreak}
+                        disabled={user?.streakClaimedToday}
+                        className={`px-3 py-1.5 rounded-2xl text-[11px] font-black transition-all ${
+                          user?.streakClaimedToday 
+                            ? 'bg-slate-100 dark:bg-zinc-800 text-slate-400 cursor-not-allowed'
+                            : 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-md shadow-orange-500/20 active:scale-95'
+                        }`}
+                      >
+                        {user?.streakClaimedToday ? 'Claimed ✓' : 'Claim ₦300'}
+                      </button>
                     </div>
-                  )}
 
-                  {/* TAB SWITCH VIEW: EARN (Marketplace Listings) */}
-                  {activeTab === 'earn' && (
-                    <div className="space-y-4 flex-1 flex flex-col min-h-0">
-                      
-                      {/* Segmented Controls filter tabs */}
-                      <div className="flex gap-1 overflow-x-auto pb-1 no-scrollbar shrink-0">
-                        {(['all', 'App Tests', 'Surveys', 'Field Audits'] as const).map((category) => (
-                          <button
-                            key={category}
-                            onClick={() => setTaskFilter(category)}
-                            className={`px-3.5 py-1.5 text-[10px] font-bold rounded-lg whitespace-nowrap transition-colors ${
-                              taskFilter === category 
-                                ? 'bg-brand-primary text-white shadow-xs font-extrabold'
-                                : 'bg-brand-surface-lowest text-brand-secondary border border-brand-surface-container hover:border-brand-surface-high'
+                    <div className="grid grid-cols-7 gap-1.5 pt-1">
+                      {STREAK_DAYS_CONFIG.map((s, index) => {
+                        const isToday = index + 1 === user?.streakDays;
+                        const isPast = index + 1 < (user?.streakDays || 1) || (isToday && user?.streakClaimedToday);
+                        return (
+                          <div 
+                            key={s.day} 
+                            className={`flex flex-col items-center justify-center p-1.5 rounded-xl text-center border transition-all ${
+                              isPast 
+                                ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400' 
+                                : isToday 
+                                  ? 'bg-sky-50 dark:bg-sky-950/40 border-sky-300 dark:border-cyan-500 text-sky-700 dark:text-cyan-300 font-black scale-105'
+                                  : 'bg-slate-50 dark:bg-zinc-900/50 border-slate-100 dark:border-white/[0.04] text-slate-400 dark:text-zinc-600'
                             }`}
                           >
-                            {category === 'all' ? 'All Directives' : category}
-                          </button>
-                        ))}
-                      </div>
-
-                      {/* Listings Stack */}
-                      <div className="space-y-3 overflow-y-auto no-scrollbar flex-1">
-                        {DEFAULT_TASKS
-                          .filter(t => taskFilter === 'all' || t.category === taskFilter)
-                          .map((task) => (
-                            <div key={task.id} className="bg-brand-surface-lowest rounded-2xl border border-brand-surface-container/60 p-4 space-y-3 hover:border-brand-surface-high transition-colors shadow-xs text-left">
-                              
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="space-y-0.5">
-                                  <div className="flex items-center gap-1.5 text-[10px] text-brand-on-surface-variant font-semibold">
-                                    <span className="font-extrabold text-brand-primary uppercase">{task.company}</span>
-                                    <span aria-hidden="true">·</span>
-                                    <span>{task.category}</span>
-                                  </div>
-                                  <h4 className="text-xs font-black tracking-tight text-brand-on-surface leading-tight mt-0.5">{task.title}</h4>
-                                </div>
-
-                                <div className="text-right shrink-0">
-                                  <p className="text-xs font-black text-brand-primary font-mono">₦{task.reward}</p>
-                                  <span className="text-[8px] font-bold text-brand-on-surface-variant uppercase tracking-widest leading-none mt-0.5 block">Escrowed</span>
-                                </div>
-                              </div>
-
-                              <p className="text-[11px] text-brand-on-surface-variant leading-snug line-clamp-2">
-                                {task.description}
-                              </p>
-
-                              <div className="flex items-center justify-between text-[9px] text-brand-on-surface-variant font-bold border-t border-brand-surface-container/30 pt-2 bg-brand-surface-low p-1.5 rounded">
-                                <span className="flex items-center gap-1">⏱ {task.time} · 🛡 SLA Protected</span>
-                                <span className="font-mono text-brand-on-surface">{task.spotsLeft}/{task.spotsTotal} spots</span>
-                              </div>
-
-                              <button 
-                                onClick={() => handleAcceptTask(task)}
-                                className="w-full h-10 bg-brand-primary hover:bg-brand-primary-container text-white rounded-lg text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1 shadow-xs transition-transform active:scale-[0.98]"
-                              >
-                                <Lock className="w-3 h-3" />
-                                <span>Reserve Directive</span>
-                              </button>
-
-                            </div>
-                        ))}
-                      </div>
-
+                            <span className="text-[9px] font-bold">D{s.day}</span>
+                            <span className="text-[10px] font-mono font-black mt-0.5">{isPast ? '✓' : s.label}</span>
+                          </div>
+                        );
+                      })}
                     </div>
-                  )}
+                  </div>
 
-                  {/* TAB SWITCH VIEW: SUBMISSIONS */}
-                  {activeTab === 'submissions' && (
-                    <div className="space-y-4 flex-1 flex flex-col min-h-0">
-                      
-                      {/* Interactive Review Segment Tabs */}
-                      <div className="flex items-center bg-brand-surface-container p-1 rounded-xl shrink-0">
-                        <button
-                          onClick={() => setSubmissionTab('Active')}
-                          className={`flex-1 py-1.5 text-[10px] font-black uppercase rounded-lg transition-colors text-center ${
-                            submissionTab === 'Active' 
-                              ? 'bg-brand-surface-lowest text-brand-on-surface shadow-sm'
-                              : 'text-brand-secondary hover:text-brand-on-surface'
-                          }`}
-                        >
-                          Active Reviews ({submissions.filter(s => s.status === 'Active').length})
-                        </button>
-                        <button
-                          onClick={() => setSubmissionTab('Approved')}
-                          className={`flex-1 py-1.5 text-[10px] font-black uppercase rounded-lg transition-colors text-center ${
-                            submissionTab === 'Approved' 
-                              ? 'bg-brand-surface-lowest text-brand-on-surface shadow-sm'
-                              : 'text-brand-secondary hover:text-brand-on-surface'
-                          }`}
-                        >
-                          Completed History
-                        </button>
-                      </div>
-
-                      {/* Submissions Feed List */}
-                      <div className="space-y-3 overflow-y-auto no-scrollbar flex-1">
-                        {submissionTab === 'Approved' ? (
-                          <div className="space-y-3">
-                            {/* COMBINED COMPLETED HISTORY LIST */}
-                            {submissions.filter(s => s.status === 'Approved').length === 0 && COMPLETED_TASKS_MOCK.length === 0 ? (
-                              <div className="bg-brand-surface-lowest rounded-xl p-8 border border-brand-surface-container text-center space-y-2 shadow-xs">
-                                <Inbox className="w-6 h-6 text-brand-surface-dim mx-auto" />
-                                <p className="text-[10px] font-bold text-brand-on-surface-variant uppercase">No completed tasks yet</p>
-                              </div>
-                            ) : (
-                              <>
-                                {/* Newly Approved Submissions in the Current Session */}
-                                {submissions
-                                  .filter(s => s.status === 'Approved')
-                                  .map((sub) => (
-                                    <div key={sub.id} className="bg-brand-surface-lowest rounded-xl border border-brand-surface-container/60 p-4 space-y-2.5 shadow-xs text-left relative overflow-hidden">
-                                      <div className="absolute top-0 right-0 p-1 bg-brand-primary text-white text-[7px] font-black uppercase rounded-bl">
-                                        RECENTLY SETTLED
-                                      </div>
-                                      <div className="flex justify-between items-start gap-3">
-                                        <div>
-                                          <span className="text-[8px] font-black text-brand-on-surface-variant block uppercase">REF INDEX #{sub.id}</span>
-                                          <h4 className="text-xs font-extrabold text-brand-on-surface mt-0.5 leading-snug">{sub.taskTitle}</h4>
-                                        </div>
-                                        <span className="text-[10px] font-black font-mono text-brand-primary bg-brand-surface-low px-2 py-0.5 rounded shrink-0">₦{sub.reward}</span>
-                                      </div>
-
-                                      <div className="bg-brand-surface-low p-2 rounded text-[10px] text-brand-on-surface-variant space-y-1">
-                                        <p className="flex justify-between"><span>Diagnostic Hardware:</span> <strong className="text-brand-on-surface">{sub.device}</strong></p>
-                                        <p className="flex justify-between"><span>Submitted Proof:</span> <strong className="text-brand-on-surface">{sub.file}</strong></p>
-                                        <p className="flex justify-between"><span>Completed Date:</span> <strong className="text-brand-on-surface">Today, Just now</strong></p>
-                                      </div>
-
-                                      <div className="flex justify-between items-center text-[10px] border-t border-brand-surface-container/30 pt-2 font-bold text-brand-primary">
-                                        <span>✓ Transferred to Available Balance</span>
-                                        <span className="text-brand-on-surface-variant font-mono text-[9px]">SLA Verified</span>
-                                      </div>
-                                    </div>
-                                  ))}
-
-                                {/* Past Completed Tasks History */}
-                                {COMPLETED_TASKS_MOCK.map((hist) => (
-                                  <div key={hist.id} className="bg-brand-surface-lowest rounded-xl border border-brand-surface-container/60 p-4 space-y-2.5 shadow-xs text-left">
-                                    <div className="flex justify-between items-start gap-3">
-                                      <div>
-                                        <span className="text-[8px] font-black text-brand-on-surface-variant block uppercase font-mono">REF INDEX #{hist.id}</span>
-                                        <h4 className="text-xs font-extrabold text-brand-on-surface mt-0.5 leading-snug">{hist.taskTitle}</h4>
-                                      </div>
-                                      <span className="text-[10px] font-black font-mono text-brand-primary bg-brand-surface-low px-2 py-0.5 rounded shrink-0">₦{hist.reward}</span>
-                                    </div>
-
-                                    <div className="bg-brand-surface-low p-2 rounded text-[10px] text-brand-on-surface-variant space-y-1">
-                                      <p className="flex justify-between"><span>Diagnostic Hardware:</span> <strong className="text-brand-on-surface">{hist.device}</strong></p>
-                                      <p className="flex justify-between"><span>Completed Date:</span> <strong className="text-brand-on-surface">{hist.completedDate}</strong></p>
-                                    </div>
-
-                                    <div className="flex justify-between items-center text-[10px] border-t border-brand-surface-container/30 pt-2 font-bold text-brand-primary">
-                                      <span>✓ Payout Settled &amp; Audited</span>
-                                      <span className="text-brand-on-surface-variant font-mono text-[9px]">NIP Confirmed</span>
-                                    </div>
-                                  </div>
-                                ))}
-                              </>
-                            )}
-                          </div>
-                        ) : (
-                          /* Active submissions queue tab */
-                          submissions.filter(s => s.status === 'Active').length === 0 ? (
-                            <div className="bg-brand-surface-lowest rounded-xl p-8 border border-brand-surface-container text-center space-y-2 shadow-xs">
-                              <Inbox className="w-6 h-6 text-brand-surface-dim mx-auto" />
-                              <p className="text-[10px] font-bold text-brand-on-surface-variant uppercase">No active reviews</p>
-                            </div>
-                          ) : (
-                            submissions
-                              .filter(s => s.status === 'Active')
-                              .map((sub) => (
-                                <div key={sub.id} className="bg-brand-surface-lowest rounded-xl border border-brand-surface-container/60 p-4 space-y-2.5 shadow-xs text-left">
-                                  <div className="flex justify-between items-start gap-3">
-                                    <div>
-                                      <span className="text-[8px] font-black text-brand-on-surface-variant block uppercase">REF INDEX #{sub.id}</span>
-                                      <h4 className="text-xs font-extrabold text-brand-on-surface mt-0.5 leading-snug">{sub.taskTitle}</h4>
-                                    </div>
-                                    <span className="text-[10px] font-black font-mono text-brand-primary bg-brand-surface-low px-2 py-0.5 rounded">₦{sub.reward}</span>
-                                  </div>
-
-                                  <div className="bg-brand-surface-low p-2 rounded text-[10px] text-brand-on-surface-variant space-y-1">
-                                    <p className="flex justify-between"><span>Diagnostic Hardware:</span> <strong className="text-brand-on-surface">{sub.device}</strong></p>
-                                    <p className="flex justify-between"><span>Submitted Proof:</span> <strong className="text-brand-on-surface">{sub.file}</strong></p>
-                                  </div>
-
-                                  <div className="flex justify-between items-center text-[10px] border-t border-brand-surface-container/30 pt-2 font-bold">
-                                    <span className="text-brand-primary">● In Employer QA Queue</span>
-                                    <span className="text-brand-on-surface-variant">Unlocks in {sub.autoUnlockTime}</span>
-                                  </div>
-
-                                  {/* Auto-Release interactive action to approve the task */}
-                                  <button 
-                                    onClick={() => handleSimulateApproval(sub.id)}
-                                    className="w-full mt-2 h-8 bg-brand-surface-low hover:bg-brand-surface-container text-brand-primary rounded-lg text-[9px] font-black uppercase tracking-wider transition-all border border-brand-surface-container/60 flex items-center justify-center gap-1 active:scale-[0.98]"
-                                  >
-                                    <span>Auto-Release SLA Escrow</span>
-                                  </button>
-                                </div>
-                              ))
-                          )
-                        )}
-                      </div>
-
-                      {/* Dispute Support widget */}
-                      <div className="bg-brand-surface-low rounded-xl p-3 border border-brand-surface-container text-center space-y-2">
-                        <p className="text-[9px] text-brand-on-surface-variant leading-normal font-medium">
-                          Need priority escrow review arbitration? File a support case.
-                        </p>
-                        <button 
-                          onClick={() => setIsSupportOpen(true)}
-                          className="h-8 px-3 rounded bg-brand-primary hover:bg-brand-primary-container text-white text-[9px] font-bold uppercase tracking-wider transition-colors shadow-xs"
-                        >
-                          Arbitrate Case
-                        </button>
-                      </div>
-
+                  {/* FEATURED MICRO-TASKS */}
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-zinc-300">
+                        Top Micro-Tasks For You
+                      </h3>
+                      <button 
+                        onClick={() => setActiveTab('tasks')}
+                        className="text-xs font-bold text-cyan-500 hover:underline flex items-center gap-0.5"
+                      >
+                        <span>View All ({tasksList.length})</span>
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </button>
                     </div>
-                  )}
 
-                  {/* TAB SWITCH VIEW: WALLET */}
-                  {activeTab === 'wallet' && (
-                    <div className="space-y-4 flex-1 flex flex-col min-h-0">
-                      
-                      {/* Rich On-Surface Blue Wallet Card with Fixed Accent color font-mono */}
-                      <div className="bg-brand-on-background text-white rounded-xl p-4 space-y-3 relative overflow-hidden border border-brand-inverse-surface shadow-md text-left">
-                        <div className="absolute right-0 bottom-0 p-4 opacity-[0.03]">
-                          <Wallet className="w-32 h-32 text-brand-surface-dim" />
-                        </div>
-
-                        <div className="space-y-3 relative z-10">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[8px] font-bold text-brand-surface-dim uppercase tracking-widest block">SECURE WALLET</span>
-                            <span className="text-[8px] bg-brand-inverse-surface border border-brand-inverse-on-surface/10 px-1.5 py-0.5 rounded text-brand-inverse-on-surface font-mono">NIBSS</span>
-                          </div>
-
-                          <div className="grid grid-cols-3 gap-2 border-t border-brand-inverse-surface/30 pt-3">
-                            <div>
-                              <span className="text-[8px] font-black text-brand-surface-dim uppercase block">Available</span>
-                              {/* Highlight with primary fixed light green accent color from uploaded specs! */}
-                              <p className="text-lg font-black font-mono tracking-tight leading-none text-brand-primary-fixed mt-1">
-                                ₦{withdrawableBalance.toLocaleString()}
-                              </p>
+                    <div className="space-y-2">
+                      {tasksList.slice(0, 2).map(task => (
+                        <div 
+                          key={task.id}
+                          onClick={() => setSelectedTaskForModal(task)}
+                          className="bg-white dark:bg-zinc-900/80 border border-slate-100 dark:border-white/[0.08] rounded-2xl p-3.5 hover:border-cyan-400/50 transition-all cursor-pointer shadow-xs flex items-center justify-between gap-3 group"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-2xl bg-sky-50 dark:bg-zinc-800 text-xl flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                              {task.platformIcon || '⚡'}
                             </div>
-                            <div>
-                              <span className="text-[8px] font-black text-brand-surface-dim uppercase block">In Escrow</span>
-                              <p className="text-xs font-bold font-mono tracking-tight leading-none text-brand-inverse-on-surface/85 mt-1">
-                                ₦{pendingBalance.toLocaleString()}
-                              </p>
-                            </div>
-                            <div>
-                              <span className="text-[8px] font-black text-brand-surface-dim uppercase block">Lifetime</span>
-                              <p className="text-xs font-bold font-mono tracking-tight leading-none text-brand-inverse-on-surface/85 mt-1">
-                                ₦{lifetimeDisbursed.toLocaleString()}
-                              </p>
+                            <div className="space-y-0.5">
+                              <span className="text-[10px] font-bold text-sky-600 dark:text-cyan-400 uppercase">
+                                {task.company}
+                              </span>
+                              <h4 className="text-xs font-bold text-slate-900 dark:text-white leading-snug line-clamp-1">
+                                {task.title}
+                              </h4>
+                              <div className="flex items-center gap-2 text-[10px] text-slate-400 dark:text-zinc-500">
+                                <span>⏱ {task.time}</span>
+                                <span>·</span>
+                                <span className="font-mono">{task.spotsLeft} spots remaining</span>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </div>
 
-                      {/* 7-DAY PERFORMANCE EARNINGS BAR CHART */}
-                      {user && (
-                        <div className="bg-brand-surface-lowest rounded-xl border border-brand-surface-container/60 p-4 space-y-3 shadow-xs text-left">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[10px] font-black text-brand-on-surface uppercase tracking-wider block">7-Day Performance</span>
-                            <span className="text-[8px] font-bold text-brand-primary bg-brand-surface-low px-1.5 py-0.5 rounded font-mono">⚡ ₦7,050 TOTAL</span>
-                          </div>
-                          <p className="text-[10px] text-brand-on-surface-variant leading-relaxed">
-                            Contributor telemetry payouts processed and settled in the last 7 days.
-                          </p>
-                          
-                          <div className="h-32 w-full mt-1">
-                            <ResponsiveContainer width="100%" height="100%">
-                              <BarChart 
-                                data={[
-                                  { name: 'Wed', amount: 1200 },
-                                  { name: 'Thu', amount: 2400 },
-                                  { name: 'Fri', amount: 650 },
-                                  { name: 'Sat', amount: 1500 },
-                                  { name: 'Sun', amount: 0 },
-                                  { name: 'Mon', amount: 1800 },
-                                  { name: 'Tue', amount: 1500 }
-                                ]} 
-                                margin={{ top: 5, right: 5, left: -25, bottom: 0 }}
-                              >
-                                <XAxis 
-                                  dataKey="name" 
-                                  axisLine={false} 
-                                  tickLine={false} 
-                                  tick={{ fill: '#565e74', fontSize: 8, fontWeight: 700 }} 
-                                />
-                                <YAxis 
-                                  axisLine={false} 
-                                  tickLine={false} 
-                                  tick={{ fill: '#565e74', fontSize: 8, fontWeight: 700 }} 
-                                  tickFormatter={(v) => `₦${v}`}
-                                />
-                                <Tooltip content={<CustomTooltip />} cursor={{ fill: 'var(--color-brand-surface-low)', opacity: 0.4 }} />
-                                <Bar 
-                                  dataKey="amount" 
-                                  fill="var(--color-brand-primary)" 
-                                  radius={[3, 3, 0, 0]}
-                                  barSize={16}
-                                >
-                                  {[
-                                    { name: 'Wed', amount: 1200 },
-                                    { name: 'Thu', amount: 2400 },
-                                    { name: 'Fri', amount: 650 },
-                                    { name: 'Sat', amount: 1500 },
-                                    { name: 'Sun', amount: 0 },
-                                    { name: 'Mon', amount: 1800 },
-                                    { name: 'Tue', amount: 1500 }
-                                  ].map((entry, index) => (
-                                    <Cell 
-                                      key={`cell-${index}`} 
-                                      fill={entry.amount === 2400 ? 'var(--color-brand-primary)' : 'var(--color-brand-primary-container)'} 
-                                    />
-                                  ))}
-                                </Bar>
-                              </BarChart>
-                            </ResponsiveContainer>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Invite Dashboard UI */}
-                      <div className="bg-brand-surface-lowest rounded-xl border border-brand-surface-container/60 p-4 space-y-3 shadow-xs text-left">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-black text-brand-on-surface uppercase tracking-wider block">Invite &amp; Earn ₦500 Program</span>
-                          <span className="text-[8px] font-black text-brand-primary bg-brand-surface-low px-1.5 py-0.2 rounded font-mono">₦500 REWARD</span>
-                        </div>
-                        <p className="text-[11px] text-brand-on-surface-variant leading-relaxed font-medium">
-                          Share your referral code. When a referred contributor registers using your code and completes their first task, BOTH instantly receive ₦500.
-                        </p>
-                        
-                        <div className="flex items-center gap-2 bg-brand-surface-low border border-brand-surface-container rounded-lg p-2.5">
-                          <div className="flex-1">
-                            <span className="text-[8px] font-bold text-brand-on-surface-variant uppercase tracking-wider block">INVITE CODE</span>
-                            <span className="text-xs font-black font-mono tracking-wider text-brand-primary">
-                              {user.referralCode || `TP-TUNDE-8012`}
+                          <div className="text-right shrink-0">
+                            <span className="text-sm font-black font-mono text-emerald-600 dark:text-emerald-400">
+                              +₦{task.reward}
+                            </span>
+                            <span className="text-[9px] block text-slate-400 dark:text-zinc-500 uppercase font-semibold">
+                              Instant Escrow
                             </span>
                           </div>
-                          <button 
-                            onClick={() => {
-                              const code = user.referralCode || 'TP-TUNDE-8012';
-                              navigator.clipboard.writeText(code);
-                              setCopiedReferral(true);
-                              setTimeout(() => setCopiedReferral(false), 2000);
-                              triggerToast('Code Copied', 'Your unique TaskPulse referral code saved to clipboard.');
-                            }}
-                            className="px-2.5 py-1.5 bg-brand-primary hover:bg-brand-primary-container text-white rounded text-[10px] font-bold transition-all shrink-0 active:scale-[0.98]"
-                          >
-                            {copiedReferral ? 'Copied' : 'Copy'}
-                          </button>
                         </div>
-                      </div>
-
-                      {/* Direct Cashout Form */}
-                      <div className="bg-brand-surface-lowest rounded-xl border border-brand-surface-container/60 p-4 space-y-3 shadow-xs text-left">
-                        <span className="text-[10px] font-black text-brand-on-surface uppercase tracking-wider block">Direct Payout</span>
-                        
-                        {/* Selector */}
-                        <div className="space-y-2">
-                          <div className="flex justify-between items-center text-[10px] font-bold">
-                            <span className="text-brand-on-surface-variant">Select Bank Account</span>
-                            <button onClick={() => setIsAddingBank(true)} className="text-brand-primary hover:underline">+ Add Bank</button>
-                          </div>
-                          <div className="grid grid-cols-2 gap-1.5">
-                            {savedBanks.map((b) => (
-                              <div 
-                                key={b.id} 
-                                onClick={() => setSelectedBankId(b.id)}
-                                className={`p-2 rounded-lg border text-[10px] cursor-pointer transition-all ${
-                                  selectedBankId === b.id 
-                                    ? 'border-brand-primary bg-brand-surface-low font-bold shadow-xs' 
-                                    : 'border-brand-surface-container hover:border-brand-surface-high font-medium bg-brand-surface-lowest'
-                                }`}
-                              >
-                                <p className="truncate text-brand-on-surface font-extrabold">{b.bankName}</p>
-                                <p className="text-[9px] text-brand-on-surface-variant font-mono">•••• {b.accountNumber}</p>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* Amount inputs */}
-                        <div className="space-y-1.5">
-                          <div className="flex justify-between items-center text-[10px] font-bold text-brand-on-surface-variant">
-                            <span>Amount to cash out (₦)</span>
-                            <span className="font-mono text-brand-on-surface">Max: ₦{withdrawableBalance}</span>
-                          </div>
-                          <div className="flex gap-1.5">
-                            <input 
-                              type="number"
-                              value={cashoutAmountInput}
-                              onChange={(e) => setCashoutAmountInput(e.target.value)}
-                              className="flex-1 h-9 px-2.5 rounded-lg border border-brand-surface-container bg-brand-surface-lowest text-xs font-semibold text-brand-on-surface focus:outline-none focus:border-brand-primary focus:ring-1 focus:ring-brand-primary/20"
-                              required
-                            />
-                            <button 
-                              onClick={() => setCashoutAmountInput(withdrawableBalance.toString())}
-                              className="px-2.5 bg-brand-surface-low hover:bg-brand-surface-container text-brand-on-surface rounded-lg text-[10px] font-bold"
-                            >
-                              Max
-                            </button>
-                          </div>
-                        </div>
-
-                        <button 
-                          onClick={(e) => { e.preventDefault(); setIsCashoutConfirming(true); }}
-                          disabled={isCashoutProcessing}
-                          className="w-full h-10 bg-brand-primary hover:bg-brand-primary-container text-white rounded-lg text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1 shadow-xs transition-transform active:scale-[0.98]"
-                        >
-                          {isCashoutProcessing ? 'Processing Payout...' : 'Confirm Cashout Now'}
-                        </button>
-                      </div>
-
-                      {/* Convert to Data */}
-                      <div className="space-y-2 text-left">
-                        <span className="text-[10px] font-black text-brand-on-surface-variant uppercase tracking-widest block">Convert to Data</span>
-                        <div className="grid grid-cols-2 gap-2">
-                          <div className="bg-brand-surface-lowest rounded-xl border border-brand-surface-container p-2.5 shadow-xs flex justify-between items-center">
-                            <div>
-                              <p className="text-[10px] font-extrabold text-brand-on-surface">MTN 5GB SME</p>
-                              <span className="text-[9px] text-brand-primary font-mono font-bold">₦1,200</span>
-                            </div>
-                            <button onClick={() => handleRedeemUtility('MTN', '5GB SME', 1200)} className="px-2.5 py-1 bg-brand-primary hover:bg-brand-primary-container text-white text-[9px] font-bold rounded">Redeem</button>
-                          </div>
-                          <div className="bg-brand-surface-lowest rounded-xl border border-brand-surface-container p-2.5 shadow-xs flex justify-between items-center">
-                            <div>
-                              <p className="text-[10px] font-extrabold text-brand-on-surface">Airtel 2GB</p>
-                              <span className="text-[9px] text-brand-primary font-mono font-bold">₦600</span>
-                            </div>
-                            <button onClick={() => handleRedeemUtility('Airtel', '2GB Direct', 600)} className="px-2.5 py-1 bg-brand-primary hover:bg-brand-primary-container text-white text-[9px] font-bold rounded">Redeem</button>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Ledger */}
-                      <div className="space-y-2 text-left pt-1">
-                        <span className="text-[10px] font-black text-brand-on-surface-variant uppercase tracking-widest block">Settlement Ledger</span>
-                        <div className="space-y-1.5">
-                          {transactions.map((t) => (
-                            <div key={t.id} className="bg-brand-surface-lowest rounded-xl p-2.5 border border-brand-surface-container/60 flex items-center justify-between text-[11px] shadow-xs">
-                              <div>
-                                <p className="font-extrabold text-brand-on-surface leading-none">{t.title}</p>
-                                <span className="text-[8px] text-brand-on-surface-variant font-mono uppercase mt-1 block font-semibold">{t.sub} · {t.date}</span>
-                              </div>
-                              <div className="text-right">
-                                <span className="font-bold font-mono text-brand-on-surface">{t.amount > 0 ? '+' : ''}₦{t.amount.toLocaleString()}</span>
-                                <span className={`text-[8px] uppercase block font-black tracking-wider mt-0.5 ${t.amount > 0 ? 'text-brand-primary' : 'text-brand-secondary'}`}>{t.status}</span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
+                      ))}
                     </div>
-                  )}
+                  </div>
 
                 </div>
               )}
 
-            </div>
+              {/* ======================================================== */}
+              {/* TAB 2: TASKS MARKETPLACE & WORKSPACE                     */}
+              {/* ======================================================== */}
+              {activeTab === 'tasks' && (
+                <div className="space-y-4 animate-in fade-in duration-300">
+                  
+                  {/* ACTIVE WORKSPACE (If task in progress) */}
+                  {activeTask && (
+                    <div className="bg-gradient-to-r from-zinc-900 to-sky-950 text-white rounded-3xl p-4 border border-cyan-500/30 shadow-lg space-y-3 relative overflow-hidden">
+                      <div className="flex items-center justify-between">
+                        <span className="px-2.5 py-0.5 rounded-full bg-cyan-500 text-white text-[9px] font-black uppercase tracking-wider">
+                          ACTIVE TASK IN PROGRESS
+                        </span>
+                        <span className="font-mono text-sm font-black text-amber-300">
+                          ⏱ {Math.floor(workspaceTimer / 60)}:{(workspaceTimer % 60).toString().padStart(2, '0')}
+                        </span>
+                      </div>
 
-            {/* STICKY PHONE BOTTOM NAV BAR */}
-            {user && (
-              <nav className="bg-brand-surface-lowest border-t border-brand-surface-container/60 px-4 py-2 flex items-center justify-around shrink-0 relative z-40 pb-safe">
-                <button 
-                  onClick={() => { setActiveTab('earn'); }}
-                  className={`flex flex-col items-center gap-0.5 ${activeTab === 'earn' ? 'text-brand-primary font-black scale-105' : 'text-brand-on-surface-variant/60'}`}
-                >
-                  <Compass className="w-5 h-5" />
-                  <span className="text-[8px] uppercase tracking-wider font-extrabold">Earn</span>
-                </button>
-                <button 
-                  onClick={() => { setActiveTab('submissions'); }}
-                  className={`flex flex-col items-center gap-0.5 relative ${activeTab === 'submissions' ? 'text-brand-primary font-black scale-105' : 'text-brand-on-surface-variant/60'}`}
-                >
-                  <Inbox className="w-5 h-5" />
-                  {submissions.filter(s => s.status === 'Active').length > 0 && (
-                    <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-brand-primary text-white text-[7px] font-black flex items-center justify-center leading-none">
-                      {submissions.filter(s => s.status === 'Active').length}
-                    </span>
+                      <div>
+                        <h4 className="text-xs font-black text-white">{activeTask.title}</h4>
+                        <p className="text-[10px] text-sky-200 mt-0.5">{activeTask.company} · ₦{activeTask.reward} reward</p>
+                      </div>
+
+                      <div className="bg-white/10 rounded-2xl p-3 space-y-2 border border-white/10">
+                        <label className="text-[10px] font-bold text-sky-100 block">
+                          Submit Verification Proof:
+                        </label>
+                        <input 
+                          type="text"
+                          value={taskProofInput}
+                          onChange={e => setTaskProofInput(e.target.value)}
+                          placeholder="Your social username or post URL"
+                          className="w-full h-9 px-3 rounded-xl bg-zinc-900/80 border border-cyan-500/30 text-xs text-white placeholder:text-zinc-400 focus:outline-none"
+                        />
+
+                        <button 
+                          onClick={() => {
+                            setUploadedScreenshot('Screenshot_Verified.png');
+                            showToast('Screenshot Attached', 'Device telemetry validated.');
+                          }}
+                          className="w-full py-1.5 px-2 bg-white/15 hover:bg-white/25 rounded-xl text-[10px] font-bold text-white flex items-center justify-center gap-1"
+                        >
+                          <Camera className="w-3.5 h-3.5 text-cyan-300" />
+                          <span>{uploadedScreenshot ? 'Screenshot Attached ✓' : 'Upload Verification Screenshot'}</span>
+                        </button>
+                      </div>
+
+                      <div className="flex items-center gap-2 pt-1">
+                        <button 
+                          onClick={() => { setActiveTask(null); showToast('Task Abandoned', 'Reservation returned to pool.'); }}
+                          className="py-2 px-3 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-bold text-slate-300"
+                        >
+                          Abandon
+                        </button>
+                        <button 
+                          onClick={handleSubmitTaskProof}
+                          className="flex-1 py-2 px-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-white text-xs font-black uppercase tracking-wider shadow-md active:scale-95 transition-all"
+                        >
+                          Submit Proof (₦{activeTask.reward})
+                        </button>
+                      </div>
+                    </div>
                   )}
-                  <span className="text-[8px] uppercase tracking-wider font-extrabold">Submissions</span>
-                </button>
-                <button 
-                  onClick={() => { setActiveTab('wallet'); }}
-                  className={`flex flex-col items-center gap-0.5 ${activeTab === 'wallet' ? 'text-brand-primary font-black scale-105' : 'text-brand-on-surface-variant/60'}`}
-                >
-                  <Wallet className="w-5 h-5" />
-                  <span className="text-[8px] uppercase tracking-wider font-extrabold">Wallet</span>
-                </button>
-              </nav>
-            )}
 
-            {/* BOTTOM HOME INDICATOR */}
-            <div className="bg-brand-surface-lowest py-1.5 shrink-0 flex justify-center z-50">
-              <div className="w-28 h-1 bg-brand-surface-container rounded-full"></div>
+                  {/* CATEGORY FILTERS */}
+                  <div className="flex gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+                    {(['all', 'Social', 'App Tests', 'Surveys', 'Field Audits'] as const).map(cat => (
+                      <button 
+                        key={cat}
+                        onClick={() => setTaskFilter(cat)}
+                        className={`px-3.5 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ${
+                          taskFilter === cat 
+                            ? 'bg-sky-600 text-white shadow-md shadow-sky-600/20' 
+                            : 'bg-white dark:bg-zinc-900 border border-slate-200 dark:border-white/[0.08] text-slate-600 dark:text-zinc-300'
+                        }`}
+                      >
+                        {cat === 'all' ? 'All Tasks' : cat}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* TASKS LIST */}
+                  <div className="space-y-3">
+                    {tasksList
+                      .filter(t => taskFilter === 'all' || t.category === taskFilter)
+                      .map(task => (
+                        <div 
+                          key={task.id}
+                          className="bg-white dark:bg-zinc-900/80 border border-slate-100 dark:border-white/[0.08] rounded-3xl p-4 shadow-sm hover:border-cyan-400/50 transition-all space-y-3"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-10 h-10 rounded-2xl bg-sky-50 dark:bg-zinc-800 text-xl flex items-center justify-center shrink-0">
+                                {task.platformIcon || '⚡'}
+                              </div>
+                              <div>
+                                <span className="text-[10px] font-bold text-sky-600 dark:text-cyan-400 uppercase">
+                                  {task.company} · {task.category}
+                                </span>
+                                <h4 className="text-xs font-extrabold text-slate-900 dark:text-white leading-snug">
+                                  {task.title}
+                                </h4>
+                              </div>
+                            </div>
+
+                            <div className="text-right shrink-0">
+                              <span className="text-base font-black font-mono text-emerald-600 dark:text-emerald-400">
+                                ₦{task.reward}
+                              </span>
+                              <span className="text-[8px] block text-slate-400 dark:text-zinc-500 uppercase font-bold">
+                                Escrowed
+                              </span>
+                            </div>
+                          </div>
+
+                          <p className="text-xs text-slate-500 dark:text-zinc-400 leading-relaxed line-clamp-2">
+                            {task.description}
+                          </p>
+
+                          <div className="flex items-center justify-between text-[11px] text-slate-400 dark:text-zinc-500 pt-2 border-t border-slate-50 dark:border-white/[0.04]">
+                            <span>⏱ {task.time} · 🛡 {task.SLA}</span>
+                            <span className="font-mono font-bold text-slate-600 dark:text-zinc-300">{task.spotsLeft}/{task.spotsTotal} spots</span>
+                          </div>
+
+                          <button 
+                            onClick={() => setSelectedTaskForModal(task)}
+                            className="w-full h-10 rounded-full bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white font-bold text-xs uppercase tracking-wider shadow-md shadow-sky-500/15 flex items-center justify-center gap-1.5 active:scale-95 transition-all"
+                          >
+                            <CheckSquare className="w-3.5 h-3.5" />
+                            <span>View Task Details (₦{task.reward})</span>
+                          </button>
+                        </div>
+                      ))}
+                  </div>
+
+                </div>
+              )}
+
+              {/* ======================================================== */}
+              {/* TAB 3: ADS / SPONSORED TASKS                             */}
+              {/* ======================================================== */}
+              {activeTab === 'ads' && (
+                <div className="space-y-4 animate-in fade-in duration-300">
+                  <div className="p-4 rounded-3xl bg-gradient-to-br from-indigo-900 to-sky-900 text-white space-y-1 shadow-md">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-cyan-300">Sponsored Brand Rewards</span>
+                    <h3 className="text-sm font-black">Watch, Follow &amp; Earn Instant Cash</h3>
+                    <p className="text-[11px] text-sky-200">High-volume sponsored micro-jobs with instant approval.</p>
+                  </div>
+
+                  {[
+                    { id: 'ad1', title: 'Watch 30s FinTech Demo Video', sponsor: 'PaySwitch Africa', reward: 180, time: '30s' },
+                    { id: 'ad2', title: 'Join Official Telegram Community', sponsor: 'BitPulse Global', reward: 220, time: '1m' }
+                  ].map(ad => (
+                    <div key={ad.id} className="bg-white dark:bg-zinc-900/80 border border-slate-100 dark:border-white/[0.08] rounded-3xl p-4 shadow-sm flex items-center justify-between">
+                      <div>
+                        <span className="text-[10px] font-bold text-cyan-500 uppercase">{ad.sponsor}</span>
+                        <h4 className="text-xs font-bold text-slate-900 dark:text-white mt-0.5">{ad.title}</h4>
+                        <span className="text-[10px] text-slate-400 dark:text-zinc-500">Duration: {ad.time}</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-sm font-black font-mono text-emerald-600 dark:text-emerald-400 block">+₦{ad.reward}</span>
+                        <button 
+                          onClick={() => {
+                            setWithdrawableBalance(prev => prev + ad.reward);
+                            setTransactions(prev => [
+                              {
+                                id: `tx-${Date.now()}`,
+                                type: 'Payout',
+                                title: ad.title,
+                                sub: `${ad.sponsor} instant settlement`,
+                                amount: ad.reward,
+                                status: 'Settled',
+                                date: 'Just now',
+                                reference: `ref_tp_${Math.floor(100000 + Math.random() * 900000)}`
+                              },
+                              ...prev
+                            ]);
+                            triggerConfetti();
+                            showToast(`+₦${ad.reward} Earned!`, `Reward settled from ${ad.sponsor}.`);
+                          }}
+                          className="px-3 py-1 rounded-full bg-cyan-500 text-white text-[11px] font-bold mt-1"
+                        >
+                          Claim
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* ======================================================== */}
+              {/* TAB 4: PROFILE (Exact LeadsAfrica Screenshot 1 Details)  */}
+              {/* ======================================================== */}
+              {activeTab === 'profile' && (
+                <div className="space-y-4 animate-in fade-in duration-300">
+                  
+                  {/* MAIN PROFILE CARD */}
+                  <div className="bg-white dark:bg-zinc-900/80 border border-slate-100 dark:border-white/[0.08] rounded-3xl p-6 shadow-sm space-y-5 text-center">
+                    
+                    {/* User Avatar with Green Verified Badge */}
+                    <div className="flex flex-col items-center space-y-2">
+                      <div className="relative">
+                        <div className="w-20 h-20 rounded-full bg-gradient-to-br from-sky-400 to-blue-600 text-white flex items-center justify-center text-3xl font-black shadow-lg shadow-sky-500/25">
+                          <User className="w-10 h-10" />
+                        </div>
+                        <div className="absolute bottom-0 right-0 w-6 h-6 rounded-full bg-emerald-500 border-2 border-white dark:border-zinc-900 flex items-center justify-center text-white shadow-xs">
+                          <Check className="w-3.5 h-3.5 stroke-[3]" />
+                        </div>
+                      </div>
+
+                      {/* Cyan handle */}
+                      <span className="text-sm font-black text-sky-500 dark:text-cyan-400 tracking-wide">
+                        @{user?.username}
+                      </span>
+                    </div>
+
+                    {/* Profile Fields Form */}
+                    <form onSubmit={handleSaveProfile} className="space-y-3.5 text-left">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-semibold text-slate-500 dark:text-zinc-400 ml-1">
+                            First name
+                          </label>
+                          <input 
+                            type="text"
+                            value={editFirstName}
+                            onChange={e => setEditFirstName(e.target.value)}
+                            className="w-full h-11 px-4 rounded-full bg-slate-50/70 dark:bg-zinc-800/80 border border-slate-100 dark:border-white/[0.08] text-xs font-bold text-slate-900 dark:text-white uppercase focus:outline-none focus:border-cyan-500"
+                            required
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-semibold text-slate-500 dark:text-zinc-400 ml-1">
+                            Last name
+                          </label>
+                          <input 
+                            type="text"
+                            value={editLastName}
+                            onChange={e => setEditLastName(e.target.value)}
+                            className="w-full h-11 px-4 rounded-full bg-slate-50/70 dark:bg-zinc-800/80 border border-slate-100 dark:border-white/[0.08] text-xs font-bold text-slate-900 dark:text-white uppercase focus:outline-none focus:border-cyan-500"
+                            required
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-slate-500 dark:text-zinc-400 ml-1">
+                          Email address
+                        </label>
+                        <input 
+                          type="email"
+                          value={editEmail}
+                          onChange={e => setEditEmail(e.target.value)}
+                          className="w-full h-11 px-4 rounded-full bg-slate-50/70 dark:bg-zinc-800/80 border border-slate-100 dark:border-white/[0.08] text-xs font-medium text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500"
+                          required
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-slate-500 dark:text-zinc-400 ml-1">
+                          Phone number
+                        </label>
+                        <input 
+                          type="tel"
+                          value={editPhone}
+                          onChange={e => setEditPhone(e.target.value)}
+                          className="w-full h-11 px-4 rounded-full bg-slate-50/70 dark:bg-zinc-800/80 border border-slate-100 dark:border-white/[0.08] text-xs font-bold font-mono text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500"
+                          required
+                        />
+                      </div>
+
+                      {/* Electric Blue Button (Screenshot 1 Match) */}
+                      <button 
+                        type="submit"
+                        className="w-full h-11 rounded-full bg-gradient-to-r from-sky-400 via-sky-500 to-blue-600 hover:opacity-95 text-white font-bold text-xs shadow-lg shadow-sky-500/25 transition-all active:scale-[0.98] mt-2"
+                      >
+                        Save Profile Details
+                      </button>
+                    </form>
+
+                  </div>
+
+                  {/* ACCOUNT STATUS CARD (Screenshot 1 Match) */}
+                  <div className="bg-white dark:bg-zinc-900/80 border border-slate-100 dark:border-white/[0.08] rounded-3xl p-4 shadow-sm flex items-center gap-3.5">
+                    <div className="w-11 h-11 rounded-2xl bg-cyan-50 dark:bg-cyan-950/40 border border-cyan-100 dark:border-cyan-800/60 flex items-center justify-center text-cyan-500 text-xl shadow-xs">
+                      <Shield className="w-6 h-6 text-cyan-500" />
+                    </div>
+                    <div>
+                      <span className="text-[11px] font-semibold text-slate-400 dark:text-zinc-500 block leading-none">
+                        Account Status
+                      </span>
+                      <h4 className="text-sm font-black text-slate-900 dark:text-white mt-1">
+                        Fully Verified
+                      </h4>
+                    </div>
+                    <div className="ml-auto">
+                      <span className="px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400 text-[10px] font-black uppercase">
+                        Level 2 KYC
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* LINKED PAYSTACK BANKS */}
+                  <div className="bg-white dark:bg-zinc-900/80 border border-slate-100 dark:border-white/[0.08] rounded-3xl p-4 shadow-sm space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-zinc-300">
+                        Linked Banks (Paystack NUBAN)
+                      </span>
+                      <button 
+                        onClick={() => setIsAddBankModalOpen(true)}
+                        className="text-xs font-bold text-cyan-500 hover:underline"
+                      >
+                        + Add Bank
+                      </button>
+                    </div>
+
+                    <div className="space-y-2">
+                      {savedBanks.map(b => (
+                        <div key={b.id} className="p-3 rounded-2xl border border-slate-100 dark:border-white/[0.06] bg-slate-50/50 dark:bg-zinc-800/40 flex items-center justify-between">
+                          <div>
+                            <span className="text-xs font-black text-slate-900 dark:text-white block">{b.bankName}</span>
+                            <span className="text-[10px] font-mono text-slate-400 dark:text-zinc-400">{b.accountName} · •••• {b.accountNumber.slice(-4)}</span>
+                          </div>
+                          <span className="px-2 py-0.5 rounded-full bg-sky-50 dark:bg-zinc-800 text-sky-600 dark:text-cyan-400 text-[9px] font-bold">
+                            Active
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Reset Activation Test Trigger */}
+                    <div className="pt-2 border-t border-slate-100 dark:border-white/[0.06] flex items-center justify-between">
+                      <span className="text-[11px] text-slate-400 dark:text-zinc-500 font-medium">Test ₦3,000 Activation Gate</span>
+                      <button 
+                        onClick={() => {
+                          setIsActivated(false);
+                          showToast('Lock Screen Enabled', 'Now testing the ₦3,000 activation deposit screen.');
+                        }}
+                        className="px-2.5 py-1 rounded-full bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 text-[10px] font-bold"
+                      >
+                        Lock Account
+                      </button>
+                    </div>
+                  </div>
+
+                </div>
+              )}
+            </>
+          )}
+
+        </div>
+
+        {/* ======================================================== */}
+        {/* BOTTOM NAVIGATION (Screenshot 1 Floating Pill Match)     */}
+        {/* ======================================================== */}
+        <nav className="bg-white/95 dark:bg-[#0c0d12]/95 backdrop-blur-xl border-t border-slate-100 dark:border-white/[0.06] px-4 py-2 shrink-0 z-40 flex items-center justify-around transition-colors">
+          
+          <button 
+            onClick={() => setActiveTab('home')}
+            className={`flex flex-col items-center gap-1 py-1 px-3 rounded-2xl transition-all ${
+              activeTab === 'home' 
+                ? 'bg-sky-50 dark:bg-zinc-800 text-sky-500 dark:text-cyan-400 font-black' 
+                : 'text-slate-400 hover:text-slate-600 dark:text-zinc-500 dark:hover:text-zinc-200'
+            }`}
+          >
+            <Compass className="w-5 h-5" />
+            <span className="text-[10px] font-extrabold tracking-tight">Home</span>
+          </button>
+
+          <button 
+            onClick={() => setActiveTab('tasks')}
+            className={`flex flex-col items-center gap-1 py-1 px-3 rounded-2xl relative transition-all ${
+              activeTab === 'tasks' 
+                ? 'bg-sky-50 dark:bg-zinc-800 text-sky-500 dark:text-cyan-400 font-black' 
+                : 'text-slate-400 hover:text-slate-600 dark:text-zinc-500 dark:hover:text-zinc-200'
+            }`}
+          >
+            <div className="relative">
+              <CheckSquare className="w-5 h-5" />
+              {tasksList.length > 0 && (
+                <span className="absolute -top-1 -right-1.5 w-3.5 h-3.5 rounded-full bg-cyan-500 text-white text-[8px] font-black flex items-center justify-center">
+                  {tasksList.length}
+                </span>
+              )}
             </div>
+            <span className="text-[10px] font-extrabold tracking-tight">Tasks</span>
+          </button>
 
-          </div>
+          <button 
+            onClick={() => setActiveTab('ads')}
+            className={`flex flex-col items-center gap-1 py-1 px-3 rounded-2xl relative transition-all ${
+              activeTab === 'ads' 
+                ? 'bg-sky-50 dark:bg-zinc-800 text-sky-500 dark:text-cyan-400 font-black' 
+                : 'text-slate-400 hover:text-slate-600 dark:text-zinc-500 dark:hover:text-zinc-200'
+            }`}
+          >
+            <div className="relative">
+              <Megaphone className="w-5 h-5" />
+              <span className="absolute -top-1 -right-2 px-1 py-0.2 rounded-full bg-amber-500 text-white text-[7px] font-black uppercase">
+                Hot
+              </span>
+            </div>
+            <span className="text-[10px] font-extrabold tracking-tight">Ads</span>
+          </button>
+
+          <button 
+            onClick={() => setActiveTab('profile')}
+            className={`flex flex-col items-center gap-1 py-1 px-4 rounded-full transition-all ${
+              activeTab === 'profile' 
+                ? 'bg-cyan-50 dark:bg-zinc-800 text-cyan-600 dark:text-cyan-400 font-black' 
+                : 'text-slate-400 hover:text-slate-600 dark:text-zinc-500 dark:hover:text-zinc-200'
+            }`}
+          >
+            <div className="w-5 h-5 rounded-full border-2 border-current flex items-center justify-center">
+              <User className="w-3 h-3" />
+            </div>
+            <span className="text-[10px] font-extrabold tracking-tight">Profile</span>
+          </button>
+
+        </nav>
+
+        {/* BOTTOM HOME INDICATOR */}
+        <div className="py-1.5 bg-white dark:bg-[#0c0d12] flex justify-center shrink-0">
+          <div className="w-28 h-1 rounded-full bg-slate-200 dark:bg-zinc-800"></div>
         </div>
 
       </div>
 
-      {/* PARENT BODY CONTAINER POPUPS */}
+      {/* ======================================================== */}
+      {/* MODAL: 48-HOUR FIRST CASHOUT SECURITY LOCK SCREEN        */}
+      {/* ======================================================== */}
+      {isSecurityLockModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-[#111218] border border-amber-300 dark:border-amber-500/30 rounded-3xl max-w-sm w-full p-6 space-y-5 shadow-2xl text-center relative overflow-hidden">
+            
+            {/* Top Amber Halo */}
+            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-400 via-yellow-300 to-amber-500"></div>
 
-      {/* POPUP: ADD BANK */}
-      {isAddingBank && (
-        <div className="fixed inset-0 z-50 bg-brand-on-surface/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-brand-surface-lowest rounded-2xl border border-brand-surface-container shadow-2xl max-w-sm w-full p-6 space-y-4 text-brand-on-surface">
-            <div className="flex justify-between items-start">
-              <div>
-                <h3 className="text-sm font-extrabold text-brand-on-surface uppercase">Link Bank Account</h3>
-                <p className="text-xs text-brand-on-surface-variant mt-0.5">Add verified NUBAN destination details.</p>
+            <div className="relative mx-auto w-16 h-16 rounded-3xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-500/40 flex items-center justify-center text-amber-500 shadow-lg shadow-amber-500/10">
+              <LockKeyhole className="w-8 h-8 text-amber-500 animate-pulse-subtle" />
+            </div>
+
+            <div className="space-y-1">
+              <span className="text-[10px] font-black uppercase tracking-wider text-amber-500 dark:text-amber-400">
+                FinTech Fraud Prevention Protocol
+              </span>
+              <h3 className="text-lg font-black text-slate-900 dark:text-white">
+                Initial Cashout Unlocks in 2 Days
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-zinc-400 leading-relaxed font-medium pt-1">
+                Per Nigerian banking and anti-chargeback guidelines, all newly activated accounts undergo a mandatory <strong>48-hour (2-day)</strong> account seasoning period before the first withdrawal.
+              </p>
+            </div>
+
+            {/* LIVE COUNTDOWN DISPLAY */}
+            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-zinc-900/80 border border-slate-200 dark:border-white/[0.08] space-y-2">
+              <div className="grid grid-cols-4 gap-2 text-center font-mono">
+                <div className="p-2 rounded-xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-white/[0.08]">
+                  <span className="text-lg font-black text-amber-500 block leading-none">{countdownParts.d}</span>
+                  <span className="text-[8px] font-bold text-slate-400 uppercase mt-0.5 block">Days</span>
+                </div>
+                <div className="p-2 rounded-xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-white/[0.08]">
+                  <span className="text-lg font-black text-amber-500 block leading-none">{countdownParts.h}</span>
+                  <span className="text-[8px] font-bold text-slate-400 uppercase mt-0.5 block">Hours</span>
+                </div>
+                <div className="p-2 rounded-xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-white/[0.08]">
+                  <span className="text-lg font-black text-amber-500 block leading-none">{countdownParts.m}</span>
+                  <span className="text-[8px] font-bold text-slate-400 uppercase mt-0.5 block">Mins</span>
+                </div>
+                <div className="p-2 rounded-xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-white/[0.08]">
+                  <span className="text-lg font-black text-amber-500 block leading-none animate-pulse">{countdownParts.s}</span>
+                  <span className="text-[8px] font-bold text-slate-400 uppercase mt-0.5 block">Secs</span>
+                </div>
+              </div>
+
+              <div className="flex justify-between items-center text-[10px] text-slate-400 dark:text-zinc-400 font-semibold pt-1">
+                <span>Escrow Balance: <strong className="text-emerald-500 font-mono">₦{withdrawableBalance.toLocaleString()}</strong></span>
+                <span>Seasoning: <strong className="text-amber-500 font-mono">{progressPercent}%</strong></span>
+              </div>
+            </div>
+
+            {/* ACTION BUTTONS */}
+            <div className="space-y-2 pt-1">
+              <button 
+                onClick={handleFastForwardLock}
+                className="w-full h-11 rounded-full bg-gradient-to-r from-amber-500 to-yellow-500 hover:opacity-95 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg shadow-amber-500/20 active:scale-95 transition-all flex items-center justify-center gap-1.5"
+              >
+                <Zap className="w-4 h-4 fill-current" />
+                <span>Fast-Forward 48h (Demo Test Cashout)</span>
+              </button>
+
+              <button 
+                onClick={() => {
+                  setIsSecurityLockModalOpen(false);
+                  setActiveTab('tasks');
+                }}
+                className="w-full h-10 rounded-full bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-300 font-bold text-xs transition-all"
+              >
+                Continue Completing High-Paying Tasks
+              </button>
+            </div>
+
+            <button 
+              onClick={() => setIsSecurityLockModalOpen(false)}
+              className="text-xs font-bold text-slate-400 hover:text-slate-600 block mx-auto pt-1"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODAL: PAYSTACK ₦3,000 CHECKOUT MODAL                    */}
+      {/* ======================================================== */}
+      {isDepositModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-[#111218] border border-slate-200 dark:border-white/[0.08] rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl">
+            
+            <div className="flex items-center justify-between border-b pb-3 border-slate-100 dark:border-white/[0.06]">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-[#0ba4db] text-white flex items-center justify-center font-black text-sm">
+                  P
+                </div>
+                <div>
+                  <h4 className="text-xs font-black text-slate-900 dark:text-white leading-none">Paystack Checkout</h4>
+                  <span className="text-[10px] text-slate-400">TaskPulse ₦3,000 Activation Drop</span>
+                </div>
               </div>
               <button 
-                onClick={() => setIsAddingBank(false)}
-                className="w-7 h-7 rounded-lg hover:bg-brand-surface-low flex items-center justify-center text-brand-on-surface-variant"
+                onClick={() => setIsDepositModalOpen(false)}
+                className="w-7 h-7 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center text-slate-400"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleAddBank} className="space-y-3">
-              <div className="space-y-1 text-left">
-                <label className="text-[9px] font-bold text-brand-on-surface-variant uppercase">Bank Provider</label>
-                <select 
-                  value={newBankName} 
-                  onChange={(e) => setNewBankName(e.target.value)}
-                  className="w-full h-10 px-2 rounded-lg border border-brand-surface-container text-xs font-semibold focus:outline-none bg-brand-surface-lowest"
+            {/* Channels: Bank Transfer / Card / USSD */}
+            <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 dark:bg-zinc-800/80 rounded-2xl">
+              <button 
+                onClick={() => setDepositChannel('transfer')}
+                className={`py-1.5 text-xs font-bold rounded-xl transition-all ${
+                  depositChannel === 'transfer' ? 'bg-white dark:bg-zinc-900 text-sky-600 dark:text-cyan-400 shadow-xs' : 'text-slate-500'
+                }`}
+              >
+                Transfer
+              </button>
+              <button 
+                onClick={() => setDepositChannel('card')}
+                className={`py-1.5 text-xs font-bold rounded-xl transition-all ${
+                  depositChannel === 'card' ? 'bg-white dark:bg-zinc-900 text-sky-600 dark:text-cyan-400 shadow-xs' : 'text-slate-500'
+                }`}
+              >
+                Card
+              </button>
+              <button 
+                onClick={() => setDepositChannel('ussd')}
+                className={`py-1.5 text-xs font-bold rounded-xl transition-all ${
+                  depositChannel === 'ussd' ? 'bg-white dark:bg-zinc-900 text-sky-600 dark:text-cyan-400 shadow-xs' : 'text-slate-500'
+                }`}
+              >
+                USSD
+              </button>
+            </div>
+
+            {depositChannel === 'transfer' && (
+              <div className="p-3.5 bg-slate-50 dark:bg-zinc-800/60 rounded-2xl space-y-2 text-xs">
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400">Pay To Bank:</span>
+                  <span className="text-slate-900 dark:text-white font-black">Wema Bank / Paystack</span>
+                </div>
+                <div className="flex justify-between items-center font-bold">
+                  <span className="text-slate-400">Account No:</span>
+                  <span className="font-mono font-black text-sm text-[#0ba4db]">9928301928</span>
+                </div>
+                <div className="flex justify-between items-center font-bold">
+                  <span className="text-slate-400">Beneficiary:</span>
+                  <span className="text-slate-900 dark:text-white font-bold">TaskPulse / Paystack</span>
+                </div>
+              </div>
+            )}
+
+            {depositChannel === 'card' && (
+              <div className="space-y-2 text-left text-xs">
+                <input 
+                  type="text" 
+                  defaultValue="5399 8291 0029 4810"
+                  className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-zinc-800 border font-mono text-xs focus:outline-none"
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <input type="text" defaultValue="08/29" className="h-10 px-3 rounded-xl bg-slate-50 dark:bg-zinc-800 border font-mono text-xs focus:outline-none" />
+                  <input type="text" defaultValue="729" className="h-10 px-3 rounded-xl bg-slate-50 dark:bg-zinc-800 border font-mono text-xs focus:outline-none" />
+                </div>
+              </div>
+            )}
+
+            {depositChannel === 'ussd' && (
+              <div className="p-3 bg-slate-50 dark:bg-zinc-800 rounded-2xl text-center text-xs font-bold space-y-1">
+                <span className="text-slate-400 block text-[11px]">Dial on your registered phone:</span>
+                <span className="text-base font-black font-mono text-[#0ba4db] block">*737*50*3000*1928#</span>
+              </div>
+            )}
+
+            <button 
+              onClick={handleCompleteActivation}
+              disabled={isProcessingDeposit}
+              className="w-full h-12 rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-emerald-500/20 active:scale-95 transition-all flex items-center justify-center gap-1.5"
+            >
+              {isProcessingDeposit ? (
+                <>
+                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                  <span>Confirming Paystack Deposit...</span>
+                </>
+              ) : (
+                <span>I Have Sent ₦3,000 (Activate Account)</span>
+              )}
+            </button>
+
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODAL: PAYSTACK CASHOUT (Rules: Min 2k, 0% streak fee)  */}
+      {/* ======================================================== */}
+      {isCashoutModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-[#111218] border border-slate-200 dark:border-white/[0.08] rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl">
+            
+            <div className="flex items-start justify-between">
+              <div>
+                <span className="text-[10px] font-black text-cyan-500 uppercase tracking-wider">Paystack Direct Transfers</span>
+                <h3 className="text-base font-black text-slate-900 dark:text-white mt-0.5">
+                  {cashoutStep === 'amount' ? 'Instant Bank Cashout' : cashoutStep === 'otp' ? 'Paystack 2FA Authorization' : 'Transfer Disbursed!'}
+                </h3>
+              </div>
+              <button 
+                onClick={() => setIsCashoutModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center text-slate-400"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {cashoutStep === 'amount' && (
+              <form onSubmit={handleInitiateCashout} className="space-y-3.5">
+                
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700 dark:text-zinc-300">Destination Account</label>
+                  <div className="space-y-1.5">
+                    {savedBanks.map(b => (
+                      <div 
+                        key={b.id}
+                        onClick={() => setSelectedBankId(b.id)}
+                        className={`p-2.5 rounded-2xl border text-xs cursor-pointer flex items-center justify-between transition-all ${
+                          selectedBankId === b.id 
+                            ? 'border-cyan-500 bg-sky-50/60 dark:bg-cyan-950/40 text-sky-700 dark:text-cyan-300 font-bold' 
+                            : 'border-slate-100 dark:border-white/[0.06] text-slate-600 dark:text-zinc-400'
+                        }`}
+                      >
+                        <div>
+                          <p className="font-extrabold">{b.bankName}</p>
+                          <p className="text-[10px] font-mono text-slate-400 dark:text-zinc-500">•••• {b.accountNumber.slice(-4)}</p>
+                        </div>
+                        {selectedBankId === b.id && <Check className="w-4 h-4 text-cyan-500" />}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <div className="flex justify-between items-center text-xs font-semibold text-slate-600 dark:text-zinc-400">
+                    <span>Withdrawal Amount (₦)</span>
+                    <span className="font-mono text-emerald-600 dark:text-emerald-400">Min: ₦2,000 · Max: ₦{user?.dailyCashoutLimit.toLocaleString()}</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <input 
+                      type="number"
+                      min={2000}
+                      max={user?.dailyCashoutLimit || 20000}
+                      value={cashoutAmount}
+                      onChange={e => setCashoutAmount(e.target.value)}
+                      className="flex-1 h-11 px-4 rounded-full bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-white/[0.08] text-xs font-bold font-mono focus:outline-none"
+                      required
+                    />
+                    <button 
+                      type="button"
+                      onClick={() => setCashoutAmount(Math.min(withdrawableBalance, user?.dailyCashoutLimit || 20000).toString())}
+                      className="px-4 rounded-full bg-slate-100 dark:bg-zinc-800 text-xs font-bold"
+                    >
+                      Max
+                    </button>
+                  </div>
+                </div>
+
+                {/* FEE & STREAK BREAKDOWN */}
+                <div className="p-3 rounded-2xl bg-slate-50 dark:bg-zinc-800/60 border border-slate-100 dark:border-white/[0.06] text-xs space-y-1.5 font-semibold">
+                  <div className="flex justify-between text-slate-500 dark:text-zinc-400">
+                    <span>Standard Paystack Transfer Fee:</span>
+                    <span className="line-through font-mono">₦50</span>
+                  </div>
+                  <div className="flex justify-between text-emerald-600 dark:text-emerald-400">
+                    <span className="flex items-center gap-1 font-bold">
+                      <Flame className="w-3.5 h-3.5 fill-current" />
+                      <span>5-Day Streak Fee Waiver:</span>
+                    </span>
+                    <span className="font-mono font-black">-₦50 (0% Fee)</span>
+                  </div>
+                  <div className="flex justify-between pt-1 border-t border-slate-200 dark:border-white/[0.06] font-black text-slate-900 dark:text-white">
+                    <span>Net Disbursed to {selectedBank.bankName}:</span>
+                    <span className="font-mono text-emerald-600 dark:text-emerald-400">₦{parseFloat(cashoutAmount || '0').toLocaleString()}</span>
+                  </div>
+                </div>
+
+                <button 
+                  type="submit"
+                  className="w-full h-11 rounded-full bg-gradient-to-r from-sky-500 to-blue-600 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-sky-500/25 active:scale-95 transition-all mt-1"
                 >
-                  <option value="Moniepoint MFB">Moniepoint MFB</option>
-                  <option value="Access Bank PLC">Access Bank PLC</option>
-                  <option value="OPay Digital Services">OPay Digital Services</option>
-                  <option value="Kuda Bank">Kuda Bank</option>
-                  <option value="Guaranty Trust Bank (GTB)">Guaranty Trust Bank (GTB)</option>
+                  Proceed to Paystack 2FA Authorization
+                </button>
+              </form>
+            )}
+
+            {cashoutStep === 'otp' && (
+              <form onSubmit={handleConfirmPaystackOtp} className="space-y-4">
+                <div className="p-3 bg-sky-50 dark:bg-cyan-950/40 rounded-2xl text-center space-y-1">
+                  <KeyRound className="w-7 h-7 text-cyan-500 mx-auto" />
+                  <p className="text-xs font-bold text-slate-900 dark:text-white">Transfer Authorization Required</p>
+                  <p className="text-[11px] text-slate-500 dark:text-zinc-400">
+                    Enter the 4-digit Paystack OTP sent to <strong className="font-mono">{user?.phone}</strong>
+                  </p>
+                </div>
+
+                <div className="space-y-1">
+                  <input 
+                    type="text"
+                    maxLength={4}
+                    value={paystackOtp}
+                    onChange={e => setPaystackOtp(e.target.value.replace(/\D/g, ''))}
+                    placeholder="••••"
+                    className="w-full h-12 text-center text-xl tracking-[0.5em] font-mono font-black rounded-2xl bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-white/[0.08] focus:outline-none"
+                    required
+                  />
+                  <button 
+                    type="button" 
+                    onClick={() => setPaystackOtp('7821')}
+                    className="text-[11px] font-bold text-cyan-500 block mx-auto hover:underline pt-1"
+                  >
+                    Auto-Fill Demo Code (7821)
+                  </button>
+                </div>
+
+                <div className="flex gap-2">
+                  <button 
+                    type="button"
+                    onClick={() => setCashoutStep('amount')}
+                    className="flex-1 h-11 rounded-full border border-slate-200 dark:border-white/[0.08] text-xs font-bold text-slate-500"
+                  >
+                    Back
+                  </button>
+                  <button 
+                    type="submit"
+                    disabled={isCashoutProcessing}
+                    className="flex-2 h-11 rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-bold text-xs uppercase tracking-wider shadow-md"
+                  >
+                    {isCashoutProcessing ? 'Disbursing via NIP...' : 'Confirm & Disburse'}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {cashoutStep === 'success' && (
+              <div className="text-center space-y-4 py-2">
+                <div className="w-16 h-16 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-500 flex items-center justify-center mx-auto text-3xl shadow-md">
+                  ✓
+                </div>
+                <div>
+                  <h4 className="text-base font-black text-slate-900 dark:text-white">Funds Successfully Disbursed!</h4>
+                  <p className="text-xs font-medium text-slate-500 dark:text-zinc-400 mt-1">
+                    ₦{parseFloat(cashoutAmount).toLocaleString()} sent to {selectedBank.bankName} ({selectedBank.accountNumber}).
+                  </p>
+                </div>
+
+                <div className="p-3 rounded-2xl bg-slate-50 dark:bg-zinc-800/80 font-mono text-[11px] space-y-1 text-left border border-slate-200 dark:border-white/[0.08]">
+                  <div className="flex justify-between">
+                    <span className="text-slate-400 dark:text-zinc-500">Paystack Ref:</span>
+                    <span className="font-bold text-slate-900 dark:text-white">{transferRef}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400 dark:text-zinc-500">Channel:</span>
+                    <span className="font-bold text-emerald-600 dark:text-emerald-400">NIP Direct Rail</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400 dark:text-zinc-500">Fee Paid:</span>
+                    <span className="font-bold text-amber-500">₦0 (Streak Waived)</span>
+                  </div>
+                </div>
+
+                <button 
+                  onClick={() => setIsCashoutModalOpen(false)}
+                  className="w-full h-11 rounded-full bg-cyan-500 text-white font-bold text-xs uppercase tracking-wider"
+                >
+                  Done
+                </button>
+              </div>
+            )}
+
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODAL: DOUBLE-ENTRY FINTECH AUDIT LEDGER                 */}
+      {/* ======================================================== */}
+      {isLedgerModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-[#111218] border border-slate-200 dark:border-white/[0.08] rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl">
+            <div className="flex items-start justify-between">
+              <div>
+                <span className="text-[10px] font-black text-cyan-500 uppercase tracking-wider">Immutable Audit Trail</span>
+                <h3 className="text-base font-black text-slate-900 dark:text-white mt-0.5">FinTech Transaction Ledger</h3>
+              </div>
+              <button 
+                onClick={() => setIsLedgerModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center text-slate-400"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-2 max-h-[320px] overflow-y-auto no-scrollbar">
+              {transactions.map(tx => (
+                <div key={tx.id} className="p-3 rounded-2xl bg-slate-50 dark:bg-zinc-800/50 border border-slate-100 dark:border-white/[0.06] flex items-center justify-between text-xs">
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-bold text-slate-900 dark:text-white">{tx.title}</span>
+                      <span className="text-[8px] font-mono px-1.5 py-0.2 rounded bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 uppercase font-black">
+                        {tx.status}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 dark:text-zinc-500 mt-0.5">{tx.sub} · {tx.date}</p>
+                    <p className="text-[9px] font-mono text-cyan-600 dark:text-cyan-400">{tx.reference}</p>
+                  </div>
+                  <span className={`font-mono font-black text-sm ${tx.type === 'Cashout' ? 'text-rose-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                    {tx.type === 'Cashout' ? '-' : '+'}₦{tx.amount.toLocaleString()}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <button 
+              onClick={() => setIsLedgerModalOpen(false)}
+              className="w-full h-10 rounded-full bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-200 font-bold text-xs"
+            >
+              Close Ledger
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODAL: ADD BANK WITH LIVE PAYSTACK NUBAN RESOLUTION     */}
+      {/* ======================================================== */}
+      {isAddBankModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-[#111218] border border-slate-200 dark:border-white/[0.08] rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl">
+            <div className="flex items-start justify-between">
+              <div>
+                <span className="text-[10px] font-black text-cyan-500 uppercase tracking-wider">Paystack Bank Resolve API</span>
+                <h3 className="text-base font-black text-slate-900 dark:text-white mt-0.5">Link NUBAN Bank Account</h3>
+              </div>
+              <button 
+                onClick={() => setIsAddBankModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center text-slate-400"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddBank} className="space-y-3.5">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700 dark:text-zinc-300">Bank Provider</label>
+                <select 
+                  value={addBankCode}
+                  onChange={e => setAddBankCode(e.target.value)}
+                  className="w-full h-11 px-4 rounded-full bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-white/[0.08] text-xs font-semibold focus:outline-none"
+                >
+                  {PAYSTACK_BANKS.map(b => (
+                    <option key={b.code} value={b.code}>{b.name}</option>
+                  ))}
                 </select>
               </div>
 
-              <div className="space-y-1 text-left">
-                <label className="text-[9px] font-bold text-brand-on-surface-variant uppercase">NUBAN Account (10 digits)</label>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700 dark:text-zinc-300">10-Digit NUBAN Account</label>
                 <input 
-                  type="text" 
+                  type="text"
                   maxLength={10}
-                  placeholder="0123456789"
-                  value={newAccountNumber}
-                  onChange={(e) => setNewAccountNumber(e.target.value.replace(/\D/g, ''))}
-                  className="w-full h-10 px-2.5 rounded-lg border border-brand-surface-container text-xs font-semibold focus:outline-none bg-brand-surface-lowest"
+                  value={addAccountNum}
+                  onChange={e => setAddAccountNum(e.target.value.replace(/\D/g, ''))}
+                  placeholder="0816596113"
+                  className="w-full h-11 px-4 rounded-full bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-white/[0.08] text-xs font-bold font-mono focus:outline-none"
                   required
                 />
               </div>
 
-              <div className="space-y-1 text-left">
-                <label className="text-[9px] font-bold text-brand-on-surface-variant uppercase">Auto-resolved Owner</label>
-                <input 
-                  type="text" 
-                  value={newAccountName}
-                  disabled 
-                  className="w-full h-10 px-2.5 rounded-lg border border-brand-surface-container text-xs font-semibold bg-brand-surface-low cursor-not-allowed font-mono"
-                />
+              <div className="p-3 rounded-2xl bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-white/[0.08] space-y-1">
+                <span className="text-[10px] font-bold uppercase text-slate-400 dark:text-zinc-500 block">
+                  Resolved Account Name:
+                </span>
+                {isResolvingAccount ? (
+                  <span className="text-xs font-bold text-cyan-500 flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin"></span>
+                    <span>Resolving with Paystack API...</span>
+                  </span>
+                ) : resolvedAccountName ? (
+                  <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                    <span>✓</span>
+                    <span>{resolvedAccountName}</span>
+                  </span>
+                ) : (
+                  <span className="text-xs text-slate-400 dark:text-zinc-500 font-medium">
+                    Enter 10 digits to auto-resolve account name.
+                  </span>
+                )}
               </div>
 
               <button 
                 type="submit"
-                className="w-full h-10 bg-brand-primary text-white rounded-lg text-xs font-bold uppercase hover:bg-brand-primary-container mt-2 transition-all active:scale-[0.98] shadow-sm"
+                disabled={!resolvedAccountName}
+                className="w-full h-11 rounded-full bg-gradient-to-r from-sky-500 to-blue-600 text-white font-bold text-xs uppercase tracking-wider shadow-md mt-2 disabled:opacity-50"
               >
-                Link Verified Bank NIP
+                Save &amp; Verify with Paystack
               </button>
             </form>
           </div>
         </div>
       )}
 
-      {/* POPUP: CONFIRM CASHOUT REASSURANCE */}
-      {isCashoutConfirming && (
-        <div className="fixed inset-0 z-50 bg-brand-on-surface/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-brand-surface-lowest rounded-2xl border border-brand-surface-container shadow-2xl max-w-sm w-full p-6 space-y-4 text-brand-on-surface">
-            <div className="text-center space-y-2">
-              <Shield className="w-10 h-10 text-brand-primary mx-auto" />
-              <h3 className="text-sm font-black uppercase tracking-wider">Confirm Instant NIP Settlement</h3>
-              <p className="text-xs text-brand-on-surface-variant">
-                You are initiating a direct payout of <strong className="text-brand-on-surface font-mono font-bold">₦{parseFloat(cashoutAmountInput).toLocaleString()}</strong>.
-              </p>
-            </div>
-
-            <div className="bg-brand-surface-low border border-brand-surface-container rounded-xl p-3 text-xs text-brand-on-surface-variant space-y-1">
-              <p className="flex justify-between"><span>Withdrawable Amount:</span> <strong className="text-brand-on-surface font-bold">₦{withdrawableBalance}</strong></p>
-              <p className="flex justify-between font-bold"><span>Amount to cash out:</span> <strong className="text-brand-on-surface font-black">-₦{cashoutAmountInput}</strong></p>
-              <p className="flex justify-between border-t border-brand-surface-container/60 pt-1.5 font-bold"><span>Remaining Balance:</span> <strong className="text-brand-on-surface font-black">₦{withdrawableBalance - parseFloat(cashoutAmountInput)}</strong></p>
-            </div>
-
-            <div className="flex gap-2">
-              <button 
-                onClick={() => setIsCashoutConfirming(false)}
-                className="flex-1 h-10 rounded-lg border border-brand-surface-container text-xs font-bold text-brand-on-surface-variant"
-              >
-                Cancel
-              </button>
-              <button 
-                onClick={handleCashout}
-                className="flex-1 h-10 rounded-lg bg-brand-primary hover:bg-brand-primary-container text-white font-bold text-xs"
-              >
-                Disburse Payout
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* POPUP: SUPPORT CASE FORM */}
-      {isSupportOpen && (
-        <div className="fixed inset-0 z-50 bg-brand-on-surface/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-brand-surface-lowest rounded-2xl border border-brand-surface-container shadow-2xl max-w-sm w-full p-6 space-y-4 text-brand-on-surface">
-            <div className="flex justify-between items-start">
+      {/* ======================================================== */}
+      {/* TASK START MODAL                                         */}
+      {/* ======================================================== */}
+      {selectedTaskForModal && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-[#111218] border border-slate-200 dark:border-white/[0.08] rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl">
+            <div className="flex items-start justify-between">
               <div>
-                <h3 className="text-sm font-extrabold text-brand-on-surface uppercase">Contact Dispute Desk</h3>
-                <p className="text-xs text-brand-on-surface-variant mt-0.5">Priority review or evaluation arbitration.</p>
+                <span className="text-[10px] font-black text-cyan-500 uppercase tracking-wider">{selectedTaskForModal.company}</span>
+                <h3 className="text-sm font-black text-slate-900 dark:text-white mt-0.5">{selectedTaskForModal.title}</h3>
               </div>
               <button 
-                onClick={() => setIsSupportOpen(false)}
-                className="w-7 h-7 rounded-lg hover:bg-brand-surface-low flex items-center justify-center text-brand-on-surface-variant"
+                onClick={() => setSelectedTaskForModal(null)}
+                className="w-7 h-7 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center text-slate-400"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleSupportSubmit} className="space-y-3">
-              <textarea 
-                rows={4}
-                value={supportMessage}
-                onChange={(e) => setSupportMessage(e.target.value)}
-                placeholder="List your proof index, target APK build status, and reasons for review..."
-                className="w-full p-3 rounded-lg border border-brand-surface-container text-xs font-medium focus:outline-none bg-brand-surface-lowest text-brand-on-surface"
-                required
-              />
-              <button 
-                type="submit"
-                className="w-full h-10 bg-brand-primary text-white font-bold text-xs uppercase hover:bg-brand-primary-container rounded-lg transition-all active:scale-[0.98] shadow-sm"
-              >
-                File Dispute Case
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* POPUP: UTILITY REDEEM CONFIRMATION */}
-      {isUtilityRedeeming && utilitySelected && (
-        <div className="fixed inset-0 z-50 bg-brand-on-surface/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-brand-surface-lowest rounded-2xl border border-brand-surface-container shadow-2xl max-w-sm w-full p-6 space-y-4 text-brand-on-surface">
-            <div className="text-center space-y-2">
-              <h3 className="text-sm font-extrabold uppercase tracking-wider text-brand-on-surface">Confirm Data Purchase</h3>
-              <p className="text-xs text-brand-on-surface-variant">
-                Convert <strong className="text-brand-on-surface font-mono font-bold">₦{utilitySelected.price.toLocaleString()}</strong> of your withdrawable balance to purchase <strong className="text-brand-on-surface font-bold">{utilitySelected.provider} {utilitySelected.name}</strong>?
-              </p>
+            <div className="p-3 bg-sky-50 dark:bg-zinc-800/80 rounded-2xl flex items-center justify-between border border-sky-100 dark:border-white/[0.06]">
+              <span className="text-xs font-bold text-sky-800 dark:text-zinc-300">Reward Payout:</span>
+              <span className="text-lg font-black font-mono text-emerald-600 dark:text-emerald-400">₦{selectedTaskForModal.reward}</span>
             </div>
 
-            <div className="bg-brand-surface-low border border-brand-surface-container rounded-xl p-3 text-xs text-brand-on-surface-variant space-y-1">
-              <p className="flex justify-between"><span>Withdrawable Balance:</span> <span className="font-mono text-brand-on-surface">₦{withdrawableBalance.toLocaleString()}</span></p>
-              <p className="flex justify-between font-bold"><span>Voucher Cost:</span> <span className="font-mono text-brand-on-surface">-₦{utilitySelected.price.toLocaleString()}</span></p>
-              <p className="flex justify-between border-t border-brand-surface-container/60 pt-1.5 font-bold"><span>Remaining Balance:</span> <span className="font-mono text-brand-on-surface">₦{(withdrawableBalance - utilitySelected.price).toLocaleString()}</span></p>
+            <div className="space-y-2 text-xs text-slate-600 dark:text-zinc-300">
+              <p className="font-semibold text-slate-900 dark:text-white">Required Steps:</p>
+              {selectedTaskForModal.steps.map((step, idx) => (
+                <div key={idx} className="flex items-start gap-2 text-[11px]">
+                  <span className="w-4 h-4 rounded-full bg-sky-100 dark:bg-zinc-800 text-sky-600 dark:text-cyan-400 font-bold flex items-center justify-center shrink-0 text-[10px]">
+                    {idx + 1}
+                  </span>
+                  <span>{step}</span>
+                </div>
+              ))}
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex gap-2 pt-2">
               <button 
-                onClick={() => { setIsUtilityRedeeming(false); setUtilitySelected(null); }}
-                className="flex-1 h-10 rounded-lg border border-brand-surface-container text-brand-on-surface-variant font-bold text-xs"
+                onClick={() => setSelectedTaskForModal(null)}
+                className="flex-1 h-10 rounded-full border border-slate-200 dark:border-white/[0.08] text-xs font-bold text-slate-500"
               >
                 Cancel
               </button>
               <button 
-                onClick={handleConfirmUtility}
-                className="flex-1 h-10 rounded-lg bg-brand-primary hover:bg-brand-primary-container text-white font-bold text-xs shadow-sm"
+                onClick={() => handleStartTask(selectedTaskForModal)}
+                className="flex-1 h-10 rounded-full bg-gradient-to-r from-sky-500 to-blue-600 text-white text-xs font-bold uppercase tracking-wider shadow-md active:scale-95 transition-all"
               >
-                Confirm Purchase
+                Accept Directive
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* DYNAMIC NOTIFICATION TOAST */}
-      <div 
-        className={`fixed bottom-4 right-4 z-50 bg-brand-on-background border border-brand-inverse-surface text-white p-4 rounded-xl shadow-2xl flex items-center justify-between gap-3 transform transition-all duration-300 max-w-sm w-full ${
-          toast.show ? 'translate-y-0 opacity-100 pointer-events-auto' : 'translate-y-12 opacity-0 pointer-events-none'
-        }`}
-      >
-        <div className="flex items-center gap-3">
-          <CheckCircle2 className="w-5 h-5 text-brand-primary-fixed shrink-0 animate-bounce" />
-          <div className="text-left">
-            <p className="text-xs font-bold text-white leading-tight">{toast.title}</p>
-            <p className="text-[10px] text-brand-surface-dim font-medium mt-0.5 leading-snug">{toast.subtitle}</p>
+      {/* ======================================================== */}
+      {/* MODAL: DAILY STREAK CALENDAR & CLAIM                     */}
+      {/* ======================================================== */}
+      {isStreakModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-[#111218] border border-slate-200 dark:border-white/[0.08] rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl text-center">
+            <div className="w-14 h-14 rounded-full bg-orange-100 dark:bg-orange-950/60 text-2xl flex items-center justify-center mx-auto text-orange-500 shadow-md">
+              🔥
+            </div>
+
+            <div>
+              <h3 className="text-base font-black text-slate-900 dark:text-white">
+                {user?.streakDays}-Day Daily Login Streak
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-zinc-400 mt-1">
+                Maintain 5+ days streak to enjoy 0% Paystack cashout fees &amp; multiplying rewards.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-7 gap-1.5 py-2">
+              {STREAK_DAYS_CONFIG.map((s, index) => {
+                const isToday = index + 1 === user?.streakDays;
+                const isPast = index + 1 < (user?.streakDays || 1) || (isToday && user?.streakClaimedToday);
+                return (
+                  <div 
+                    key={s.day} 
+                    className={`p-1.5 rounded-xl border text-center ${
+                      isPast 
+                        ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300 text-emerald-600 font-bold'
+                        : isToday 
+                          ? 'bg-sky-50 dark:bg-sky-950/50 border-sky-400 text-sky-600 dark:text-cyan-400 font-black scale-105'
+                          : 'bg-slate-50 dark:bg-zinc-800 border-slate-100 dark:border-white/[0.06] text-slate-400'
+                    }`}
+                  >
+                    <span className="text-[9px] block">Day {s.day}</span>
+                    <span className="text-[10px] font-black font-mono mt-1 block">{isPast ? '✓' : s.label}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <button 
+              onClick={handleClaimDailyStreak}
+              disabled={user?.streakClaimedToday}
+              className={`w-full h-11 rounded-full font-bold text-xs uppercase tracking-wider transition-all ${
+                user?.streakClaimedToday 
+                  ? 'bg-slate-100 dark:bg-zinc-800 text-slate-400 cursor-not-allowed'
+                  : 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-lg shadow-orange-500/25 active:scale-95'
+              }`}
+            >
+              {user?.streakClaimedToday ? 'Already Claimed Today ✓' : 'Claim Day 5 Reward (₦300)'}
+            </button>
+
+            <button 
+              onClick={() => setIsStreakModalOpen(false)}
+              className="text-xs font-bold text-slate-400 hover:text-slate-600"
+            >
+              Close Calendar
+            </button>
           </div>
         </div>
-        <button 
-          onClick={() => setToast((p) => ({ ...p, show: false }))}
-          className="text-slate-400 hover:text-white shrink-0"
-        >
-          <X className="w-3.5 h-3.5" />
-        </button>
+      )}
+
+      {/* ======================================================== */}
+      {/* FLOATING TOAST NOTIFICATION                              */}
+      {/* ======================================================== */}
+      <div 
+        className={`fixed top-4 right-4 z-50 bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-3 transform transition-all duration-300 max-w-sm ${
+          toast.show ? 'translate-y-0 opacity-100 pointer-events-auto' : '-translate-y-10 opacity-0 pointer-events-none'
+        }`}
+      >
+        <div className="w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0">
+          <CheckCircle2 className="w-4 h-4" />
+        </div>
+        <div className="text-left">
+          <p className="text-xs font-bold leading-tight">{toast.title}</p>
+          <p className="text-[11px] opacity-80 leading-snug mt-0.5">{toast.subtitle}</p>
+        </div>
       </div>
 
     </div>
