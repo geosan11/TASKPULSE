@@ -5,7 +5,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ status: false, message: 'Method Not Allowed' });
   }
 
-  const { email, amount = 3000, reference } = req.body || {};
+  const { email, reference } = req.body || {};
 
   if (!email) {
     return res.status(400).json({ status: false, message: 'Customer email is required' });
@@ -16,9 +16,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(500).json({ status: false, message: 'PAYSTACK_SECRET_KEY is not configured' });
   }
 
+  // HARD-LOCKED ON THE SERVER: EXACTLY ₦3,000 (300,000 KOBO)
+  // CLIENT CANNOT TAMPER WITH THIS VALUE
+  const ENFORCED_AMOUNT_KOBO = 300000;
   const depositRef = reference || `ref_tp_dep_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-  // Convert amount in Naira to Kobo (₦3,000 = 300,000 kobo)
-  const amountInKobo = Math.round(Number(amount) * 100);
 
   try {
     const paystackRes = await fetch('https://api.paystack.co/transaction/initialize', {
@@ -29,12 +30,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       },
       body: JSON.stringify({
         email,
-        amount: amountInKobo,
+        amount: ENFORCED_AMOUNT_KOBO,
         reference: depositRef,
+        currency: 'NGN',
         metadata: {
           app: 'TaskPulse',
           type: 'activation_drop',
-          amount_naira: amount
+          amount_naira: 3000
         }
       })
     });

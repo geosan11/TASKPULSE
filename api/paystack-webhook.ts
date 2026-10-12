@@ -24,13 +24,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const event = req.body;
 
-  // Handle Event: charge.success (e.g. ₦3,000 Activation Deposit)
+  // Handle Event: charge.success (Strictly ₦3,000 Activation Deposit)
   if (event.event === 'charge.success') {
-    const { reference, amount, customer } = event.data || {};
-    // amount is in kobo (300000 = ₦3,000)
-    console.log(`[TaskPulse Paystack Webhook] Verified payment of ₦${amount / 100} from ${customer?.email} (Ref: ${reference})`);
+    const { reference, amount, customer, status } = event.data || {};
     
-    // Here your database or user state is credited with ₦3,000 and activated!
+    // Strict server-side check: Must be at least 300,000 kobo (₦3,000) and status 'success'
+    if (status !== 'success' || Number(amount) < 300000) {
+      console.warn(`[Security Alert] Received charge.success with invalid amount: ₦${amount / 100} from ${customer?.email}`);
+      return res.status(400).json({ status: false, message: 'Invalid or insufficient deposit amount' });
+    }
+
+    console.log(`[TaskPulse Paystack Webhook] Verified payment of ₦${amount / 100} from ${customer?.email} (Ref: ${reference})`);
+    // User activation confirmed
   }
 
   // Handle Event: transfer.success (Disbursed Cashout)

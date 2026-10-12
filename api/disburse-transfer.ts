@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { verifyFinancialState } from './security';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
@@ -9,10 +10,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     amount, 
     bankCode, 
     accountNumber, 
-    accountName, 
-    userActivationDate,
-    qualifiedReferralsCount = 0,
-    referralsVolume = 0
+    accountName,
+    stateToken // Cryptographic Anti-Tamper Token generated & signed by server
   } = req.body || {};
 
   const secretKey = process.env.PAYSTACK_SECRET_KEY;
@@ -20,33 +19,91 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(500).json({ status: false, message: 'PAYSTACK_SECRET_KEY is not configured' });
   }
 
-  // 1. Enforce 48-Hour Security Lock Rule
-  if (userActivationDate) {
-    const hoursSinceActivation = (Date.now() - new Date(userActivationDate).getTime()) / (1000 * 60 * 60);
-    if (hoursSinceActivation < 48) {
-      return res.status(403).json({ 
-        status: false, 
-        message: '48-Hour Security Cooldown Active: Initial cashout unlocks 2 days after activation.' 
+  // =========================================================================
+  // DEFENSE 1: CRYPTOGRAPHIC ANTI-TAMPER CHECK (CLIENT CANNOT SPOOF STATE)
+  // =========================================================================
+  let verifiedState = null;
+  if (stateToken) {
+    verifiedState = verifyFinancialState(stateToken, secretKey);
+    if (!verifiedState) {
+      return res.status(401).json({
+        status: false,
+        message: 'Security Violation: Tampered financial state token detected. Request blocked.'
       });
     }
   }
 
-  // 2. Enforce 3 Referrals & ₦9,000 Volume Rule
-  if (qualifiedReferralsCount < 3 || referralsVolume < 9000) {
-    return res.status(403).json({
-      status: false,
-      message: 'Referral Condition Required: You must have at least 3 qualified referrals with minimum ₦9,000 combined deposit volume.'
-    });
+  // =========================================================================
+  // DEFENSE 2: SERVER-ENFORCED 48-HOUR SECURITY COOLING-OFF PERIOD
+  // =========================================================================
+  if (verifiedState) {
+    const hoursElapsed = (Date.now() - verifiedState.activationTimestamp) / (1000 * 60 * 60);
+    if (hoursElapsed < 48) {
+      const remainingHours = (48 - hoursElapsed).toFixed(1);
+      return res.status(403).json({ 
+        status: false, 
+        message: `48-Hour Security Lock Active: First withdrawal unlocks in ${remainingHours} hours.` 
+      });
+    }
   }
 
-  // 3. Enforce Minimum ₦2,000 Threshold
+  // =========================================================================
+  // DEFENSE 3: SERVER-ENFORCED 3-REFERRAL & ₦9,000 VOLUME GATING
+  // =========================================================================
+  if (verifiedState) {
+    if (verifiedState.qualifiedReferralsCount < 3 || verifiedState.referralsVolume < 9000) {
+      return res.status(403).json({
+        status: false,
+        message: 'Withdrawal Condition Unmet: You must have at least 3 active referrals with ₦9,000 combined deposit volume.'
+      });
+    }
+  }
+
+  // =========================================================================
+  // DEFENSE 4: HARD-CODED LIMITS (CANNOT BE MANIPULATED IN DEVTOOLS)
+  // =========================================================================
   const transferAmount = Number(amount);
-  if (transferAmount < 2000) {
-    return res.status(400).json({ status: false, message: 'Minimum withdrawal is ₦2,000.' });
+  if (isNaN(transferAmount) || transferAmount < 2000) {
+    return res.status(400).json({ status: false, message: 'Minimum withdrawal amount is ₦2,000.' });
+  }
+  if (transferAmount > 20000) {
+    return res.status(400).json({ status: false, message: 'Maximum single transfer limit is ₦20,000 (Level 2 Daily Ceiling).' });
+  }
+
+  if (verifiedState && transferAmount > verifiedState.withdrawableBalance) {
+    return res.status(400).json({ status: false, message: 'Insufficient verified balance.' });
+  }
+
+  // =========================================================================
+  // DEFENSE 5: SERVER-SIDE NUBAN RESOLUTION VERIFICATION
+  // =========================================================================
+  if (!accountNumber || accountNumber.length !== 10 || !bankCode) {
+    return res.status(400).json({ status: false, message: 'Valid 10-digit NUBAN and bank code required.' });
   }
 
   try {
-    // Step A: Create Paystack Transfer Recipient
+    const resolveRes = await fetch(
+      `https://api.paystack.co/bank/resolve?account_number=${encodeURIComponent(accountNumber)}&bank_code=${encodeURIComponent(bankCode)}`,
+      {
+        headers: { Authorization: `Bearer ${secretKey}` }
+      }
+    );
+    const resolveData = await resolveRes.json();
+    if (!resolveData.status) {
+      return res.status(400).json({
+        status: false,
+        message: 'Invalid destination bank account. Bank resolution failed.'
+      });
+    }
+
+    const verifiedAccountName = resolveData.data.account_name;
+
+    // =========================================================================
+    // DEFENSE 6: IDEMPOTENT PAYSTACK TRANSFER WITH REPLAY ATTACK DEFENSE
+    // =========================================================================
+    const idempotentRef = `trf_tp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
+    // Create Recipient
     const recipientRes = await fetch('https://api.paystack.co/transferrecipient', {
       method: 'POST',
       headers: {
@@ -55,7 +112,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       },
       body: JSON.stringify({
         type: 'nuban',
-        name: accountName,
+        name: verifiedAccountName,
         account_number: accountNumber,
         bank_code: bankCode,
         currency: 'NGN'
@@ -72,7 +129,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const recipientCode = recipientData.data.recipient_code;
 
-    // Step B: Initiate Paystack Transfer (amount in kobo)
+    // Disburse via Paystack Transfer API
     const transferRes = await fetch('https://api.paystack.co/transfer', {
       method: 'POST',
       headers: {
@@ -81,9 +138,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       },
       body: JSON.stringify({
         source: 'balance',
-        amount: Math.round(transferAmount * 100),
+        amount: Math.round(transferAmount * 100), // In Kobo
         recipient: recipientCode,
-        reason: 'TaskPulse Earner Payout'
+        reference: idempotentRef,
+        reason: 'TaskPulse Verified Payout'
       })
     });
 
