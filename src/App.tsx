@@ -75,8 +75,23 @@ import {
   signInUser,
   signOutUser,
   checkDuplicateUser,
-  getCurrentUserProfile
+  getCurrentUserProfile,
+  fetchTransactionsHistory,
+  fetchReferralsHistory,
+  fetchBankAccounts,
+  claimDailyRewardRpc,
+  upgradeTierRpc,
+  submitKycRpc,
+  submitTaskProofRpc,
+  updateProfileFullName
 } from './lib/supabaseClient';
+import {
+  initializeDeposit,
+  verifyDeposit,
+  resolveBankAccount,
+  linkBankAccount,
+  requestDisbursement
+} from './lib/api';
 
 interface Task {
   id: string;
@@ -108,7 +123,7 @@ interface Transaction {
   title: string;
   sub: string;
   amount: number;
-  status: 'Settled' | 'Disbursed' | 'Escrowed';
+  status: 'Settled' | 'Disbursed' | 'Escrowed' | 'Pending' | 'Failed' | 'Declined' | 'Reversed';
   date: string;
   reference: string;
 }
@@ -148,6 +163,7 @@ interface Tier {
 }
 
 interface UserProfile {
+  id?: string;
   username: string;
   firstName: string;
   lastName: string;
@@ -155,6 +171,7 @@ interface UserProfile {
   phone: string;
   accountStatus: string;
   kycLevel: string;
+  kycStatus?: string;
   tierId: string;
   level: number;
   streakDays: number;
@@ -278,15 +295,6 @@ const DEFAULT_TASKS: Task[] = [
     ],
     platformIcon: '🎵'
   }
-];
-
-const LIVE_COMMUNITY_PAYOUTS = [
-  { user: 'Grace O.', action: 'withdrew ₦15,000 via Moniepoint', bank: 'Moniepoint', time: '1m ago' },
-  { user: 'Doctorr', action: 'earned ₦450 on TikTok Follow Task', bank: 'Escrow', time: '3m ago' },
-  { user: 'Chinedu A.', action: 'claimed ₦100 Daily Login Bonus', bank: 'Wallet', time: '5m ago' },
-  { user: 'Blessing K.', action: 'withdrew ₦24,000 via OPay', bank: 'OPay', time: '8m ago' },
-  { user: 'Tunde M.', action: 'upgraded to Silver Pulse (₦10k)', bank: 'Tier', time: '10m ago' },
-  { user: 'Favour E.', action: 'withdrew ₦9,500 via Kuda Bank', bank: 'Kuda', time: '14m ago' }
 ];
 
 const STREAK_DAYS_CONFIG = [
@@ -514,10 +522,10 @@ export default function App() {
   // Paystack Withdrawal Modal Workflow
   const [isCashoutModalOpen, setIsCashoutModalOpen] = useState(false);
   const [cashoutAmount, setCashoutAmount] = useState('3000'); // Minimum ₦3,000
-  const [cashoutStep, setCashoutStep] = useState<'amount' | 'otp' | 'success'>('amount');
-  const [paystackOtp, setPaystackOtp] = useState('');
+  const [cashoutStep, setCashoutStep] = useState<'amount' | 'confirm' | 'success'>('amount');
   const [isCashoutProcessing, setIsCashoutProcessing] = useState(false);
   const [transferRef, setTransferRef] = useState('');
+  const [cashoutIdempotencyKey, setCashoutIdempotencyKey] = useState('');
 
   // Add Bank Modal with Live Paystack Resolution
   const [isAddBankModalOpen, setIsAddBankModalOpen] = useState(false);
@@ -530,10 +538,10 @@ export default function App() {
   const [isStreakModalOpen, setIsStreakModalOpen] = useState(false);
 
   // Profile Edit fields
-  const [editFirstName, setEditFirstName] = useState(user?.firstName || 'EMMANUEL');
-  const [editLastName, setEditLastName] = useState(user?.lastName || 'ONUABUGHICHI');
-  const [editEmail, setEditEmail] = useState(user?.email || 'emmanuelonuabughichi@gmail.com');
-  const [editPhone, setEditPhone] = useState(user?.phone || '08165961134');
+  const [editFirstName, setEditFirstName] = useState(user?.firstName || '');
+  const [editLastName, setEditLastName] = useState(user?.lastName || '');
+  const [editEmail, setEditEmail] = useState(user?.email || '');
+  const [editPhone, setEditPhone] = useState(user?.phone || '');
 
   // Supabase Authentication & Duplicate Check States
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -551,66 +559,180 @@ export default function App() {
   const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
   const [authAcceptTerms, setAuthAcceptTerms] = useState(false);
 
+  // Centralized live data synchronization with Supabase
+  const refreshUserData = async () => {
+    if (!supabase) return;
+    try {
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (!authUser) return;
+
+      const profile = await getCurrentUserProfile();
+      if (profile) {
+        const nameParts = (profile.full_name || '').trim().split(' ');
+        setUser({
+          id: profile.id,
+          username: profile.username || 'USER',
+          firstName: nameParts[0] || 'User',
+          lastName: nameParts.slice(1).join(' ') || '',
+          email: profile.email,
+          phone: profile.phone || '',
+          accountStatus: profile.kyc_status === 'verified' ? 'Identity Verified' : profile.kyc_status === 'pending' ? 'KYC In Review' : 'Basic Tier',
+          kycLevel: profile.kyc_status === 'verified' ? 'Level 2 KYC' : 'Level 1 KYC',
+          kycStatus: profile.kyc_status,
+          tierId: profile.tier_id || 'tier-1',
+          level: 1,
+          streakDays: profile.streak_days || 1,
+          streakClaimedToday: profile.streak_last_claimed_date === (new Date().toISOString().slice(0, 10)),
+          dailyQuestProgress: 1,
+          referralCode: profile.referral_code || `TP-${profile.username}`,
+          wagerActive: false,
+          activationDate: profile.activation_timestamp ? new Date(profile.activation_timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Pending'
+        });
+        setEditFirstName(nameParts[0] || '');
+        setEditLastName(nameParts.slice(1).join(' ') || '');
+        setEditEmail(profile.email || '');
+        setEditPhone(profile.phone || '');
+        setIsActivated(Boolean(profile.is_activated));
+        setWithdrawableBalance(Number(profile.withdrawable_balance || 0));
+        setPendingBalance(Number(profile.pending_balance || 0));
+        setTotalWithdrawnLifetime(Number(profile.total_withdrawn_lifetime || 0));
+        setHasReceivedDoubleCredit(Boolean(profile.has_received_double_credit));
+        setHasUpgradedAfterLimit(Boolean(profile.has_upgraded_after_limit));
+
+        if (profile.activation_timestamp) {
+          const actMs = new Date(profile.activation_timestamp).getTime();
+          const elapsed = Math.floor((Date.now() - actMs) / 1000);
+          const rem = Math.max(0, 172800 - elapsed);
+          setCooldownSeconds(rem);
+        }
+      }
+
+      // Fetch transaction history
+      const { data: txList } = await fetchTransactionsHistory(authUser.id, 'all', 50);
+      if (txList && txList.length > 0) {
+        const mappedTxs: Transaction[] = txList.map(t => {
+          let uiType: Transaction['type'] = 'Payout';
+          if (t.type === 'deposit') uiType = 'Deposit';
+          else if (t.type === 'cashout') uiType = 'Cashout';
+          else if (t.type === 'deposit_match') uiType = 'DepositMatch';
+          else if (t.type === 'streak_reward') uiType = 'Streak';
+          else if (t.type === 'tier_upgrade') uiType = 'TierUpgrade';
+          else if (t.type === 'task_payout') uiType = 'Payout';
+
+          let uiStatus: Transaction['status'] = 'Settled';
+          if (t.status === 'disbursed') uiStatus = 'Disbursed';
+          else if (t.status === 'pending') uiStatus = 'Pending';
+          else if (t.status === 'declined' || t.status === 'failed' || t.status === 'reversed') uiStatus = 'Failed';
+
+          const d = new Date(t.created_at);
+          const formattedDate = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+          return {
+            id: t.id,
+            type: uiType,
+            title: t.title || 'Transaction',
+            sub: t.description || '',
+            amount: Number(t.amount),
+            status: uiStatus,
+            date: formattedDate,
+            reference: t.reference || ''
+          };
+        });
+        setTransactions(mappedTxs);
+      }
+
+      // Fetch referrals
+      const { data: refList } = await fetchReferralsHistory(authUser.id, 50);
+      if (refList) {
+        const mappedRefs: Referral[] = refList.map(r => ({
+          id: r.id,
+          username: r.referee_username || 'user',
+          name: r.referee_name || 'Referral',
+          depositedAmount: Number(r.deposited_amount || 0),
+          status: r.is_qualified ? 'Qualified' : 'Pending Deposit',
+          joinedTime: r.joined_time || new Date(r.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+        }));
+        setReferrals(mappedRefs);
+      }
+
+      // Fetch bank accounts
+      const { data: bankList } = await fetchBankAccounts(authUser.id);
+      if (bankList) {
+        const mappedBanks: SavedBank[] = bankList.map(b => ({
+          id: b.id,
+          bankCode: b.bank_code,
+          bankName: b.bank_name,
+          accountName: b.account_name,
+          accountNumber: b.account_number,
+          type: 'Savings'
+        }));
+        setSavedBanks(mappedBanks);
+        if (mappedBanks.length > 0 && (!selectedBankId || !mappedBanks.some(b => b.id === selectedBankId))) {
+          setSelectedBankId(mappedBanks[0].id);
+        }
+      }
+    } catch (err) {
+      console.warn('Error syncing profile from Supabase:', err);
+    }
+  };
+
   // Sync Supabase Auth Session
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) return;
 
-    // Check initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
-        getCurrentUserProfile().then(profile => {
-          if (profile) {
-            const nameParts = (profile.full_name || '').trim().split(' ');
-            setUser(prev => ({
-              ...prev!,
-              username: profile.username || prev!.username,
-              email: profile.email || prev!.email,
-              phone: profile.phone || prev!.phone,
-              firstName: nameParts[0] || prev!.firstName,
-              lastName: nameParts.slice(1).join(' ') || prev!.lastName,
-              tierId: profile.tier_id || prev!.tierId,
-              referralCode: profile.referral_code || prev!.referralCode
-            }));
-            if (profile.withdrawable_balance !== undefined) {
-              setWithdrawableBalance(Number(profile.withdrawable_balance));
-            }
-            if (profile.is_activated) {
-              setIsActivated(true);
-            }
-          }
-        });
+        refreshUserData();
+      } else {
+        setIsAuthModalOpen(true);
       }
     });
 
-    // Listen to Auth State Changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_IN' && session?.user) {
-        const profile = await getCurrentUserProfile();
-        if (profile) {
-          const nameParts = (profile.full_name || '').trim().split(' ');
-          setUser(prev => ({
-            ...prev!,
-            username: profile.username || prev!.username,
-            email: profile.email || prev!.email,
-            phone: profile.phone || prev!.phone,
-            firstName: nameParts[0] || prev!.firstName,
-            lastName: nameParts.slice(1).join(' ') || prev!.lastName,
-            tierId: profile.tier_id || prev!.tierId,
-            referralCode: profile.referral_code || prev!.referralCode
-          }));
-          if (profile.withdrawable_balance !== undefined) {
-            setWithdrawableBalance(Number(profile.withdrawable_balance));
-          }
-          if (profile.is_activated) {
-            setIsActivated(true);
-          }
-        }
+        refreshUserData();
+      } else if (event === 'SIGNED_OUT') {
+        setUser(null);
+        setWithdrawableBalance(0);
+        setPendingBalance(0);
+        setTotalWithdrawnLifetime(0);
+        setIsActivated(false);
+        setTransactions([]);
+        setReferrals([]);
+        setSavedBanks([]);
+        setSelectedBankId('');
       }
     });
 
     return () => {
       subscription.unsubscribe();
     };
+  }, []);
+
+  // Check URL query parameters for Paystack return callback (?verify_deposit=...)
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const verifyRef = urlParams.get('verify_deposit') || urlParams.get('reference') || urlParams.get('trxref');
+    if (verifyRef) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+      setIsProcessingDeposit(true);
+      showToast('Verifying Paystack Payment', 'Communicating with banking gateway...');
+      verifyDeposit(verifyRef)
+        .then(res => {
+          setIsProcessingDeposit(false);
+          setIsDepositModalOpen(false);
+          setIsActivated(true);
+          const depositAmt = res.data?.amount || 3000;
+          setWithdrawableBalance(prev => prev + depositAmt);
+          triggerConfetti();
+          showToast('Payment Verified!', `₦${depositAmt.toLocaleString()} deposited. Account activated!`);
+          refreshUserData();
+        })
+        .catch(err => {
+          setIsProcessingDeposit(false);
+          showToast('Payment Verification Failed', err.message || 'Transaction could not be confirmed.');
+        });
+    }
   }, []);
 
   // Toast
@@ -662,20 +784,24 @@ export default function App() {
     localStorage.setItem('taskpulse_double_credited_v3', hasReceivedDoubleCredit ? 'true' : 'false');
   }, [hasReceivedDoubleCredit]);
 
-  // Live Paystack NUBAN Resolution Simulation
+  // Live Paystack NUBAN Resolution via Backend
   useEffect(() => {
-    if (addAccountNum.length === 10) {
+    if (addAccountNum.length === 10 && addBankCode) {
       setIsResolvingAccount(true);
       setResolvedAccountName('');
-      const timer = setTimeout(() => {
-        setIsResolvingAccount(false);
-        setResolvedAccountName(`${user?.firstName || 'EMMANUEL'} ${user?.lastName || 'ONUABUGHICHI'}`);
-      }, 700);
-      return () => clearTimeout(timer);
+      resolveBankAccount(addAccountNum, addBankCode)
+        .then(res => {
+          setIsResolvingAccount(false);
+          setResolvedAccountName(res.data?.account_name || '');
+        })
+        .catch(() => {
+          setIsResolvingAccount(false);
+          setResolvedAccountName('');
+        });
     } else {
       setResolvedAccountName('');
     }
-  }, [addAccountNum, user]);
+  }, [addAccountNum, addBankCode]);
 
   // ========================================================
   // ANTI-DOUBLE ENTRY & IDEMPOTENCY DEFENSES
@@ -684,125 +810,53 @@ export default function App() {
 
   const addTransactionSafe = (newTx: Transaction) => {
     setTransactions(prev => {
-      // Check if reference or ID already exists in ledger
       if (prev.some(t => t.reference === newTx.reference || t.id === newTx.id)) {
-        console.warn(`[Anti-Double Entry] Blocked duplicate transaction reference: ${newTx.reference}`);
         return prev;
       }
       return [newTx, ...prev];
     });
   };
 
-  // CHECK & TRIGGER 100% INITIAL DEPOSIT DOUBLE MATCH BONUS
-  const checkAndAwardDoubleCredit = (currentReferrals: Referral[]) => {
-    const qualifiedCount = currentReferrals.filter(r => r.depositedAmount >= 3000).length;
-    const totalVolume = currentReferrals.reduce((sum, r) => sum + r.depositedAmount, 0);
-
-    if (qualifiedCount >= 3 && totalVolume >= targetReferralVolume && !hasReceivedDoubleCredit) {
-      const matchKey = `match_3k_${user?.username}`;
-      if (processedIdempotencyKeys.has(matchKey)) return;
-      processedIdempotencyKeys.add(matchKey);
-
-      const bonus = currentTier.stakeAmount;
-      setWithdrawableBalance(prev => prev + bonus);
-      setHasReceivedDoubleCredit(true);
-      addTransactionSafe({
-        id: `tx-${Date.now()}`,
-        type: 'DepositMatch',
-        title: '100% Initial Deposit Double Credit',
-        sub: `3 Referrals & ₦${totalVolume.toLocaleString()} Volume Met (Wallet Doubled)`,
-        amount: bonus,
-        status: 'Settled',
-        date: 'Just now',
-        reference: `ref_tp_match_${Math.floor(100000 + Math.random() * 900000)}`
-      });
-      triggerConfetti();
-      showToast('🎉 Initial Deposit Doubled!', `3 referrals met with ₦${totalVolume.toLocaleString()} volume. +₦${bonus.toLocaleString()} credited to your wallet!`);
-    }
-  };
-
-  // Execute 3,000 Activation Drop
-  const handleCompleteActivation = () => {
-    if (isProcessingDeposit || isActivated) return;
+  // Real Paystack Deposit Launcher
+  const handleInitiatePaystackDeposit = async (customAmount?: number) => {
+    if (isProcessingDeposit) return;
     setIsProcessingDeposit(true);
-    setTimeout(() => {
+    try {
+      const res = await initializeDeposit(customAmount || 3000);
+      if (res.data?.authorization_url) {
+        window.location.href = res.data.authorization_url;
+      } else {
+        setIsProcessingDeposit(false);
+        showToast('Gateway Error', 'Unable to initiate Paystack checkout.');
+      }
+    } catch (err: any) {
       setIsProcessingDeposit(false);
-      setIsDepositModalOpen(false);
-      setIsActivated(true);
-      setWithdrawableBalance(prev => prev + 3000);
-      addTransactionSafe({
-        id: `tx-${Date.now()}`,
-        type: 'Deposit',
-        title: 'Bronze Pulse Activation Deposit',
-        sub: '100% credited to wallet via Paystack',
-        amount: 3000,
-        status: 'Settled',
-        date: 'Just now',
-        reference: `ref_tp_dep_${Math.floor(100000 + Math.random() * 900000)}`
-      });
-      triggerConfetti();
-      showToast('Account Activated!', '₦3,000 credited to your balance. Bronze Pulse tier unlocked!');
-    }, 1200);
-  };
-
-  // Instant Demo Activation
-  const handleInstantDemoActivate = () => {
-    if (isActivated) {
-      showToast('Already Activated', 'Account is already running Bronze Pulse.');
-      return;
+      showToast('Deposit Initialization Failed', err.message || 'Please check network connection.');
     }
-    setIsActivated(true);
-    setWithdrawableBalance(prev => prev + 3000);
-    addTransactionSafe({
-      id: `tx-${Date.now()}`,
-      type: 'Deposit',
-      title: 'Bronze Pulse Activation Deposit (Demo)',
-      sub: '100% credited to wallet via Paystack',
-      amount: 3000,
-      status: 'Settled',
-      date: 'Just now',
-      reference: `ref_tp_dep_${Math.floor(100000 + Math.random() * 900000)}`
-    });
-    triggerConfetti();
-    showToast('Instant Activated!', '₦3,000 stake credited. 48h timer and Bronze tier running.');
   };
 
-  // Upgrade User Tier (Strict Financial Verification & Stake Enforcement)
-  const handleSelectUpgradeTier = (targetTier: Tier) => {
+  // Upgrade User Tier (Strict Financial Verification & Stake Enforcement via RPC)
+  const handleSelectUpgradeTier = async (targetTier: Tier) => {
     if (!user) return;
     if (targetTier.id === user.tierId) {
       showToast('Current Tier', `You are already on ${targetTier.name}.`);
       return;
     }
 
-    // Require either sufficient wallet balance or Paystack deposit
-    if (withdrawableBalance >= targetTier.stakeAmount) {
-      // Deduct stake from wallet balance
-      setWithdrawableBalance(prev => Math.max(0, prev - targetTier.stakeAmount));
-      setUser({
-        ...user,
-        tierId: targetTier.id
-      });
-      setHasUpgradedAfterLimit(true);
-      localStorage.setItem('taskpulse_upgraded_after_limit', 'true');
-      addTransactionSafe({
-        id: `tx-${Date.now()}`,
-        type: 'TierUpgrade',
-        title: `Tier Upgraded to ${targetTier.name}`,
-        sub: `Limit expanded to ₦${targetTier.withdrawalCap.toLocaleString()} · Immediate cashout unlocked!`,
-        amount: targetTier.stakeAmount,
-        status: 'Settled',
-        date: 'Just now',
-        reference: `ref_tp_tier_${targetTier.id}_${Date.now()}`
-      });
+    try {
+      await upgradeTierRpc(targetTier.id);
       setIsTierModalOpen(false);
       triggerConfetti();
       showToast(`🎉 Upgraded to ${targetTier.name}!`, `₦${targetTier.stakeAmount.toLocaleString()} staked from wallet. Cap expanded to ₦${targetTier.withdrawalCap.toLocaleString()}!`);
-    } else {
-      // Direct user to complete stake deposit via Paystack
-      showToast('Stake Deposit Required', `₦${targetTier.stakeAmount.toLocaleString()} stake required to unlock ${targetTier.name}. Please complete deposit.`);
-      setIsTierModalOpen(false);
-      setIsDepositModalOpen(true);
+      await refreshUserData();
+    } catch (err: any) {
+      if (err.message?.includes('Insufficient wallet balance') || err.message?.includes('insufficient_balance')) {
+        showToast('Stake Deposit Required', `₦${targetTier.stakeAmount.toLocaleString()} stake required. Please top up your wallet.`);
+        setIsTierModalOpen(false);
+        setIsDepositModalOpen(true);
+      } else {
+        showToast('Upgrade Blocked', err.message || 'Could not upgrade tier.');
+      }
     }
   };
 
@@ -813,161 +867,64 @@ export default function App() {
       return;
     }
 
-    // Check 1: 48-Hour Security Lock
     if (isWithdrawalLockedByTime) {
       setIsSecurityLockModalOpen(true);
       return;
     }
 
-    // Check 2: Minimum withdrawal ONLY applies to those who had referrals that tripled their initial deposit,
-    // OR those who made an upgrade after referring people that made them surpass their withdrawal limit.
     if (!isEligibleForWithdrawal) {
       setIsReferralLockModalOpen(true);
       showToast('Referral Condition Required', 'Minimum withdrawal (₦3,000) only applies once your referrals triple your initial deposit, or after upgrading tier.');
       return;
     }
 
-    // Check 3: Tier Withdrawal Cap Reached?
     if (remainingTierAllowance <= 0) {
       setIsTierModalOpen(true);
       showToast('Tier Withdrawal Cap Reached', `You have reached the ₦${currentTier.withdrawalCap.toLocaleString()} limit for ${currentTier.name}. Upgrade tier now to withdraw immediately!`);
       return;
     }
 
-    // Check 4: Minimum Balance Check (₦3,000)
     if (withdrawableBalance < 3000) {
       showToast('Minimum Balance Required', 'Minimum withdrawal amount is ₦3,000.');
       return;
     }
 
-    // Check 5: Linked Bank Account Required
     if (savedBanks.length === 0) {
       setIsAddBankModalOpen(true);
       showToast('Link Bank Account', 'Please add a verified NUBAN bank account before withdrawing.');
       return;
     }
 
-    // All conditions satisfied! Open Cashout Modal
     setCashoutStep('amount');
     setIsCashoutModalOpen(true);
   };
 
-  // Fast-Forward 48h Security Lock
-  const handleFastForwardLock = () => {
-    setIs48hLockOverridden(true);
-    localStorage.setItem('taskpulse_48h_override', 'true');
-    setIsSecurityLockModalOpen(false);
-    triggerConfetti();
-    showToast('48h Cooldown Bypassed!', 'Security seasoning satisfied.');
-    
-    if (!isReferralGoalMet) {
-      setTimeout(() => {
-        setIsReferralLockModalOpen(true);
-      }, 350);
-    } else {
-      setTimeout(() => {
-        setCashoutStep('amount');
-        setIsCashoutModalOpen(true);
-      }, 350);
-    }
-  };
-
-  // Reset 48h Lock back to active
-  const handleReactivate48hLock = () => {
-    setIs48hLockOverridden(false);
-    setCooldownSeconds(157335);
-    localStorage.removeItem('taskpulse_48h_override');
-    localStorage.setItem('taskpulse_cooldown_seconds', '157335');
-    showToast('48h Security Lock Re-Engaged', 'Initial cashout cooling period is now active.');
-  };
-
-  // Simulate 3rd Referral depositing ₦3,000
-  const handleSimulateAddReferralDeposit = () => {
-    const newRef: Referral = {
-      id: `ref-${Date.now()}`,
-      username: `favour_earner_${Math.floor(10 + Math.random() * 89)}`,
-      name: 'Favour Eze',
-      depositedAmount: 3000,
-      status: 'Qualified',
-      joinedTime: 'Just now'
-    };
-    const updated = [...referrals, newRef];
-    setReferrals(updated);
-    checkAndAwardDoubleCredit(updated);
-    showToast('Referral Activated!', 'Favour Eze deposited ₦3,000. 3x volume condition updated.');
-  };
-
-  // Fast-Forward all 3 referrals and award double deposit bonus immediately
-  const handleCompleteReferralsAndDoubleWallet = () => {
-    const completedRefs: Referral[] = [
-      { id: 'ref-1', username: 'chinedu_o', name: 'Chinedu Okeke', depositedAmount: 3000, status: 'Qualified', joinedTime: 'Yesterday' },
-      { id: 'ref-2', username: 'amina_b', name: 'Amina Bello', depositedAmount: 3000, status: 'Qualified', joinedTime: 'Today, 9:30 AM' },
-      { id: 'ref-3', username: 'favour_eze', name: 'Favour Eze', depositedAmount: 3000, status: 'Qualified', joinedTime: 'Just now' }
-    ];
-    setReferrals(completedRefs);
-    checkAndAwardDoubleCredit(completedRefs);
-    setIsReferralLockModalOpen(false);
-  };
-
-  // Reset Referrals back to 2 (to re-test locking gate)
-  const handleResetReferrals = () => {
-    setReferrals(INITIAL_DEMO_REFERRALS);
-    setHasReceivedDoubleCredit(false);
-    localStorage.removeItem('taskpulse_double_credited_v3');
-    showToast('Referrals Reset to 2/3', 'Withdrawal gate re-locked. Referral condition active.');
-  };
-
-  // Reset Tier Lifetime Withdrawn (For Demo Testing)
-  const handleResetLifetimeWithdrawn = () => {
-    setTotalWithdrawnLifetime(0);
-    showToast('Tier Withdrawn Reset', 'Lifetime cashout progress reset to ₦0.');
-  };
-
-  // Set Lifetime Withdrawn to Cap (To Test Required Upgrade)
-  const handleSimulateTierCapReached = () => {
-    setTotalWithdrawnLifetime(currentTier.withdrawalCap);
-    showToast('Tier Cap Reached!', `Simulated ₦${currentTier.withdrawalCap.toLocaleString()} limit reached. Upgrade required!`);
-  };
-
-  // Claim Daily Streak
-  const handleClaimDailyStreak = () => {
+  // Claim Daily Streak via RPC
+  const handleClaimDailyStreak = async () => {
     if (!user) return;
     if (user.streakClaimedToday) {
-      showToast('Streak Protected', '5-day streak active! 0% Paystack fees are unlocked.');
+      showToast('Already Claimed', 'Today’s login reward has already been settled.');
       return;
     }
-    const streakKey = `streak_day_${user.streakDays}_${user.username}`;
-    if (processedIdempotencyKeys.has(streakKey)) {
-      showToast('Already Claimed', 'Today’s reward has already been settled.');
-      return;
-    }
-    processedIdempotencyKeys.add(streakKey);
 
-    const bonus = 100;
-    setWithdrawableBalance(prev => prev + bonus);
-    setUser({
-      ...user,
-      streakDays: user.streakDays + 1,
-      streakClaimedToday: true
-    });
-    addTransactionSafe({
-      id: `tx-${Date.now()}`,
-      type: 'Streak',
-      title: 'Daily Login Reward',
-      sub: '0% Paystack withdrawal fee active',
-      amount: bonus,
-      status: 'Settled',
-      date: 'Just now',
-      reference: `ref_tp_streak_${Date.now()}`
-    });
-    triggerConfetti();
-    showToast('🔥 +₦100 Claimed!', 'Daily login reward credited! 0% Paystack fees unlocked.');
-    setIsStreakModalOpen(false);
+    try {
+      const res = await claimDailyRewardRpc();
+      const rewardAmt = res.reward_amount || 100;
+      setWithdrawableBalance(prev => prev + rewardAmt);
+      setUser(prev => prev ? { ...prev, streakClaimedToday: true, streakDays: res.streak_days } : null);
+      triggerConfetti();
+      showToast('🔥 +₦100 Claimed!', `Day ${res.streak_days} login reward credited to your wallet!`);
+      setIsStreakModalOpen(false);
+      await refreshUserData();
+    } catch (err: any) {
+      showToast('Daily Reward', err.message || 'Could not claim daily reward.');
+    }
   };
 
   // Start Task
   const handleStartTask = (task: Task) => {
     if (!isActivated) {
+      setSelectedTaskForModal(null);
       setIsDepositModalOpen(true);
       return;
     }
@@ -980,54 +937,50 @@ export default function App() {
     showToast('Task Reserved', `${task.title} allocated to your active workspace.`);
   };
 
-  // Submit Task Proof (Escrow Settlement)
-  const handleSubmitTaskProof = () => {
+  // Submit Task Proof (Database Persistence)
+  const handleSubmitTaskProof = async () => {
     if (!activeTask) return;
     if (!taskProofInput && !uploadedScreenshot) {
       showToast('Proof Required', 'Please enter your handle/link or upload a screenshot.');
       return;
     }
 
-    const taskReward = activeTask.reward;
-    const taskTitle = activeTask.title;
-    const taskRef = `ref_tp_task_${activeTask.id}_${Date.now()}`;
+    try {
+      await submitTaskProofRpc({
+        taskId: activeTask.id,
+        taskTitle: activeTask.title,
+        company: activeTask.company,
+        rewardAmount: activeTask.reward,
+        category: activeTask.category,
+        proofScreenshotUrl: taskProofInput,
+      });
 
-    setPendingBalance(prev => prev + taskReward);
-    addTransactionSafe({
-      id: `tx-${Date.now()}`,
-      type: 'Payout',
-      title: `Task Escrow: ${taskTitle}`,
-      sub: `${activeTask.company} · SLA Under Review`,
-      amount: taskReward,
-      status: 'Escrowed',
-      date: 'Just now',
-      reference: taskRef
-    });
-
-    setActiveTask(null);
-    setTaskProofInput('');
-    setUploadedScreenshot(null);
-    triggerConfetti();
-    showToast('Proof Submitted', `₦${taskReward} locked in escrow. 24h SLA review started.`);
+      setActiveTask(null);
+      setTaskProofInput('');
+      setUploadedScreenshot(null);
+      triggerConfetti();
+      showToast('Proof Submitted', `₦${activeTask.reward} submitted for SLA verification. Reward pays to wallet upon approval.`);
+      await refreshUserData();
+    } catch (err: any) {
+      showToast('Task Submission', err.message || 'Failed to submit task proof.');
+    }
   };
 
-  // Paystack Cashout Initiation (Enforces Minimum ₦3,000 & Tier Remaining Allowance)
+  // Paystack Cashout Initiation (Moves to confirmation step)
   const handleInitiateCashout = (e: React.FormEvent) => {
     e.preventDefault();
-    const amt = parseFloat(cashoutAmount);
+    const amt = Math.floor(Number(cashoutAmount));
 
-    // Minimum ₦3,000 Rule
-    if (amt < 3000) {
-      showToast('Minimum Withdrawal is ₦3,000', 'The minimum withdrawal threshold is ₦3,000.');
+    if (isNaN(amt) || amt < 3000) {
+      showToast('Minimum Withdrawal is ₦3,000', 'The minimum withdrawal threshold is ₦3,000 whole Naira.');
       return;
     }
     if (amt > withdrawableBalance) {
       showToast('Insufficient Balance', `Available balance is ₦${withdrawableBalance.toLocaleString()}`);
       return;
     }
-    // Check Tier Limit
     if (amt > remainingTierAllowance) {
-      showToast('Tier Limit Exceeded', `Your remaining allowance for ${currentTier.name} is ₦${remainingTierAllowance.toLocaleString()}. Upgrade your tier to withdraw more!`);
+      showToast('Tier Limit Exceeded', `Your remaining allowance for ${currentTier.name} is ₦${remainingTierAllowance.toLocaleString()}. Upgrade tier to withdraw more!`);
       setIsTierModalOpen(true);
       return;
     }
@@ -1036,80 +989,80 @@ export default function App() {
       return;
     }
 
-    setCashoutStep('otp');
-    setPaystackOtp('');
+    setCashoutIdempotencyKey(`co_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`);
+    setCashoutStep('confirm');
   };
 
-  // Paystack OTP Final Confirmation (Strict Idempotency & Replay Defense)
-  const handleConfirmPaystackOtp = (e: React.FormEvent) => {
+  // Paystack Transfer Confirmation (Calls secure backend disbursement)
+  const handleConfirmCashout = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isCashoutProcessing) return; // Strict Multi-Click Lockout
+    if (isCashoutProcessing) return;
 
-    const amt = parseFloat(cashoutAmount);
-    if (amt > withdrawableBalance) {
-      showToast('Insufficient Balance', 'Available balance is insufficient.');
-      return;
-    }
-
+    const amt = Math.floor(Number(cashoutAmount));
     if (!selectedBank) {
-      showToast('Bank Account Required', 'Please add a verified bank account.');
+      showToast('Bank Account Required', 'Please select a verified bank account.');
       setIsAddBankModalOpen(true);
       return;
     }
 
-    // Generate unique idempotency key based on bank, account, and amount
-    const idempotencyKey = `co_${selectedBank.accountNumber}_${amt}_${Date.now()}`;
-    if (processedIdempotencyKeys.has(idempotencyKey)) {
-      showToast('Duplicate Request Blocked', 'This cashout has already been dispatched.');
-      return;
-    }
-    processedIdempotencyKeys.add(idempotencyKey);
-
     setIsCashoutProcessing(true);
-
-    setTimeout(() => {
-      setWithdrawableBalance(prev => Math.max(0, prev - amt));
-      setTotalWithdrawnLifetime(prev => prev + amt);
-      setIsCashoutProcessing(false);
-      const ref = `TRF_pstk_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-      setTransferRef(ref);
-      addTransactionSafe({
-        id: `tx-${Date.now()}`,
-        type: 'Cashout',
-        title: `Cashout to ${selectedBank.bankName}`,
-        sub: `NIP Transfer to •••• ${selectedBank.accountNumber.slice(-4)}`,
+    try {
+      const res = await requestDisbursement({
         amount: amt,
-        status: 'Disbursed',
-        date: 'Just now',
-        reference: ref
+        bankAccountId: selectedBank.id,
+        idempotencyKey: cashoutIdempotencyKey || undefined,
       });
+
+      setIsCashoutProcessing(false);
+      setTransferRef(res.data?.reference || `TRF_${Date.now()}`);
       setCashoutStep('success');
       triggerConfetti();
-    }, 1500);
+      await refreshUserData();
+    } catch (err: any) {
+      setIsCashoutProcessing(false);
+      showToast('Cashout Failed', err.message || 'Transfer could not be processed.');
+    }
   };
 
-  // Add Bank
-  const handleAddBank = (e: React.FormEvent) => {
+  // Add Bank (Via Secure Backend)
+  const handleAddBank = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (addAccountNum.length !== 10) {
+    if (!/^\d{10}$/.test(addAccountNum.trim())) {
       showToast('Invalid NUBAN', 'Please enter a valid 10-digit NUBAN account.');
       return;
     }
+
     const bankMeta = PAYSTACK_BANKS.find(b => b.code === addBankCode) || PAYSTACK_BANKS[0];
-    const newBank: SavedBank = {
-      id: `bank-${Date.now()}`,
-      bankCode: bankMeta.code,
-      bankName: bankMeta.name,
-      accountName: resolvedAccountName || `${user?.firstName || 'EMMANUEL'} ${user?.lastName || 'ONUABUGHICHI'}`,
-      accountNumber: addAccountNum,
-      type: 'Savings'
-    };
-    setSavedBanks([...savedBanks, newBank]);
-    setSelectedBankId(newBank.id);
-    setIsAddBankModalOpen(false);
-    setAddAccountNum('');
-    triggerConfetti();
-    showToast('Paystack Recipient Saved', `${newBank.bankName} verified & linked for instant payouts.`);
+    setIsResolvingAccount(true);
+    try {
+      const res = await linkBankAccount({
+        accountNumber: addAccountNum.trim(),
+        bankCode: addBankCode,
+        bankName: bankMeta.name,
+      });
+
+      const newBankObj: SavedBank = {
+        id: res.data?.id || `bank_${Date.now()}`,
+        bankCode: addBankCode,
+        bankName: bankMeta.name,
+        accountName: resolvedAccountName || 'CHUKWUDI OKAFOR',
+        accountNumber: addAccountNum.trim(),
+        type: 'Savings',
+      };
+      setSavedBanks(prev => [newBankObj, ...prev.filter(b => b.accountNumber !== newBankObj.accountNumber)]);
+      setSelectedBankId(newBankObj.id);
+
+      setIsResolvingAccount(false);
+      setIsAddBankModalOpen(false);
+      setAddAccountNum('');
+      setResolvedAccountName('');
+      triggerConfetti();
+      showToast('Paystack Recipient Linked', `${bankMeta.name} verified & linked for instant payouts.`);
+      await refreshUserData();
+    } catch (err: any) {
+      setIsResolvingAccount(false);
+      showToast('Bank Verification Error', err.message || 'Could not verify and link account.');
+    }
   };
 
   // Check Duplicate Field on blur
@@ -1279,7 +1232,7 @@ export default function App() {
   };
 
   // KYC Verification Submission
-  const handleVerifyKyc = (e: React.FormEvent) => {
+  const handleVerifyKyc = async (e: React.FormEvent) => {
     e.preventDefault();
     setKycError(null);
 
@@ -1295,36 +1248,40 @@ export default function App() {
     }
 
     setIsKycSubmitting(true);
-    setTimeout(() => {
+    try {
+      await submitKycRpc(kycDocType, cleanNum);
       setIsKycSubmitting(false);
-      if (user) {
-        setUser({
-          ...user,
-          kycLevel: 'Tier 2 (BVN/NIN Verified)',
-          accountStatus: 'Identity Verified'
-        });
-      }
       setIsKycModalOpen(false);
       setKycNumber('');
       setKycDob('');
+      setUser(prev => prev ? { ...prev, kycLevel: 'Level 2 KYC', accountStatus: 'Identity Verified' } : null);
       triggerConfetti();
-      showToast('KYC Verification Approved!', 'Your identity has been verified via NIBSS/NIMC. Tier 2 limits active.');
-    }, 1400);
+      showToast('KYC Submitted!', 'Your document details have been submitted for compliance verification.');
+      await refreshUserData();
+    } catch (err: any) {
+      setIsKycSubmitting(false);
+      setKycError(err.message || 'Submission failed.');
+    }
   };
 
-  // Save Profile
-  const handleSaveProfile = (e: React.FormEvent) => {
+  // Save Profile (Only full_name is modifiable by user)
+  const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
-    setUser({
-      ...user,
-      firstName: editFirstName,
-      lastName: editLastName,
-      email: editEmail,
-      phone: editPhone
-    });
-    triggerConfetti();
-    showToast('Profile Updated', 'Your profile details have been saved successfully.');
+    const fullName = `${editFirstName.trim()} ${editLastName.trim()}`.trim();
+    if (!fullName) {
+      showToast('Validation Error', 'Full name cannot be blank.');
+      return;
+    }
+
+    try {
+      await updateProfileFullName(fullName);
+      triggerConfetti();
+      showToast('Profile Updated', 'Your full name has been updated.');
+      await refreshUserData();
+    } catch (err: any) {
+      showToast('Update Failed', err.message || 'Could not update profile name.');
+    }
   };
 
   const selectedBank = savedBanks.find(b => b.id === selectedBankId) || savedBanks[0];
@@ -1395,25 +1352,18 @@ export default function App() {
         </header>
 
         {/* ======================================================== */}
-        {/* LIVE SOCIAL PROOF TICKER                                 */}
+        {/* SECURE GATEWAY STATUS BAR                                */}
         {/* ======================================================== */}
-        <div className="bg-sky-50/70 dark:bg-zinc-950/80 border-b border-sky-100 dark:border-white/[0.04] px-3 py-1.5 overflow-hidden shrink-0 flex items-center">
-          <div className="flex items-center gap-1.5 shrink-0 pr-3 border-r border-sky-200 dark:border-white/10">
+        <div className="bg-sky-50/70 dark:bg-zinc-950/80 border-b border-sky-100 dark:border-white/[0.04] px-3.5 py-1.5 overflow-hidden shrink-0 flex items-center justify-between text-[10px]">
+          <div className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span className="text-[9px] font-black uppercase tracking-wider text-sky-700 dark:text-cyan-400">Verified Payouts</span>
+            <span className="font-black uppercase tracking-wider text-sky-700 dark:text-cyan-400">Payment Gateway</span>
+            <span className="text-slate-400 dark:text-zinc-500">•</span>
+            <span className="font-semibold text-slate-600 dark:text-zinc-300">Paystack NIP Network Active</span>
           </div>
-          <div className="overflow-hidden flex-1 pl-3">
-            <div className="animate-marquee whitespace-nowrap flex items-center gap-6 text-[11px] font-medium text-slate-600 dark:text-zinc-300">
-              {LIVE_COMMUNITY_PAYOUTS.map((item, idx) => (
-                <span key={idx} className="flex items-center gap-1.5">
-                  <strong className="text-sky-600 dark:text-cyan-400 font-bold">{item.user}</strong>
-                  <span>{item.action}</span>
-                  <span className="px-1.5 py-0.2 rounded-md bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 text-[9px] font-mono font-bold">✓ {item.bank}</span>
-                  <span className="text-[9px] text-slate-400 dark:text-zinc-500">({item.time})</span>
-                  <span className="text-slate-300 dark:text-zinc-700">•</span>
-                </span>
-              ))}
-            </div>
+          <div className="flex items-center gap-1 text-slate-400 dark:text-zinc-500 font-mono text-[9px]">
+            <Shield className="w-3 h-3 text-emerald-500" />
+            <span>256-Bit SSL</span>
           </div>
         </div>
 
@@ -1423,77 +1373,65 @@ export default function App() {
         <div className="flex-1 overflow-y-auto no-scrollbar flex flex-col p-4 space-y-4">
 
           {/* ======================================================== */}
-          {/* MANDATORY ₦3,000 ACTIVATION STAKE GATEKEEPER             */}
+          {/* TAB 1: HOME (Hero Balance, Streak, Payout Ticker)        */}
           {/* ======================================================== */}
-          {!isActivated ? (
-            <div className="flex-1 flex flex-col justify-center items-center py-6 px-2 text-center space-y-5 animate-in fade-in duration-300">
-              
-              <div className="relative">
-                <div className="w-20 h-20 rounded-3xl bg-gradient-to-tr from-sky-500 via-cyan-400 to-blue-600 text-white flex items-center justify-center text-3xl shadow-xl shadow-cyan-500/20">
-                  💎
+          {activeTab === 'home' && (
+            !isActivated ? (
+              <div className="flex-1 flex flex-col justify-center items-center py-6 px-2 text-center space-y-5 animate-in fade-in duration-300">
+                
+                <div className="relative">
+                  <div className="w-20 h-20 rounded-3xl bg-gradient-to-tr from-sky-500 via-cyan-400 to-blue-600 text-white flex items-center justify-center text-3xl shadow-xl shadow-cyan-500/20">
+                    💎
+                  </div>
+                  <div className="absolute -bottom-1 -right-1 w-8 h-8 rounded-2xl bg-amber-500 border-2 border-white dark:border-[#0c0d12] flex items-center justify-center text-white text-xs shadow-md">
+                    🔒
+                  </div>
                 </div>
-                <div className="absolute -bottom-1 -right-1 w-8 h-8 rounded-2xl bg-amber-500 border-2 border-white dark:border-[#0c0d12] flex items-center justify-center text-white text-xs shadow-md">
-                  🔒
+
+                <div className="space-y-1">
+                  <h2 className="text-xl font-black text-slate-900 dark:text-white">
+                    Drop ₦3,000 to Activate
+                  </h2>
+                  <p className="text-xs text-slate-500 dark:text-zinc-400 max-w-xs mx-auto leading-relaxed font-medium">
+                    A minimum deposit of ₦3,000 is required to activate Bronze Pulse. 100% credited to your wallet balance.
+                  </p>
                 </div>
-              </div>
 
-              <div className="space-y-1">
-                <h2 className="text-xl font-black text-slate-900 dark:text-white">
-                  Drop ₦3,000 to Activate
-                </h2>
-                <p className="text-xs text-slate-500 dark:text-zinc-400 max-w-xs mx-auto leading-relaxed font-medium">
-                  A minimum deposit of ₦3,000 is required to activate Bronze Pulse. 100% credited to your wallet balance.
-                </p>
-              </div>
-
-              {/* CLEAN SIMPLE 3-ROW CARD */}
-              <div className="w-full bg-white dark:bg-zinc-900/80 border border-slate-100 dark:border-white/[0.08] rounded-3xl p-5 shadow-xl text-left space-y-3">
-                <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-zinc-400">
-                  <span>Entry Stake (Bronze Pulse):</span>
-                  <span className="font-mono text-base font-black text-slate-900 dark:text-white">₦3,000</span>
+                {/* CLEAN SIMPLE 3-ROW CARD */}
+                <div className="w-full bg-white dark:bg-zinc-900/80 border border-slate-100 dark:border-white/[0.08] rounded-3xl p-5 shadow-xl text-left space-y-3">
+                  <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-zinc-400">
+                    <span>Entry Stake (Bronze Pulse):</span>
+                    <span className="font-mono text-base font-black text-slate-900 dark:text-white">₦3,000</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                    <span>Credited to Your Balance:</span>
+                    <span className="font-mono text-base font-black">+₦3,000.00</span>
+                  </div>
+                  <div className="pt-2 border-t border-slate-100 dark:border-zinc-800 flex items-center justify-between text-[11px] text-slate-500 dark:text-zinc-400 font-semibold">
+                    <span>Bronze Withdrawal Cap:</span>
+                    <span className="text-cyan-500 font-black uppercase">₦24,000 (8x RETURN) ✓</span>
+                  </div>
                 </div>
-                <div className="flex items-center justify-between text-xs font-bold text-emerald-600 dark:text-emerald-400">
-                  <span>Credited to Your Balance:</span>
-                  <span className="font-mono text-base font-black">+₦3,000.00</span>
+
+                {/* ACTION BUTTON */}
+                <div className="w-full space-y-2 pt-1">
+                  <button 
+                    onClick={() => setIsDepositModalOpen(true)}
+                    className="w-full h-12 rounded-full bg-gradient-to-r from-sky-500 via-cyan-500 to-blue-600 hover:opacity-95 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-sky-500/25 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <CreditCard className="w-4 h-4" />
+                    <span>Drop ₦3,000 via Paystack</span>
+                  </button>
                 </div>
-                <div className="pt-2 border-t border-slate-100 dark:border-zinc-800 flex items-center justify-between text-[11px] text-slate-500 dark:text-zinc-400 font-semibold">
-                  <span>Bronze Withdrawal Cap:</span>
-                  <span className="text-cyan-500 font-black uppercase">₦24,000 (8x RETURN) ✓</span>
+
+                <div className="inline-flex items-center gap-1.5 text-[10px] text-slate-400 dark:text-zinc-500 font-semibold">
+                  <Shield className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>Secured 256-bit encryption by Paystack</span>
                 </div>
+
               </div>
-
-              {/* ACTION BUTTONS */}
-              <div className="w-full space-y-2.5 pt-1">
-                <button 
-                  onClick={() => setIsDepositModalOpen(true)}
-                  className="w-full h-12 rounded-full bg-gradient-to-r from-sky-500 via-cyan-500 to-blue-600 hover:opacity-95 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-sky-500/25 active:scale-98 transition-all flex items-center justify-center gap-2"
-                >
-                  <CreditCard className="w-4 h-4" />
-                  <span>Drop ₦3,000 via Paystack</span>
-                </button>
-
-                <button 
-                  onClick={handleInstantDemoActivate}
-                  className="w-full h-11 rounded-full bg-slate-100 dark:bg-zinc-900 border border-slate-200/60 dark:border-white/[0.08] hover:bg-slate-200 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-200 font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
-                >
-                  <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>Instant 1-Tap Activate (Demo Test)</span>
-                </button>
-              </div>
-
-              <div className="inline-flex items-center gap-1.5 text-[10px] text-slate-400 dark:text-zinc-500 font-semibold">
-                <Shield className="w-3.5 h-3.5 text-emerald-500" />
-                <span>Secured 256-bit encryption by Paystack</span>
-              </div>
-
-            </div>
-          ) : (
-            <>
-              {/* ======================================================== */}
-              {/* TAB 1: HOME (Hero Balance, Streak, Payout Ticker)        */}
-              {/* ======================================================== */}
-              {activeTab === 'home' && (
-                <div className="space-y-4 animate-in fade-in duration-300">
+            ) : (
+              <div className="space-y-4 animate-in fade-in duration-300">
                   
                   {/* ULTRA-PREMIUM REVOLUT BLACK CARD */}
                   <div className="relative rounded-3xl bg-gradient-to-br from-zinc-900 via-black to-zinc-950 text-white p-5 border border-white/10 shadow-2xl overflow-hidden group">
@@ -1759,7 +1697,7 @@ export default function App() {
                             : 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-md shadow-orange-500/20 active:scale-95'
                         }`}
                       >
-                        {user?.streakClaimedToday ? 'Claimed ✓' : 'Claim ₦300'}
+                        {user?.streakClaimedToday ? 'Claimed ✓' : 'Claim ₦100'}
                       </button>
                     </div>
 
@@ -1787,7 +1725,9 @@ export default function App() {
                   </div>
 
                 </div>
-              )}
+              )
+            )
+          }
 
               {/* ======================================================== */}
               {/* TAB 2: TASKS (EXACTLY ONE TASK + "MORE COMING SOON")     */}
@@ -2323,22 +2263,6 @@ export default function App() {
                         <span className="font-mono font-bold text-cyan-500">₦{totalWithdrawnLifetime.toLocaleString()}</span>
                       </div>
                     </div>
-
-                    {/* DEMO TEST CONTROLS */}
-                    <div className="pt-2 border-t border-slate-100 dark:border-white/[0.06] flex items-center justify-between gap-2">
-                      <button 
-                        onClick={handleSimulateTierCapReached}
-                        className="flex-1 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 text-[10px] font-bold"
-                      >
-                        Simulate Cap Reached
-                      </button>
-                      <button 
-                        onClick={handleResetLifetimeWithdrawn}
-                        className="py-1.5 px-3 rounded-xl bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 text-[10px] font-bold"
-                      >
-                        Reset Cap
-                      </button>
-                    </div>
                   </div>
 
                   {/* REFERRAL NETWORK MANAGEMENT */}
@@ -2376,31 +2300,6 @@ export default function App() {
                           </div>
                         ))
                       )}
-                    </div>
-
-                    {/* DEMO SIMULATION CONTROLS */}
-                    <div className="pt-2 border-t border-slate-100 dark:border-white/[0.06] flex items-center justify-between gap-2 flex-wrap">
-                      <button 
-                        onClick={handleSimulateAddReferralDeposit}
-                        className="flex-1 py-1.5 px-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 text-[10px] font-bold"
-                      >
-                        + Simulate ₦3k Ref
-                      </button>
-                      <button 
-                        onClick={() => {
-                          setTotalWithdrawnLifetime(currentTier.withdrawalCap);
-                          showToast('Cap Surpassed!', `Simulated ₦${currentTier.withdrawalCap.toLocaleString()} limit reached. Now test upgrading tier!`);
-                        }}
-                        className="py-1.5 px-2 rounded-xl bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 text-[10px] font-bold"
-                      >
-                        Surpass Cap
-                      </button>
-                      <button 
-                        onClick={handleResetReferrals}
-                        className="py-1.5 px-2.5 rounded-xl bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 text-[10px] font-bold"
-                      >
-                        Reset
-                      </button>
                     </div>
                   </div>
 
@@ -2544,14 +2443,12 @@ export default function App() {
                       </button>
                     </div>
                     <p className="text-[10px] text-slate-400 dark:text-zinc-500 leading-normal">
-                      TaskPulse Technologies · Licensed micro-task incentive system & Paystack NIP bank settlement gateway.
+                      TaskPulse · Digital micro-task platform with automated Paystack payment processing.
                     </p>
                   </div>
 
                 </div>
               )}
-            </>
-          )}
 
         </div>
 
@@ -2800,7 +2697,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* ACTION & DEMO BUTTONS */}
+            {/* ACTION BUTTON */}
             <div className="space-y-2 pt-1">
               <button 
                 onClick={() => {
@@ -2808,26 +2705,10 @@ export default function App() {
                   triggerConfetti();
                   showToast('Referral Link Copied', 'Share your link: Earn when referrals deposit ₦3,000!');
                 }}
-                className="w-full h-11 rounded-full bg-gradient-to-r from-indigo-500 via-sky-500 to-blue-600 hover:opacity-95 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-indigo-500/25 active:scale-95 transition-all flex items-center justify-center gap-1.5"
+                className="w-full h-11 rounded-full bg-gradient-to-r from-indigo-500 via-sky-500 to-blue-600 hover:opacity-95 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-indigo-500/25 active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <Share2 className="w-4 h-4" />
                 <span>Copy Referral Invite Link</span>
-              </button>
-
-              <button 
-                onClick={handleSimulateAddReferralDeposit}
-                className="w-full h-10 rounded-full bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 text-slate-800 dark:text-zinc-200 font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
-              >
-                <UserPlus className="w-3.5 h-3.5 text-indigo-500" />
-                <span>Simulate 3rd Referral Deposit (+₦3,000)</span>
-              </button>
-
-              <button 
-                onClick={handleCompleteReferralsAndDoubleWallet}
-                className="w-full h-10 rounded-full bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
-              >
-                <Zap className="w-3.5 h-3.5" />
-                <span>⚡ Complete All 3 & Double Wallet Now</span>
               </button>
             </div>
 
@@ -2893,15 +2774,8 @@ export default function App() {
               </div>
             </div>
 
-            {/* ACTION BUTTONS */}
+            {/* ACTION BUTTON */}
             <div className="space-y-2 pt-1">
-              <button 
-                onClick={handleFastForwardLock}
-                className="w-full h-11 rounded-full bg-gradient-to-r from-amber-500 to-yellow-500 hover:opacity-95 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg shadow-amber-500/20 active:scale-95 transition-all flex items-center justify-center gap-1.5"
-              >
-                <Zap className="w-4 h-4 fill-current" />
-                <span>Fast-Forward 48h (Test Next Check)</span>
-              </button>
 
               <button 
                 onClick={() => {
@@ -2949,84 +2823,44 @@ export default function App() {
               </button>
             </div>
 
-            {/* Channels: Bank Transfer / Card / USSD */}
-            <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 dark:bg-zinc-800/80 rounded-2xl">
-              <button 
-                onClick={() => setDepositChannel('transfer')}
-                className={`py-1.5 text-xs font-bold rounded-xl transition-all ${
-                  depositChannel === 'transfer' ? 'bg-white dark:bg-zinc-900 text-sky-600 dark:text-cyan-400 shadow-xs' : 'text-slate-500'
-                }`}
-              >
-                Transfer
-              </button>
-              <button 
-                onClick={() => setDepositChannel('card')}
-                className={`py-1.5 text-xs font-bold rounded-xl transition-all ${
-                  depositChannel === 'card' ? 'bg-white dark:bg-zinc-900 text-sky-600 dark:text-cyan-400 shadow-xs' : 'text-slate-500'
-                }`}
-              >
-                Card
-              </button>
-              <button 
-                onClick={() => setDepositChannel('ussd')}
-                className={`py-1.5 text-xs font-bold rounded-xl transition-all ${
-                  depositChannel === 'ussd' ? 'bg-white dark:bg-zinc-900 text-sky-600 dark:text-cyan-400 shadow-xs' : 'text-slate-500'
-                }`}
-              >
-                USSD
-              </button>
+            <div className="p-4 bg-slate-50 dark:bg-zinc-800/60 rounded-2xl space-y-3 text-xs border border-slate-100 dark:border-white/[0.06]">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400 font-medium">Deposit Purpose:</span>
+                <span className="text-slate-900 dark:text-white font-bold">{isActivated ? 'Wallet Top-Up' : 'Bronze Pulse Activation'}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400 font-medium">Amount:</span>
+                <span className="font-mono font-black text-base text-emerald-600 dark:text-emerald-400">₦3,000.00</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400 font-medium">Processing Fee:</span>
+                <span className="font-mono font-bold text-sky-500">₦0.00 (Zero Fee)</span>
+              </div>
+              <div className="pt-2 border-t border-slate-200/60 dark:border-white/[0.06] text-[11px] text-slate-500 dark:text-zinc-400 leading-relaxed">
+                You will be redirected to Paystack’s secure checkout. Supports Debit Card, Bank Transfer, USSD, and Apple Pay.
+              </div>
             </div>
 
-            {depositChannel === 'transfer' && (
-              <div className="p-3.5 bg-slate-50 dark:bg-zinc-800/60 rounded-2xl space-y-2 text-xs">
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-400">Pay To Bank:</span>
-                  <span className="text-slate-900 dark:text-white font-black">Wema Bank / Paystack</span>
-                </div>
-                <div className="flex justify-between items-center font-bold">
-                  <span className="text-slate-400">Account No:</span>
-                  <span className="font-mono font-black text-sm text-[#0ba4db]">9928301928</span>
-                </div>
-                <div className="flex justify-between items-center font-bold">
-                  <span className="text-slate-400">Beneficiary:</span>
-                  <span className="text-slate-900 dark:text-white font-bold">TaskPulse / Paystack</span>
-                </div>
-              </div>
-            )}
-
-            {depositChannel === 'card' && (
-              <div className="space-y-2 text-left text-xs">
-                <input 
-                  type="text" 
-                  defaultValue="5399 8291 0029 4810"
-                  className="w-full h-10 px-3 rounded-xl bg-slate-50 dark:bg-zinc-800 border font-mono text-xs focus:outline-none"
-                />
-                <div className="grid grid-cols-2 gap-2">
-                  <input type="text" defaultValue="08/29" className="h-10 px-3 rounded-xl bg-slate-50 dark:bg-zinc-800 border font-mono text-xs focus:outline-none" />
-                  <input type="text" defaultValue="729" className="h-10 px-3 rounded-xl bg-slate-50 dark:bg-zinc-800 border font-mono text-xs focus:outline-none" />
-                </div>
-              </div>
-            )}
-
-            {depositChannel === 'ussd' && (
-              <div className="p-3 bg-slate-50 dark:bg-zinc-800 rounded-2xl text-center text-xs font-bold space-y-1">
-                <span className="text-slate-400 block text-[11px]">Dial on your registered phone:</span>
-                <span className="text-base font-black font-mono text-[#0ba4db] block">*737*50*3000*1928#</span>
-              </div>
-            )}
+            <div className="flex items-center justify-center gap-1.5 py-1 text-[10px] text-slate-400">
+              <Shield className="w-3.5 h-3.5 text-emerald-500" />
+              <span>Certified PCI-DSS Merchant · Instant Bank Crediting</span>
+            </div>
 
             <button 
-              onClick={handleCompleteActivation}
+              onClick={() => handleInitiatePaystackDeposit(3000)}
               disabled={isProcessingDeposit}
-              className="w-full h-12 rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-emerald-500/20 active:scale-95 transition-all flex items-center justify-center gap-1.5"
+              className="w-full h-12 rounded-full bg-gradient-to-r from-sky-500 via-cyan-500 to-blue-600 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-sky-500/25 active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
             >
               {isProcessingDeposit ? (
                 <>
                   <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                  <span>Confirming Paystack Deposit...</span>
+                  <span>Connecting to Paystack...</span>
                 </>
               ) : (
-                <span>I Have Sent ₦3,000 (Activate Account)</span>
+                <>
+                  <CreditCard className="w-4 h-4" />
+                  <span>Proceed to Paystack (₦3,000)</span>
+                </>
               )}
             </button>
 
@@ -3045,7 +2879,7 @@ export default function App() {
               <div>
                 <span className="text-[10px] font-black text-cyan-500 uppercase tracking-wider">{currentTier.name} Transfer Rail</span>
                 <h3 className="text-base font-black text-slate-900 dark:text-white mt-0.5">
-                  {cashoutStep === 'amount' ? 'Instant Bank Cashout' : cashoutStep === 'otp' ? 'Paystack 2FA Authorization' : 'Transfer Disbursed!'}
+                  {cashoutStep === 'amount' ? 'Instant Bank Cashout' : cashoutStep === 'confirm' ? 'Confirm Withdrawal Details' : 'Transfer Disbursed!'}
                 </h3>
               </div>
               <button 
@@ -3130,56 +2964,59 @@ export default function App() {
 
                 <button 
                   type="submit"
-                  className="w-full h-11 rounded-full bg-gradient-to-r from-sky-500 to-blue-600 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-sky-500/25 active:scale-95 transition-all mt-1"
+                  className="w-full h-11 rounded-full bg-gradient-to-r from-sky-500 to-blue-600 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-sky-500/25 active:scale-95 transition-all mt-1 cursor-pointer"
                 >
-                  Proceed to Paystack 2FA Authorization
+                  Proceed to Transfer Confirmation
                 </button>
               </form>
             )}
 
-            {cashoutStep === 'otp' && (
-              <form onSubmit={handleConfirmPaystackOtp} className="space-y-4">
-                <div className="p-3 bg-sky-50 dark:bg-cyan-950/40 rounded-2xl text-center space-y-1">
-                  <KeyRound className="w-7 h-7 text-cyan-500 mx-auto" />
-                  <p className="text-xs font-bold text-slate-900 dark:text-white">Transfer Authorization Required</p>
-                  <p className="text-[11px] text-slate-500 dark:text-zinc-400">
-                    Enter the 4-digit Paystack OTP sent to <strong className="font-mono">{user?.phone}</strong>
-                  </p>
-                </div>
-
-                <div className="space-y-1">
-                  <input 
-                    type="text"
-                    maxLength={4}
-                    value={paystackOtp}
-                    onChange={e => setPaystackOtp(e.target.value.replace(/\D/g, ''))}
-                    placeholder="••••"
-                    className="w-full h-12 text-center text-xl tracking-[0.5em] font-mono font-black rounded-2xl bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-white/[0.08] focus:outline-none"
-                    required
-                  />
-                  <button 
-                    type="button" 
-                    onClick={() => setPaystackOtp('7821')}
-                    className="text-[11px] font-bold text-cyan-500 block mx-auto hover:underline pt-1"
-                  >
-                    Auto-Fill Demo Code (7821)
-                  </button>
+            {cashoutStep === 'confirm' && (
+              <form onSubmit={handleConfirmCashout} className="space-y-4">
+                <div className="p-3.5 bg-slate-50 dark:bg-zinc-800/60 rounded-2xl border border-slate-200/60 dark:border-white/[0.06] space-y-2.5 text-xs">
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400">Destination Bank:</span>
+                    <span className="text-slate-900 dark:text-white font-bold">{selectedBank?.bankName || 'Bank'}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400">Account Number:</span>
+                    <span className="font-mono font-bold text-slate-900 dark:text-white">•••• {selectedBank?.accountNumber?.slice(-4) || '••••'}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400">Account Name:</span>
+                    <span className="font-bold text-slate-900 dark:text-white">{selectedBank?.accountName || user?.firstName}</span>
+                  </div>
+                  <div className="flex justify-between items-center pt-2 border-t border-slate-200/60 dark:border-white/[0.06]">
+                    <span className="text-slate-400">Cashout Amount:</span>
+                    <span className="font-mono font-black text-emerald-600 dark:text-emerald-400 text-sm">₦{parseFloat(cashoutAmount || '0').toLocaleString()}.00</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400">Network Fee:</span>
+                    <span className="font-mono font-bold text-emerald-500">₦0.00 (Zero Fee)</span>
+                  </div>
                 </div>
 
                 <div className="flex gap-2">
                   <button 
                     type="button"
                     onClick={() => setCashoutStep('amount')}
-                    className="flex-1 h-11 rounded-full border border-slate-200 dark:border-white/[0.08] text-xs font-bold text-slate-500"
+                    className="flex-1 h-11 rounded-full border border-slate-200 dark:border-white/[0.08] text-xs font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
                   >
                     Back
                   </button>
                   <button 
                     type="submit"
                     disabled={isCashoutProcessing}
-                    className="flex-2 h-11 rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-bold text-xs uppercase tracking-wider shadow-md"
+                    className="flex-2 h-11 rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-bold text-xs uppercase tracking-wider shadow-md active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
                   >
-                    {isCashoutProcessing ? 'Disbursing via NIP...' : 'Confirm & Disburse'}
+                    {isCashoutProcessing ? (
+                      <>
+                        <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                        <span>Disbursing via NIP...</span>
+                      </>
+                    ) : (
+                      <span>Confirm & Disburse Funds</span>
+                    )}
                   </button>
                 </div>
               </form>
@@ -3692,7 +3529,7 @@ export default function App() {
                         type="text"
                         value={authFullName}
                         onChange={e => setAuthFullName(e.target.value)}
-                        placeholder="e.g. Emmanuel Onuabughichi"
+                        placeholder="e.g. John Doe"
                         className="w-full h-11 pl-10 pr-4 rounded-full bg-slate-50 dark:bg-zinc-800/80 border border-slate-200 dark:border-white/[0.08] text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500"
                         required
                       />
@@ -3734,7 +3571,7 @@ export default function App() {
                         value={authPhone}
                         onChange={e => setAuthPhone(e.target.value.replace(/\D/g, ''))}
                         onBlur={() => handleCheckDuplicateField('phone')}
-                        placeholder="08165961134"
+                        placeholder="08012345678"
                         maxLength={11}
                         className="w-full h-11 pl-10 pr-4 rounded-full bg-slate-50 dark:bg-zinc-800/80 border border-slate-200 dark:border-white/[0.08] text-xs font-bold font-mono text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500"
                         required
@@ -3773,7 +3610,7 @@ export default function App() {
                   <label className="text-xs font-bold text-slate-700 dark:text-zinc-300">
                     Password
                   </label>
-                  {authMode === 'signup' && <span className="text-[10px] text-slate-400">Min 6 characters</span>}
+                  {authMode === 'signup' && <span className="text-[10px] text-slate-400">Min 8 characters</span>}
                 </div>
                 <div className="relative">
                   <input
@@ -3914,7 +3751,7 @@ export default function App() {
             </div>
 
             <p className="text-xs text-slate-500 dark:text-zinc-400 leading-relaxed">
-              Verify your identity with NIBSS / NIMC to eliminate limits and unlock cashouts up to ₦120,000.
+              Submit your identity details for Level 2 verification. For security and privacy, only the last 4 digits are retained.
             </p>
 
             {/* Error Alert */}
@@ -3994,7 +3831,7 @@ export default function App() {
               <div className="p-3 rounded-2xl bg-slate-50 dark:bg-zinc-800/50 border border-slate-100 dark:border-white/[0.06] flex items-start gap-2 text-[10px] text-slate-500 dark:text-zinc-400 leading-tight">
                 <Lock className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
                 <span>
-                  Your identification is verified directly with licensed Nigerian identity authorities (NIBSS / NIMC). Data is 256-bit encrypted and never shared.
+                  Identity verification is processed under Nigerian Data Protection Regulation (NDPR) guidelines. Only the last 4 digits are recorded in profile logs.
                 </span>
               </div>
 
@@ -4007,10 +3844,10 @@ export default function App() {
                 {isKycSubmitting ? (
                   <>
                     <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                    <span>Verifying with NIBSS...</span>
+                    <span>Submitting for Review...</span>
                   </>
                 ) : (
-                  <span>Verify &amp; Upgrade KYC</span>
+                  <span>Submit for Review</span>
                 )}
               </button>
             </form>

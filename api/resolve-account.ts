@@ -1,44 +1,55 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { requireUser, paystackRequest, handleApiError, HttpError } from './_lib/server';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // Allow GET
   if (req.method !== 'GET') {
     return res.status(405).json({ status: false, message: 'Method Not Allowed' });
   }
 
-  const { account_number, bank_code } = req.query;
-
-  if (!account_number || !bank_code) {
-    return res.status(400).json({ 
-      status: false, 
-      message: 'account_number and bank_code are required query parameters' 
-    });
-  }
-
-  const secretKey = process.env.PAYSTACK_SECRET_KEY;
-  if (!secretKey) {
-    return res.status(500).json({ 
-      status: false, 
-      message: 'PAYSTACK_SECRET_KEY is not configured in Vercel environment variables' 
-    });
-  }
-
   try {
-    const paystackRes = await fetch(
-      `https://api.paystack.co/bank/resolve?account_number=${account_number}&bank_code=${bank_code}`,
-      {
-        headers: {
-          Authorization: `Bearer ${secretKey}`
-        }
-      }
-    );
+    // 1. Require valid logged-in user to prevent open-proxy abuse
+    await requireUser(req);
 
-    const data = await paystackRes.json();
-    return res.status(paystackRes.status).json(data);
-  } catch (error: any) {
-    return res.status(500).json({ 
-      status: false, 
-      message: error?.message || 'Error communicating with Paystack API' 
+    const accountNumber = String(req.query.account_number || '').trim();
+    const bankCode = String(req.query.bank_code || '').trim();
+
+    if (!/^\d{10}$/.test(accountNumber)) {
+      throw new HttpError(400, 'Invalid account number: Must be exactly 10 digits.');
+    }
+
+    if (!/^[a-zA-Z0-9]{3,6}$/.test(bankCode)) {
+      throw new HttpError(400, 'Invalid bank code format.');
+    }
+
+    // 2. Resolve account with Paystack
+    const query = new URLSearchParams({
+      account_number: accountNumber,
+      bank_code: bankCode,
     });
+
+    const paystackRes = await paystackRequest<{
+      status: boolean;
+      message: string;
+      data?: {
+        account_number: string;
+        account_name: string;
+        bank_id: number;
+      };
+    }>(`/bank/resolve?${query.toString()}`);
+
+    if (!paystackRes.ok || !paystackRes.data?.status || !paystackRes.data.data) {
+      throw new HttpError(
+        400,
+        paystackRes.data?.message || 'Could not resolve bank account details. Verify bank code and account number.'
+      );
+    }
+
+    return res.status(200).json({
+      status: true,
+      message: 'Bank account resolved successfully',
+      data: paystackRes.data.data,
+    });
+  } catch (err: any) {
+    return handleApiError(res, err);
   }
 }

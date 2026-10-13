@@ -1,159 +1,134 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { verifyFinancialState } from './security';
+import crypto from 'crypto';
+import { requireUser, getAdminClient, paystackRequest, handleApiError, HttpError } from './_lib/server';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ status: false, message: 'Method Not Allowed' });
   }
 
-  const { 
-    amount, 
-    bankCode, 
-    accountNumber, 
-    accountName,
-    stateToken // Cryptographic Anti-Tamper Token generated & signed by server
-  } = req.body || {};
-
-  const secretKey = process.env.PAYSTACK_SECRET_KEY;
-  if (!secretKey) {
-    return res.status(500).json({ status: false, message: 'PAYSTACK_SECRET_KEY is not configured' });
-  }
-
-  // =========================================================================
-  // DEFENSE 1: CRYPTOGRAPHIC ANTI-TAMPER CHECK (CLIENT CANNOT SPOOF STATE)
-  // =========================================================================
-  let verifiedState = null;
-  if (stateToken) {
-    verifiedState = verifyFinancialState(stateToken, secretKey);
-    if (!verifiedState) {
-      return res.status(401).json({
-        status: false,
-        message: 'Security Violation: Tampered financial state token detected. Request blocked.'
-      });
-    }
-  }
-
-  // =========================================================================
-  // DEFENSE 2: SERVER-ENFORCED 48-HOUR SECURITY COOLING-OFF PERIOD
-  // =========================================================================
-  if (verifiedState) {
-    const hoursElapsed = (Date.now() - verifiedState.activationTimestamp) / (1000 * 60 * 60);
-    if (hoursElapsed < 48) {
-      const remainingHours = (48 - hoursElapsed).toFixed(1);
-      return res.status(403).json({ 
-        status: false, 
-        message: `48-Hour Security Lock Active: First withdrawal unlocks in ${remainingHours} hours.` 
-      });
-    }
-  }
-
-  // =========================================================================
-  // DEFENSE 3: SERVER-ENFORCED REFERRALS (TRIPLED INITIAL DEPOSIT) OR UPGRADE
-  // =========================================================================
-  if (verifiedState) {
-    const hasMetTripledReferrals = verifiedState.qualifiedReferralsCount >= 3 && verifiedState.referralsVolume >= 9000;
-    const hasUpgradedAfterLimit = !!verifiedState.hasUpgradedAfterLimit || (verifiedState.tierId && verifiedState.tierId !== 'tier-1');
-
-    if (!hasMetTripledReferrals && !hasUpgradedAfterLimit) {
-      return res.status(403).json({
-        status: false,
-        message: 'Withdrawal Condition Unmet: The ₦3,000 minimum withdrawal only applies to those whose referrals tripled their initial deposit (3 refs & ₦9,000 volume), or those who made an upgrade after surpassing their withdrawal limit.'
-      });
-    }
-  }
-
-  // =========================================================================
-  // DEFENSE 4: HARD-CODED LIMITS (CANNOT BE MANIPULATED IN DEVTOOLS)
-  // =========================================================================
-  const transferAmount = Number(amount);
-  if (isNaN(transferAmount) || transferAmount < 3000) {
-    return res.status(400).json({ status: false, message: 'Minimum withdrawal amount is ₦3,000.' });
-  }
-  if (transferAmount > 100000) {
-    return res.status(400).json({ status: false, message: 'Transfer limit exceeded for current tier.' });
-  }
-
-  if (verifiedState && transferAmount > verifiedState.withdrawableBalance) {
-    return res.status(400).json({ status: false, message: 'Insufficient verified balance.' });
-  }
-
-  // =========================================================================
-  // DEFENSE 5: SERVER-SIDE NUBAN RESOLUTION VERIFICATION
-  // =========================================================================
-  if (!accountNumber || accountNumber.length !== 10 || !bankCode) {
-    return res.status(400).json({ status: false, message: 'Valid 10-digit NUBAN and bank code required.' });
-  }
-
   try {
-    const resolveRes = await fetch(
-      `https://api.paystack.co/bank/resolve?account_number=${encodeURIComponent(accountNumber)}&bank_code=${encodeURIComponent(bankCode)}`,
-      {
-        headers: { Authorization: `Bearer ${secretKey}` }
+    const { user } = await requireUser(req);
+    const { amount, bankAccountId, idempotencyKey } = req.body || {};
+
+    const numAmount = Number(amount);
+    if (!numAmount || isNaN(numAmount) || numAmount < 3000 || numAmount !== Math.floor(numAmount)) {
+      throw new HttpError(400, 'Invalid cashout amount: Minimum is ₦3,000, whole numbers only.');
+    }
+
+    if (!bankAccountId || typeof bankAccountId !== 'string') {
+      throw new HttpError(400, 'A valid linked bank account ID is required.');
+    }
+
+    const safeClientKey = String(idempotencyKey || crypto.randomUUID());
+    // Create deterministic unique transfer reference (max 40 chars)
+    const txRef = 'co_' + crypto.createHash('sha256').update(`${user.id}:${safeClientKey}`).digest('hex').substring(0, 32);
+
+    const admin = getAdminClient();
+
+    // 1. Atomically evaluate all rules & deduct balance in Supabase
+    const { data: rpcResult, error: rpcErr } = await admin.rpc('request_cashout', {
+      p_user_id: user.id,
+      p_amount: numAmount,
+      p_bank_account_id: bankAccountId,
+      p_reference: txRef,
+    });
+
+    if (rpcErr) {
+      const msg = rpcErr.message;
+      if (msg.includes('cooldown_active')) {
+        throw new HttpError(403, '48-hour security cooling-off period active since your activation. Please check your unlock countdown.');
       }
-    );
-    const resolveData = await resolveRes.json();
-    if (!resolveData.status) {
-      return res.status(400).json({
-        status: false,
-        message: 'Invalid destination bank account. Bank resolution failed.'
+      if (msg.includes('referral_condition')) {
+        throw new HttpError(403, 'Withdrawal condition unmet: You need at least 3 qualified referrals (₦9,000 volume) or a tier upgrade to withdraw.');
+      }
+      if (msg.includes('insufficient_balance')) {
+        throw new HttpError(400, 'Insufficient withdrawable wallet balance.');
+      }
+      if (msg.includes('tier_cap')) {
+        throw new HttpError(403, 'Cumulative tier withdrawal limit reached. Please upgrade your tier to continue withdrawing.');
+      }
+      if (msg.includes('single_limit')) {
+        throw new HttpError(400, 'Amount exceeds your tier maximum single transfer limit.');
+      }
+      if (msg.includes('bank_not_found')) {
+        throw new HttpError(404, 'Selected bank account was not found or is not active.');
+      }
+      throw new HttpError(400, `Withdrawal request blocked: ${msg}`);
+    }
+
+    if (rpcResult?.duplicate) {
+      return res.status(200).json({
+        status: true,
+        message: 'This withdrawal was already initiated and is processing.',
+        data: rpcResult,
       });
     }
 
-    const verifiedAccountName = resolveData.data.account_name;
-
-    // =========================================================================
-    // DEFENSE 6: IDEMPOTENT PAYSTACK TRANSFER WITH REPLAY ATTACK DEFENSE
-    // =========================================================================
-    const clientKey = req.body?.idempotencyKey || req.headers['x-idempotency-key'];
-    const idempotentRef = clientKey 
-      ? `trf_tp_${String(clientKey).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 45)}`
-      : `trf_tp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-
-    // Create Recipient
-    const recipientRes = await fetch('https://api.paystack.co/transferrecipient', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${secretKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        type: 'nuban',
-        name: verifiedAccountName,
-        account_number: accountNumber,
-        bank_code: bankCode,
-        currency: 'NGN'
-      })
-    });
-
-    const recipientData = await recipientRes.json();
-    if (!recipientData.status) {
-      return res.status(400).json({ 
-        status: false, 
-        message: recipientData.message || 'Failed to create transfer recipient on Paystack' 
-      });
+    const recipientCode = rpcResult?.recipient_code;
+    if (!recipientCode) {
+      throw new HttpError(500, 'Bank account does not have a Paystack recipient code.');
     }
 
-    const recipientCode = recipientData.data.recipient_code;
-
-    // Disburse via Paystack Transfer API
-    const transferRes = await fetch('https://api.paystack.co/transfer', {
+    // 2. Dispatch transfer via Paystack API
+    const paystackRes = await paystackRequest<{
+      status: boolean;
+      message: string;
+      data?: {
+        reference: string;
+        status: string;
+        transfer_code: string;
+        amount: number;
+      };
+    }>('/transfer', {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${secretKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
+      body: {
         source: 'balance',
-        amount: Math.round(transferAmount * 100), // In Kobo
+        amount: Math.round(numAmount * 100), // in kobo
         recipient: recipientCode,
-        reference: idempotentRef,
-        reason: 'TaskPulse Verified Payout'
-      })
+        reason: `TaskPulse Cashout ${txRef}`,
+        reference: txRef,
+      },
     });
 
-    const transferData = await transferRes.json();
-    return res.status(transferRes.status).json(transferData);
-  } catch (error: any) {
-    return res.status(500).json({ status: false, message: error?.message || 'Transfer failed' });
+    // 3. Handle failure: Refund the user immediately if Paystack rejects the call
+    if (!paystackRes.ok || !paystackRes.data?.status) {
+      console.error('[Cashout Transfer Error]', paystackRes.data);
+      // Auto-refund in database
+      await admin.rpc('finalize_cashout', {
+        p_reference: txRef,
+        p_outcome: 'failed',
+      });
+
+      throw new HttpError(
+        502,
+        `Payment gateway rejected transfer: ${paystackRes.data?.message || 'Check Paystack transfer balance or settings.'}`
+      );
+    }
+
+    const transferData = paystackRes.data.data;
+    const transferStatus = transferData?.status?.toLowerCase();
+
+    // If Paystack returned immediate success, mark disbursed
+    if (transferStatus === 'success') {
+      await admin.rpc('finalize_cashout', {
+        p_reference: txRef,
+        p_outcome: 'success',
+      });
+    }
+
+    return res.status(200).json({
+      status: true,
+      message: 'Transfer submitted to banking network.',
+      data: {
+        reference: txRef,
+        amount: numAmount,
+        status: transferStatus || 'pending',
+        transfer_code: transferData?.transfer_code,
+        recipient_code: recipientCode,
+      },
+    });
+  } catch (err: any) {
+    return handleApiError(res, err);
   }
 }

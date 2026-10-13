@@ -1,72 +1,80 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { signFinancialState } from './security';
+import { requireUser, getAdminClient, paystackRequest, handleApiError, HttpError } from './_lib/server';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ status: false, message: 'Method Not Allowed' });
   }
 
-  const { reference, userId = 'DOCTORR' } = req.body || {};
-
-  if (!reference) {
-    return res.status(400).json({ status: false, message: 'Transaction reference is required' });
-  }
-
-  const secretKey = process.env.PAYSTACK_SECRET_KEY;
-  if (!secretKey) {
-    return res.status(500).json({ status: false, message: 'PAYSTACK_SECRET_KEY is not configured' });
-  }
-
   try {
-    // 1. Direct Server-to-Paystack Verification (Client Cannot Fake This)
-    const verifyRes = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
-      headers: {
-        Authorization: `Bearer ${secretKey}`
-      }
+    const { user } = await requireUser(req);
+    const reference = req.body?.reference || req.query?.reference;
+
+    if (!reference || typeof reference !== 'string') {
+      throw new HttpError(400, 'Transaction reference is required.');
+    }
+
+    const admin = getAdminClient();
+
+    // 1. Verify directly with Paystack API
+    const paystackRes = await paystackRequest<{
+      status: boolean;
+      message: string;
+      data?: {
+        status: string;
+        amount: number; // kobo
+        currency: string;
+        reference: string;
+        customer?: { email: string };
+      };
+    }>(`/transaction/verify/${encodeURIComponent(reference)}`);
+
+    if (!paystackRes.ok || !paystackRes.data?.status || !paystackRes.data.data) {
+      throw new HttpError(
+        400,
+        paystackRes.data?.message || 'Payment verification failed with payment gateway.'
+      );
+    }
+
+    const txData = paystackRes.data.data;
+    if (txData.status !== 'success') {
+      throw new HttpError(400, `Payment is not completed. Current status: ${txData.status}`);
+    }
+
+    if (txData.currency !== 'NGN') {
+      throw new HttpError(400, 'Invalid currency: only NGN transactions are accepted.');
+    }
+
+    const actualAmountNaira = Math.floor(txData.amount / 100);
+
+    // 2. Call the database settle_deposit RPC with row locks and idempotency
+    const { data: settleResult, error: settleErr } = await admin.rpc('settle_deposit', {
+      p_reference: reference,
+      p_paid_amount: actualAmountNaira,
     });
 
-    const verifyData = await verifyRes.json();
-
-    if (!verifyData.status || verifyData.data?.status !== 'success') {
-      return res.status(400).json({
-        status: false,
-        message: 'Payment verification failed: Transaction was not completed or was declined.'
-      });
+    if (settleErr) {
+      throw new HttpError(400, `Failed to settle deposit in database: ${settleErr.message}`);
     }
 
-    const { amount, currency, customer } = verifyData.data;
-
-    // 2. Strict Server-Enforced Amount Check (Must be >= ₦3,000 = 300,000 Kobo)
-    if (amount < 300000 || currency !== 'NGN') {
-      return res.status(400).json({
-        status: false,
-        message: 'Fraudulent transaction: Deposit amount must be at least ₦3,000 (300,000 kobo).'
-      });
-    }
-
-    // 3. Issue Cryptographically Signed Anti-Tamper State Token
-    const stateToken = signFinancialState({
-      userId,
-      isActivated: true,
-      activationTimestamp: Date.now(),
-      initialDeposit: 3000,
-      qualifiedReferralsCount: 0,
-      referralsVolume: 0,
-      withdrawableBalance: 3000
-    }, secretKey);
+    // 3. Fetch latest profile
+    const { data: updatedProfile } = await admin
+      .from('profiles')
+      .select('is_activated, withdrawable_balance, tier_id')
+      .eq('id', user.id)
+      .single();
 
     return res.status(200).json({
       status: true,
-      message: 'Payment verified and credited successfully.',
+      message: 'Deposit verified and credited successfully.',
       data: {
         reference,
-        amount: amount / 100,
-        customerEmail: customer?.email,
-        verifiedAt: new Date().toISOString(),
-        stateToken
-      }
+        amount: actualAmountNaira,
+        settleResult,
+        profile: updatedProfile,
+      },
     });
   } catch (err: any) {
-    return res.status(500).json({ status: false, message: err?.message || 'Verification failed' });
+    return handleApiError(res, err);
   }
 }

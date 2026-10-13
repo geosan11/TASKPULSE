@@ -1,49 +1,115 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import crypto from 'crypto';
+import { requireUser, getAdminClient, paystackRequest, handleApiError, HttpError } from './_lib/server';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ status: false, message: 'Method Not Allowed' });
   }
 
-  const { email, reference } = req.body || {};
-
-  if (!email) {
-    return res.status(400).json({ status: false, message: 'Customer email is required' });
-  }
-
-  const secretKey = process.env.PAYSTACK_SECRET_KEY;
-  if (!secretKey) {
-    return res.status(500).json({ status: false, message: 'PAYSTACK_SECRET_KEY is not configured' });
-  }
-
-  // HARD-LOCKED ON THE SERVER: EXACTLY ₦3,000 (300,000 KOBO)
-  // CLIENT CANNOT TAMPER WITH THIS VALUE
-  const ENFORCED_AMOUNT_KOBO = 300000;
-  const depositRef = reference || `ref_tp_dep_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-
   try {
-    const paystackRes = await fetch('https://api.paystack.co/transaction/initialize', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${secretKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        email,
-        amount: ENFORCED_AMOUNT_KOBO,
-        reference: depositRef,
-        currency: 'NGN',
-        metadata: {
-          app: 'TaskPulse',
-          type: 'activation_drop',
-          amount_naira: 3000
-        }
-      })
+    const { user } = await requireUser(req);
+    const email = user.email;
+    if (!email) {
+      throw new HttpError(400, 'Your user profile does not have an email address associated.');
+    }
+
+    const admin = getAdminClient();
+
+    // Check user profile activation status
+    const { data: profile, error: profileErr } = await admin
+      .from('profiles')
+      .select('is_activated, withdrawable_balance')
+      .eq('id', user.id)
+      .single();
+
+    if (profileErr || !profile) {
+      throw new HttpError(404, 'User profile not found in database.');
+    }
+
+    const rawAmount = req.body?.amount !== undefined ? Number(req.body.amount) : 3000;
+    if (isNaN(rawAmount) || rawAmount !== Math.floor(rawAmount)) {
+      throw new HttpError(400, 'Deposit amount must be a whole Naira number.');
+    }
+
+    let enforcedAmount: number;
+    if (!profile.is_activated) {
+      // Must be exactly ₦3,000 for activation
+      enforcedAmount = 3000;
+    } else {
+      if (rawAmount < 1000 || rawAmount > 500000) {
+        throw new HttpError(400, 'Top-up deposit must be between ₦1,000 and ₦500,000.');
+      }
+      enforcedAmount = rawAmount;
+    }
+
+    // Generate unique deposit reference
+    const depositRef = `dep_${crypto.randomUUID().replace(/-/g, '')}`;
+
+    // Record pending transaction in Supabase with row-level locks
+    const { error: rpcErr } = await admin.rpc('create_pending_deposit', {
+      p_user_id: user.id,
+      p_reference: depositRef,
+      p_amount: enforcedAmount,
     });
 
-    const data = await paystackRes.json();
-    return res.status(paystackRes.status).json(data);
-  } catch (error: any) {
-    return res.status(500).json({ status: false, message: error?.message || 'Paystack initialization failed' });
+    if (rpcErr) {
+      throw new HttpError(400, `Could not initiate deposit: ${rpcErr.message}`);
+    }
+
+    // Determine return / callback URL
+    const origin =
+      process.env.APP_URL ||
+      (req.headers['x-forwarded-proto'] && req.headers.host
+        ? `${req.headers['x-forwarded-proto']}://${req.headers.host}`
+        : req.headers.host
+        ? `https://${req.headers.host}`
+        : 'http://localhost:3000');
+    const callbackUrl = `${origin.replace(/\/$/, '')}/?verify_deposit=${encodeURIComponent(depositRef)}`;
+
+    // Call Paystack Initialize
+    const paystackRes = await paystackRequest<{
+      status: boolean;
+      message: string;
+      data?: {
+        authorization_url: string;
+        access_code: string;
+        reference: string;
+      };
+    }>('/transaction/initialize', {
+      method: 'POST',
+      body: {
+        email,
+        amount: Math.round(enforcedAmount * 100), // in kobo
+        reference: depositRef,
+        currency: 'NGN',
+        callback_url: callbackUrl,
+        metadata: {
+          app: 'TaskPulse',
+          user_id: user.id,
+          type: profile.is_activated ? 'wallet_topup' : 'activation_deposit',
+          amount_naira: enforcedAmount,
+        },
+      },
+    });
+
+    if (!paystackRes.ok || !paystackRes.data?.status || !paystackRes.data.data) {
+      throw new HttpError(
+        502,
+        paystackRes.data?.message || 'Paystack payment initialization failed. Please try again.'
+      );
+    }
+
+    return res.status(200).json({
+      status: true,
+      data: {
+        authorization_url: paystackRes.data.data.authorization_url,
+        access_code: paystackRes.data.data.access_code,
+        reference: depositRef,
+        amount: enforcedAmount,
+      },
+    });
+  } catch (err: any) {
+    return handleApiError(res, err);
   }
 }

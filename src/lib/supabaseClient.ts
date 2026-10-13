@@ -124,6 +124,13 @@ export async function checkDuplicateUser(
 export async function signUpUser(params: AuthUserSignup) {
   const { email, password, username, fullName, phone, referralCode } = params;
 
+  if (!password || password.length < 8) {
+    return {
+      success: false,
+      error: 'Password must be at least 8 characters long for security.',
+    };
+  }
+
   // 1. Pre-registration duplicate check
   const dupCheck = await checkDuplicateUser(email, username, phone);
   if (dupCheck.exists) {
@@ -230,6 +237,13 @@ export async function signInUser(email: string, password: string) {
   }
 
   // Offline / Demo fallback
+  if (import.meta.env.PROD) {
+    return {
+      success: false,
+      error: 'Authentication service is not configured. Please contact support.',
+    };
+  }
+
   return {
     success: true,
     message: 'Signed in (Demo Mode)'
@@ -262,15 +276,217 @@ export async function getCurrentUserProfile() {
 
     const { data: profile, error } = await supabase
       .from('profiles')
-      .select('id, email, username, full_name, phone, tier_id, is_activated, withdrawable_balance, pending_balance, total_withdrawn_lifetime, streak_days, referral_code, has_received_double_credit, has_upgraded_after_limit')
+      .select('id, email, username, full_name, phone, tier_id, is_activated, activation_timestamp, withdrawable_balance, pending_balance, total_withdrawn_lifetime, streak_days, streak_last_claimed_date, referral_code, has_received_double_credit, has_upgraded_after_limit, kyc_status, kyc_id_type, kyc_id_last4, kyc_submitted_at')
       .eq('id', user.id)
       .single();
 
-    if (error) return null;
+    if (error) {
+      console.warn('Error fetching user profile:', error.message);
+      return null;
+    }
     return profile;
   } catch {
     return null;
   }
+}
+
+/**
+ * Fetch linked bank accounts for the user.
+ */
+export async function fetchBankAccounts(userId: string) {
+  if (!supabase) return { data: [], error: null };
+
+  return await supabase
+    .from('bank_accounts')
+    .select('id, bank_code, bank_name, account_number, account_name, recipient_code, is_active, created_at')
+    .eq('user_id', userId)
+    .eq('is_active', true)
+    .order('created_at', { ascending: false });
+}
+
+/**
+ * Call the claim_daily_reward database RPC.
+ */
+export async function claimDailyRewardRpc() {
+  if (!supabase) {
+    const lastClaimed = localStorage.getItem('taskpulse_streak_last_claimed');
+    const today = new Date().toISOString().slice(0, 10);
+    if (lastClaimed === today) {
+      throw new Error('You have already claimed today’s reward. Check back tomorrow!');
+    }
+    const currentStreak = Number(localStorage.getItem('taskpulse_streak_days') || '0') + 1;
+    localStorage.setItem('taskpulse_streak_last_claimed', today);
+    localStorage.setItem('taskpulse_streak_days', String(currentStreak));
+    return { streak_days: currentStreak, reward_amount: 100, claimed: true };
+  }
+  const { data, error } = await supabase.rpc('claim_daily_reward');
+  if (error) {
+    if (error.message.includes('already_claimed')) {
+      throw new Error('You have already claimed today’s reward. Check back tomorrow!');
+    }
+    if (error.message.includes('not_activated')) {
+      throw new Error('Your account must be activated to claim daily login rewards.');
+    }
+    throw new Error(error.message);
+  }
+  return data;
+}
+
+/**
+ * Call the upgrade_tier_from_wallet database RPC.
+ */
+export async function upgradeTierRpc(targetTierId: string) {
+  if (!supabase) {
+    const tierStakes: Record<string, number> = {
+      silver: 10000,
+      gold: 25000,
+      platinum: 50000,
+      diamond: 100000,
+      black_crown_vip: 250000,
+    };
+    const reqStake = tierStakes[targetTierId] || 10000;
+    const curBal = Number(localStorage.getItem('taskpulse_balance') || '0');
+    if (curBal < reqStake) {
+      throw new Error('Insufficient wallet balance to upgrade to this tier.');
+    }
+    localStorage.setItem('taskpulse_balance', String(curBal - reqStake));
+    localStorage.setItem('taskpulse_tier', targetTierId);
+    return { success: true, tier_id: targetTierId, stake_deducted: reqStake };
+  }
+  const { data, error } = await supabase.rpc('upgrade_tier_from_wallet', {
+    p_target_tier_id: targetTierId,
+  });
+  if (error) {
+    if (error.message.includes('insufficient_balance')) {
+      throw new Error('Insufficient wallet balance to upgrade to this tier.');
+    }
+    if (error.message.includes('cannot_downgrade') || error.message.includes('already_at_or_above_tier')) {
+      throw new Error('You can only upgrade to a higher tier.');
+    }
+    throw new Error(error.message);
+  }
+  return data;
+}
+
+/**
+ * Submit KYC details via database RPC (only last 4 digits stored).
+ */
+export async function submitKycRpc(idType: string, idNumber: string) {
+  const cleanNumber = idNumber.replace(/\D/g, '');
+  if (cleanNumber.length < 8) {
+    throw new Error('Please enter a valid National ID / BVN / NIN number.');
+  }
+  const last4 = cleanNumber.slice(-4);
+  if (!supabase) {
+    localStorage.setItem('taskpulse_kyc_status', 'verified');
+    localStorage.setItem('taskpulse_kyc_last4', last4);
+    return { status: 'verified', id_type: idType, last4 };
+  }
+  const { data, error } = await supabase.rpc('submit_kyc', {
+    p_id_type: idType,
+    p_last4: last4,
+  });
+  if (error) {
+    throw new Error(error.message);
+  }
+  return data;
+}
+
+/**
+ * Submit a task completion proof for admin review.
+ */
+export async function submitTaskProofRpc(params: {
+  taskId: string;
+  taskTitle: string;
+  company: string;
+  rewardAmount: number;
+  category: string;
+  proofScreenshotUrl?: string;
+}) {
+  if (!supabase) {
+    const completions = JSON.parse(localStorage.getItem('taskpulse_task_completions') || '[]');
+    if (completions.some((c: any) => c.task_id === params.taskId)) {
+      throw new Error('You have already submitted proof for this task.');
+    }
+    const newRecord = {
+      id: `tc_${Date.now()}`,
+      task_id: params.taskId,
+      task_title: params.taskTitle,
+      reward_amount: params.rewardAmount,
+      status: 'pending',
+      submitted_at: new Date().toISOString(),
+    };
+    completions.push(newRecord);
+    localStorage.setItem('taskpulse_task_completions', JSON.stringify(completions));
+    return newRecord;
+  }
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('You must be signed in.');
+
+  const { data, error } = await supabase
+    .from('task_completions')
+    .insert({
+      user_id: user.id,
+      task_id: params.taskId,
+      task_title: params.taskTitle,
+      company: params.company,
+      reward_amount: params.rewardAmount,
+      category: params.category,
+      status: 'pending',
+      proof_screenshot_url: params.proofScreenshotUrl || null,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    if (error.code === '23505') {
+      throw new Error('You have already submitted proof for this task.');
+    }
+    throw new Error(error.message);
+  }
+  return data;
+}
+
+/**
+ * Upload task proof image to private Supabase Storage bucket.
+ */
+export async function uploadTaskProofImage(file: File, userId: string): Promise<string> {
+  if (!supabase) {
+    throw new Error('Database is not connected.');
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    throw new Error('Proof screenshot must be less than 5MB.');
+  }
+
+  const ext = file.name.split('.').pop() || 'png';
+  const path = `${userId}/${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${ext}`;
+
+  const { error: uploadErr } = await supabase.storage
+    .from('taskpulse-proofs')
+    .upload(path, file, { contentType: file.type, upsert: false });
+
+  if (uploadErr) {
+    throw new Error(`Failed to upload screenshot: ${uploadErr.message}`);
+  }
+
+  return path;
+}
+
+/**
+ * Update user full name (the only allowed client profile update).
+ */
+export async function updateProfileFullName(fullName: string) {
+  if (!supabase) throw new Error('Database is not connected.');
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('You must be signed in.');
+
+  const { error } = await supabase
+    .from('profiles')
+    .update({ full_name: fullName.trim() })
+    .eq('id', user.id);
+
+  if (error) throw new Error(error.message);
+  return true;
 }
 
 // =========================================================================
