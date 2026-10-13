@@ -1,6 +1,86 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import crypto from 'crypto';
-import { requireUser, getAdminClient, paystackRequest, handleApiError, HttpError } from './_lib/server';
+import { createClient, type SupabaseClient, type User } from '@supabase/supabase-js';
+
+// =========================================================================
+// SELF-CONTAINED SERVERLESS HELPERS (ZERO RELATIVE IMPORT ISSUES ON VERCEL)
+// =========================================================================
+
+class HttpError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+    Object.setPrototypeOf(this, HttpError.prototype);
+  }
+}
+
+function handleApiError(res: VercelResponse, err: any) {
+  if (err instanceof HttpError) {
+    return res.status(err.status).json({ status: false, message: err.message });
+  }
+  const message = err?.message || 'Internal server error';
+  console.error('[API Error: initialize-deposit]', err);
+  return res.status(500).json({ status: false, message });
+}
+
+let _adminClient: SupabaseClient | null = null;
+function getAdminClient(): SupabaseClient {
+  if (_adminClient) return _adminClient;
+  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) {
+    throw new Error('Database server misconfiguration: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is missing.');
+  }
+  _adminClient = createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false }
+  });
+  return _adminClient;
+}
+
+async function requireUser(req: VercelRequest): Promise<{ user: User; token: string }> {
+  const authHeader = req.headers.authorization || req.headers.Authorization;
+  const headerValue = Array.isArray(authHeader) ? authHeader[0] : authHeader;
+  if (!headerValue || !headerValue.toLowerCase().startsWith('bearer ')) {
+    throw new HttpError(401, 'Authentication required. Please sign in.');
+  }
+  const token = headerValue.slice(7).trim();
+  if (!token) throw new HttpError(401, 'Authentication token missing.');
+  const admin = getAdminClient();
+  const { data, error } = await admin.auth.getUser(token);
+  if (error || !data?.user) throw new HttpError(401, 'Session invalid or expired. Please sign in again.');
+  return { user: data.user, token };
+}
+
+function getPaystackSecretKey(): string {
+  const key = process.env.PAYSTACK_SECRET_KEY;
+  if (!key) throw new HttpError(500, 'PAYSTACK_SECRET_KEY is not configured on the server.');
+  return key;
+}
+
+async function paystackRequest<T = any>(
+  path: string,
+  options: { method?: 'GET' | 'POST' | 'PUT' | 'DELETE'; body?: any; headers?: Record<string, string> } = {}
+): Promise<{ ok: boolean; status: number; data: T }> {
+  const secretKey = getPaystackSecretKey();
+  const url = path.startsWith('http') ? path : `https://api.paystack.co${path.startsWith('/') ? path : `/${path}`}`;
+  const res = await fetch(url, {
+    method: options.method || 'GET',
+    headers: {
+      Authorization: `Bearer ${secretKey}`,
+      'Content-Type': 'application/json',
+      ...options.headers,
+    },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+  let data: any = null;
+  try { data = await res.json(); } catch { data = null; }
+  return { ok: res.ok, status: res.status, data };
+}
+
+// =========================================================================
+// HANDLER: INITIALIZE DEPOSIT
+// =========================================================================
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
@@ -102,6 +182,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     return res.status(200).json({
       status: true,
+      message: 'Deposit initialized successfully.',
       data: {
         authorization_url: paystackRes.data.data.authorization_url,
         access_code: paystackRes.data.data.access_code,

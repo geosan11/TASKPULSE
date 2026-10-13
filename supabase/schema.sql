@@ -507,3 +507,53 @@ CREATE POLICY "Public read task proofs"
     ON storage.objects FOR SELECT
     TO public
     USING (bucket_id = 'taskpulse-proofs');
+
+-- =========================================================================
+-- 10. RELATIONAL TASKS CATALOG (DYNAMIC DATABASE-DRIVEN MICRO-TASKS)
+-- =========================================================================
+CREATE TABLE IF NOT EXISTS public.tasks (
+    id VARCHAR(50) PRIMARY KEY,
+    title VARCHAR(150) NOT NULL,
+    company VARCHAR(100) NOT NULL,
+    reward NUMERIC(14,2) NOT NULL CHECK (reward > 0.00),
+    category VARCHAR(50) NOT NULL DEFAULT 'Social',
+    time_estimate VARCHAR(30) NOT NULL DEFAULT '2m',
+    sla VARCHAR(50) NOT NULL DEFAULT 'Instant SLA Approval',
+    spots_left INT NOT NULL DEFAULT 100 CHECK (spots_left >= 0),
+    spots_total INT NOT NULL DEFAULT 100 CHECK (spots_total >= spots_left),
+    description TEXT NOT NULL,
+    steps JSONB NOT NULL DEFAULT '[]'::jsonb,
+    platform_icon VARCHAR(50) DEFAULT '🎵',
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Seed initial production micro-tasks
+INSERT INTO public.tasks (
+    id, title, company, reward, category, time_estimate, sla, spots_left, spots_total, description, steps, platform_icon, is_active
+) VALUES (
+    't-soc-1',
+    'Follow & Like Brand Announcement on TikTok',
+    'Kuda FinTech Media',
+    450.00,
+    'Social',
+    '2m',
+    'Instant SLA Approval',
+    34,
+    150,
+    'Follow @kudabank on TikTok, like their latest pinned video, and submit your TikTok username or profile screenshot for instant escrow settlement.',
+    '["Open TikTok and navigate to official @kudabank profile.", "Tap Follow and Like the first pinned video regarding virtual card upgrades.", "Upload a screenshot or input your TikTok username to verify."]'::jsonb,
+    '🎵',
+    TRUE
+) ON CONFLICT (id) DO UPDATE SET
+    reward = EXCLUDED.reward,
+    title = EXCLUDED.title,
+    description = EXCLUDED.description;
+
+GRANT SELECT ON public.tasks TO anon, authenticated;
+ALTER TABLE public.tasks ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public read active tasks" ON public.tasks;
+CREATE POLICY "Public read active tasks"
+    ON public.tasks FOR SELECT
+    USING (is_active = TRUE);
+

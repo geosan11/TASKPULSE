@@ -1,12 +1,57 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import crypto from 'crypto';
-import { readRawBody, getAdminClient, getPaystackSecretKey } from './_lib/server';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 export const config = {
   api: {
     bodyParser: false,
   },
 };
+
+// =========================================================================
+// SELF-CONTAINED SERVERLESS HELPERS (ZERO RELATIVE IMPORT ISSUES ON VERCEL)
+// =========================================================================
+
+let _adminClient: SupabaseClient | null = null;
+function getAdminClient(): SupabaseClient {
+  if (_adminClient) return _adminClient;
+  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) {
+    throw new Error('Database server misconfiguration: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is missing.');
+  }
+  _adminClient = createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false }
+  });
+  return _adminClient;
+}
+
+function getPaystackSecretKey(): string {
+  const key = process.env.PAYSTACK_SECRET_KEY;
+  if (!key) {
+    throw new Error('PAYSTACK_SECRET_KEY is not configured on the server.');
+  }
+  return key;
+}
+
+async function readRawBody(req: VercelRequest): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (chunk) => {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    });
+    req.on('end', () => {
+      resolve(Buffer.concat(chunks));
+    });
+    req.on('error', (err) => {
+      reject(err);
+    });
+  });
+}
+
+// =========================================================================
+// HANDLER: CRYPTOGRAPHIC PAYSTACK WEBHOOK
+// =========================================================================
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
@@ -103,16 +148,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         });
 
         if (refundErr) {
-          console.error(`[Webhook] finalize_cashout (refund) failed for ${reference}:`, refundErr);
+          console.error(`[Webhook] finalize_cashout (failed/reversed) failed for ${reference}:`, refundErr);
           return res.status(500).json({ status: false, message: refundErr.message });
         }
         console.log(`[Webhook] Cashout refunded to wallet for ${reference}:`, refundResult);
       }
     }
 
-    return res.status(200).json({ status: true, message: 'Webhook event processed' });
+    return res.status(200).json({ status: true, message: 'Webhook processed' });
   } catch (err: any) {
-    console.error('[Webhook Exception]', err);
-    return res.status(500).json({ status: false, message: err?.message || 'Server error' });
+    console.error('[Webhook error]', err);
+    return res.status(500).json({ status: false, message: err.message || 'Webhook failed' });
   }
 }

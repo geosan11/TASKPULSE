@@ -83,7 +83,8 @@ import {
   upgradeTierRpc,
   submitKycRpc,
   submitTaskProofRpc,
-  updateProfileFullName
+  updateProfileFullName,
+  fetchActiveTasks
 } from './lib/supabaseClient';
 import {
   initializeDeposit,
@@ -335,27 +336,18 @@ export default function App() {
   // Balance Privacy (Eye toggle)
   const [isBalanceHidden, setIsBalanceHidden] = useState<boolean>(false);
 
-  // Authentic User Profile (Clean initial state)
+  // Authentic User Profile (Clean initial state - null when unauthenticated)
   const [user, setUser] = useState<UserProfile | null>(() => {
     const saved = localStorage.getItem('taskpulse_user_v7');
-    if (saved) return JSON.parse(saved);
-    return {
-      username: 'GUEST',
-      firstName: 'NEW',
-      lastName: 'USER',
-      email: 'user@taskpulse.website',
-      phone: '08000000000',
-      accountStatus: 'Unverified',
-      kycLevel: 'Tier 1 (Basic)',
-      tierId: 'tier-1', // Default to Tier 1: Bronze Pulse (₦3,000 Stake -> ₦24,000 Limit)
-      level: 1,
-      streakDays: 1,
-      streakClaimedToday: false,
-      dailyQuestProgress: 0,
-      referralCode: 'TP-NEWUSER',
-      wagerActive: false,
-      activationDate: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-    };
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.email && !parsed.email.includes('taskpulse.website')) {
+          return parsed;
+        }
+      } catch (e) {}
+    }
+    return null;
   });
 
   // 4 Bottom Navigation Tabs: Home, Tasks, History, Profile
@@ -491,8 +483,8 @@ export default function App() {
   }, [transactions]);
   const [isLedgerModalOpen, setIsLedgerModalOpen] = useState(false);
 
-  // Task & Workspace
-  const [tasksList] = useState<Task[]>(DEFAULT_TASKS);
+  // Task & Workspace (Dynamically loaded from database public.tasks)
+  const [tasksList, setTasksList] = useState<Task[]>(DEFAULT_TASKS);
   const [selectedTaskForModal, setSelectedTaskForModal] = useState<Task | null>(null);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [workspaceTimer, setWorkspaceTimer] = useState<number>(1800);
@@ -671,6 +663,12 @@ export default function App() {
           setSelectedBankId(mappedBanks[0].id);
         }
       }
+
+      // Fetch dynamic active tasks catalog
+      const dbTasks = await fetchActiveTasks();
+      if (dbTasks && dbTasks.length > 0) {
+        setTasksList(dbTasks);
+      }
     } catch (err) {
       console.warn('Error syncing profile from Supabase:', err);
     }
@@ -678,6 +676,13 @@ export default function App() {
 
   // Sync Supabase Auth Session
   useEffect(() => {
+    // Initial task fetch from database
+    fetchActiveTasks().then(tasks => {
+      if (tasks && tasks.length > 0) {
+        setTasksList(tasks);
+      }
+    });
+
     if (!isSupabaseConfigured || !supabase) return;
 
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -709,9 +714,24 @@ export default function App() {
     };
   }, []);
 
-  // Check URL query parameters for Paystack return callback (?verify_deposit=...)
+  // Check URL query parameters for Paystack return callback & Referral invite (?ref=...)
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
+
+    // 1. Referral Link capture (?ref=CODE or ?referral=CODE)
+    const refParam = urlParams.get('ref') || urlParams.get('referral');
+    if (refParam) {
+      const cleanRef = refParam.trim().toUpperCase();
+      localStorage.setItem('taskpulse_ref_code', cleanRef);
+      setAuthReferralCode(cleanRef);
+      if (!user) {
+        setAuthMode('signup');
+        setIsAuthModalOpen(true);
+        showToast('Referral Code Applied', `Invited by ${cleanRef}. Sign up to join!`);
+      }
+    }
+
+    // 2. Paystack Deposit verification (?verify_deposit=...)
     const verifyRef = urlParams.get('verify_deposit') || urlParams.get('reference') || urlParams.get('trxref');
     if (verifyRef) {
       window.history.replaceState({}, document.title, window.location.pathname);
@@ -1045,7 +1065,7 @@ export default function App() {
         id: res.data?.id || `bank_${Date.now()}`,
         bankCode: addBankCode,
         bankName: bankMeta.name,
-        accountName: resolvedAccountName || 'CHUKWUDI OKAFOR',
+        accountName: res.data?.account_name || resolvedAccountName || 'Bank Account',
         accountNumber: addAccountNum.trim(),
         type: 'Savings',
       };
@@ -1336,18 +1356,31 @@ export default function App() {
               {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4 text-slate-700" />}
             </button>
 
-            {/* Profile Avatar Pill */}
-            <button 
-              onClick={() => setActiveTab('profile')}
-              className="flex items-center gap-1.5 pl-1.5 pr-2.5 py-1 rounded-2xl bg-sky-50 dark:bg-zinc-900 border border-sky-200 dark:border-white/[0.08] hover:border-sky-400 transition-all"
-            >
-              <div className="w-6 h-6 rounded-xl bg-gradient-to-tr from-sky-500 to-cyan-400 text-white flex items-center justify-center text-[10px] font-black shadow-xs">
-                {user?.username.slice(0, 1)}
-              </div>
-              <span className="text-[11px] font-bold text-sky-600 dark:text-zinc-200 max-w-[70px] truncate">
-                @{user?.username}
-              </span>
-            </button>
+            {/* Profile Avatar or Sign In Pill */}
+            {user ? (
+              <button 
+                onClick={() => setActiveTab('profile')}
+                className="flex items-center gap-1.5 pl-1.5 pr-2.5 py-1 rounded-2xl bg-sky-50 dark:bg-zinc-900 border border-sky-200 dark:border-white/[0.08] hover:border-sky-400 transition-all"
+              >
+                <div className="w-6 h-6 rounded-xl bg-gradient-to-tr from-sky-500 to-cyan-400 text-white flex items-center justify-center text-[10px] font-black shadow-xs">
+                  {user.username.slice(0, 1)}
+                </div>
+                <span className="text-[11px] font-bold text-sky-600 dark:text-zinc-200 max-w-[70px] truncate">
+                  @{user.username}
+                </span>
+              </button>
+            ) : (
+              <button
+                onClick={() => {
+                  setAuthMode('signin');
+                  setIsAuthModalOpen(true);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white text-[11px] font-bold shadow-xs active:scale-95 transition-all"
+              >
+                <LogIn className="w-3.5 h-3.5" />
+                <span>Sign In</span>
+              </button>
+            )}
           </div>
         </header>
 
@@ -2674,18 +2707,33 @@ export default function App() {
               <div className="space-y-1.5 text-left text-[11px]">
                 {[0, 1, 2].map(idx => {
                   const ref = referrals[idx];
-                  const isDone = ref && ref.depositedAmount >= 3000;
+                  const isQualified = ref && ref.depositedAmount >= 3000;
                   return (
                     <div 
                       key={idx}
-                      className={`p-2 rounded-xl border flex items-center justify-between font-mono ${
-                        isDone 
+                      className={`p-2.5 rounded-xl border flex items-center justify-between font-mono transition-all ${
+                        isQualified 
                           ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300' 
+                          : ref
+                          ? 'bg-sky-50/60 dark:bg-sky-950/20 border-sky-200 dark:border-sky-800/40 text-sky-800 dark:text-sky-300'
                           : 'bg-white dark:bg-zinc-800 border-slate-200 dark:border-white/10 text-slate-400'
                       }`}
                     >
-                      <span>Slot {idx + 1}: {isDone ? ref.name : 'Awaiting Referral Deposit'}</span>
-                      <span className="font-black">{isDone ? `₦${ref.depositedAmount.toLocaleString()} ✓` : '₦0 / ₦3k'}</span>
+                      <div className="flex items-center gap-1.5 truncate">
+                        <span className="font-bold shrink-0">Slot {idx + 1}:</span>
+                        <span className="truncate">
+                          {ref ? (ref.name || `@${ref.username}`) : 'Invite a Friend'}
+                        </span>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <span className="font-black">
+                          {isQualified 
+                            ? `₦${ref.depositedAmount.toLocaleString()} ✓` 
+                            : ref 
+                            ? `₦${ref.depositedAmount.toLocaleString()} / ₦3k` 
+                            : '₦0 / ₦3k'}
+                        </span>
+                      </div>
                     </div>
                   );
                 })}
@@ -2701,7 +2749,8 @@ export default function App() {
             <div className="space-y-2 pt-1">
               <button 
                 onClick={() => {
-                  navigator.clipboard.writeText(`https://taskpulse.ng/join?ref=${user?.referralCode}`);
+                  const shareUrl = `${window.location.origin}/?ref=${user?.referralCode || ''}`;
+                  navigator.clipboard.writeText(shareUrl);
                   triggerConfetti();
                   showToast('Referral Link Copied', 'Share your link: Earn when referrals deposit ₦3,000!');
                 }}

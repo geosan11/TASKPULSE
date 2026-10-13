@@ -33,6 +33,7 @@
     "@types/react-dom": "^19.3.0",
     "@vercel/node": "^23.0.1",
     "autoprefixer": "^10.4.21",
+    "supabase": "^2.120.0",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.21.0",
     "typescript": "^7.0.2"

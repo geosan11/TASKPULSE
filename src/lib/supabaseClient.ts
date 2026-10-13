@@ -545,3 +545,60 @@ export async function fetchReferralsHistory(userId: string, limit: number = 20) 
     .order('created_at', { ascending: false })
     .limit(limit);
 }
+
+/**
+ * Database Task Catalog Model
+ */
+export interface DbTask {
+  id: string;
+  title: string;
+  company: string;
+  reward: number;
+  category: 'Social' | 'App Tests' | 'Surveys' | 'Field Audits';
+  time: string;
+  SLA: string;
+  spotsLeft: number;
+  spotsTotal: number;
+  description: string;
+  steps: string[];
+  platformIcon?: string;
+}
+
+/**
+ * Fetch active tasks from public.tasks table
+ */
+export async function fetchActiveTasks(): Promise<DbTask[]> {
+  if (!supabase) return [];
+
+  try {
+    const { data, error } = await supabase
+      .from('tasks')
+      .select('id, title, company, reward, category, time_estimate, sla, spots_left, spots_total, description, steps, platform_icon')
+      .eq('is_active', true)
+      .order('created_at', { ascending: true });
+
+    if (error || !data) {
+      console.warn('Could not fetch tasks from DB:', error?.message);
+      return [];
+    }
+
+    return data.map((t: any) => ({
+      id: t.id,
+      title: t.title,
+      company: t.company,
+      reward: Number(t.reward),
+      category: t.category,
+      time: t.time_estimate || '2m',
+      SLA: t.sla || 'Instant SLA Approval',
+      spotsLeft: t.spots_left,
+      spotsTotal: t.spots_total,
+      description: t.description,
+      steps: Array.isArray(t.steps) ? t.steps : (typeof t.steps === 'string' ? JSON.parse(t.steps) : []),
+      platformIcon: t.platform_icon || '🎵'
+    }));
+  } catch (e) {
+    console.warn('Failed to query tasks:', e);
+    return [];
+  }
+}
+
