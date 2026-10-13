@@ -455,6 +455,7 @@ export default function App() {
   const [isReferralLockModalOpen, setIsReferralLockModalOpen] = useState<boolean>(false);
   const [isTierModalOpen, setIsTierModalOpen] = useState<boolean>(false);
   const [isConditionsNotMetModalOpen, setIsConditionsNotMetModalOpen] = useState<boolean>(false);
+  const [hasCopiedRefLink, setHasCopiedRefLink] = useState<boolean>(false);
 
   // Computed Referral Metrics
   const activeReferralsCount = referrals.filter(r => r.depositedAmount >= 3000).length;
@@ -914,6 +915,24 @@ export default function App() {
     setTimeout(() => {
       setToast(prev => ({ ...prev, show: false }));
     }, 4000);
+  };
+
+  // Viral Referral Link 1-Tap Copy & WhatsApp Share Handlers
+  const handleCopyReferralLink = () => {
+    const shareUrl = `${window.location.origin}/?ref=${user?.referralCode || ''}`;
+    navigator.clipboard.writeText(shareUrl);
+    setHasCopiedRefLink(true);
+    triggerConfetti();
+    showToast('Referral Link Copied 📋', 'Share with friends! Earn ₦1,000 for each friend who activates with ₦3,000.');
+    setTimeout(() => setHasCopiedRefLink(false), 2500);
+  };
+
+  const handleShareWhatsApp = () => {
+    const shareUrl = `${window.location.origin}/?ref=${user?.referralCode || ''}`;
+    const text = encodeURIComponent(
+      `Hey! Join me on TaskPulse. Earn daily login bonuses and task rewards with instant Paystack bank cashouts: ${shareUrl}`
+    );
+    window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
   };
 
   useEffect(() => {
@@ -1614,38 +1633,59 @@ export default function App() {
           {activeTab === 'home' && (
             <div className="space-y-4 animate-in fade-in duration-300">
               
-              {/* FREEMIUM NOTICE BANNER (ENCOURAGES REFERRING & BUILDING UP BALANCE BEFORE DEPOSIT) */}
+              {/* BESPOKE LUXURY FREEMIUM GROWTH PASS CARD */}
               {!isActivated && (
                 <div 
                   onClick={() => setIsDepositModalOpen(true)}
-                  className="p-3.5 rounded-3xl bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-amber-500/10 border border-amber-500/30 dark:border-amber-500/20 flex items-center justify-between gap-3 cursor-pointer hover:border-amber-500/50 transition-all shadow-xs"
+                  className="p-4 rounded-3xl bg-gradient-to-br from-amber-500/10 via-zinc-900/60 to-black/80 dark:from-amber-950/40 dark:via-zinc-950/90 dark:to-black border border-amber-500/30 hover:border-amber-500/50 transition-all shadow-xl glow-amber cursor-pointer card-interactive space-y-3"
                 >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-9 h-9 rounded-2xl bg-amber-500/20 text-amber-500 dark:text-amber-400 flex items-center justify-center shrink-0 text-base font-bold">
-                      ⚡
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-amber-500 to-yellow-400 text-black flex items-center justify-center shrink-0 text-lg font-black shadow-md shadow-amber-500/30">
+                        ⚡
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h4 className="text-xs font-black text-slate-900 dark:text-white tracking-tight">
+                            Free Earning Pass Active
+                          </h4>
+                          <span className="text-[9px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-300 font-extrabold uppercase tracking-wide border border-amber-500/30">
+                            Freemium Mode
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 dark:text-zinc-400 leading-snug mt-0.5">
+                          Referral commissions &amp; daily streak accumulate freely in your wallet.
+                        </p>
+                      </div>
                     </div>
-                    <div className="min-w-0">
-                      <h4 className="text-xs font-black text-slate-900 dark:text-white flex items-center gap-1.5 flex-wrap">
-                        <span>Freemium Mode Active</span>
-                        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-300 font-extrabold uppercase tracking-wide">
-                          Deposit ₦3,000 to Cashout
-                        </span>
-                      </h4>
-                      <p className="text-[11px] text-slate-500 dark:text-zinc-400 leading-snug mt-0.5">
-                        Refer friends (+₦1,000/ref) &amp; claim daily streak (+₦450) freely. Deposit ₦3,000 anytime when you are ready to withdraw!
-                      </p>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsDepositModalOpen(true);
+                      }}
+                      className="px-3.5 py-2 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:opacity-95 text-white font-black text-xs shrink-0 shadow-lg shadow-amber-500/25 tactile-button cursor-pointer flex items-center gap-1.5"
+                    >
+                      <span>Activate Cashout</span>
+                      <ArrowUpRight className="w-3.5 h-3.5 stroke-[3]" />
+                    </button>
+                  </div>
+
+                  {/* 3 VALUE PILLS */}
+                  <div className="grid grid-cols-3 gap-2 pt-1 border-t border-amber-500/15 text-[10px]">
+                    <div className="p-1.5 rounded-xl bg-white/5 dark:bg-white/[0.03] border border-white/5 text-center">
+                      <span className="text-zinc-400 block text-[9px]">Per Referral:</span>
+                      <span className="font-mono font-black text-emerald-500 dark:text-emerald-400">+₦1,000</span>
+                    </div>
+                    <div className="p-1.5 rounded-xl bg-white/5 dark:bg-white/[0.03] border border-white/5 text-center">
+                      <span className="text-zinc-400 block text-[9px]">Daily Streak:</span>
+                      <span className="font-mono font-black text-amber-500 dark:text-amber-400">+₦450/day</span>
+                    </div>
+                    <div className="p-1.5 rounded-xl bg-white/5 dark:bg-white/[0.03] border border-white/5 text-center">
+                      <span className="text-zinc-400 block text-[9px]">To Cashout:</span>
+                      <span className="font-mono font-black text-cyan-500 dark:text-cyan-400">₦3,000 Deposit</span>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setIsDepositModalOpen(true);
-                    }}
-                    className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-black text-xs shrink-0 shadow-md shadow-amber-500/20 active:scale-95 transition-all cursor-pointer"
-                  >
-                    Deposit ₦3k
-                  </button>
                 </div>
               )}
                   
@@ -1717,48 +1757,134 @@ export default function App() {
                           <span>0% Paystack Fee</span>
                         </div>
                       </div>
+                      {/* VIRTUAL CARD EMBOSSED FOOTER */}
+                      <div className="flex items-center justify-between text-zinc-500 font-mono text-[10px] tracking-wider pt-2 border-t border-white/[0.05]">
+                        <span className="tracking-widest">•••• •••• •••• 9284</span>
+                        <span className="uppercase text-zinc-400 font-semibold tracking-wider truncate max-w-[140px]">
+                          {user ? `${user.firstName || user.username}` : 'TASKPULSE EARNER'}
+                        </span>
+                      </div>
                     </div>
 
-                    {/* CARD QUICK ACTIONS (Deposit, Withdraw, Streak, Upgrade Tier) */}
+                    {/* CARD QUICK ACTIONS (Fund, Cashout, Streak, Upgrade Tier) */}
                     <div className="relative z-10 grid grid-cols-4 gap-2 pt-3 border-t border-white/[0.08]">
                       
                       {/* Fund */}
                       <button 
                         onClick={() => setIsDepositModalOpen(true)}
-                        className="py-2 px-1 bg-white/[0.08] hover:bg-white/[0.14] border border-white/10 text-white rounded-2xl text-[11px] font-bold transition-all flex flex-col items-center justify-center gap-1 active:scale-95"
+                        className="py-2.5 px-1 bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-white rounded-2xl text-[11px] font-bold transition-all flex flex-col items-center justify-center gap-1.5 active:scale-95 shadow-sm group cursor-pointer"
                       >
-                        <Plus className="w-4 h-4 text-cyan-400" />
-                        <span>Fund</span>
+                        <div className="w-7 h-7 rounded-xl bg-cyan-500/20 text-cyan-400 flex items-center justify-center group-hover:bg-cyan-500 group-hover:text-white transition-all shadow-xs">
+                          <Plus className="w-4 h-4 stroke-[2.5]" />
+                        </div>
+                        <span className="text-[10px]">Fund</span>
                       </button>
 
-                      {/* Cashout (Triggers withdrawal or shows Conditions Not Met popup) */}
+                      {/* Cashout */}
                       <button 
                         onClick={handleWithdrawClick}
-                        className="py-2 px-1 bg-gradient-to-tr from-cyan-500 to-sky-500 hover:opacity-95 text-white rounded-2xl text-[11px] font-bold transition-all flex flex-col items-center justify-center gap-1 active:scale-95 shadow-md cursor-pointer"
+                        className="py-2.5 px-1 bg-gradient-to-tr from-cyan-500/20 to-sky-500/20 hover:from-cyan-500/30 hover:to-sky-500/30 border border-cyan-400/30 text-white rounded-2xl text-[11px] font-bold transition-all flex flex-col items-center justify-center gap-1.5 active:scale-95 shadow-sm group cursor-pointer"
                       >
-                        <ArrowUpRight className="w-4 h-4 text-white" />
-                        <span>Cashout</span>
+                        <div className="w-7 h-7 rounded-xl bg-gradient-to-tr from-cyan-500 to-sky-400 text-white flex items-center justify-center shadow-md shadow-cyan-500/25 group-hover:scale-105 transition-all">
+                          <ArrowUpRight className="w-4 h-4 stroke-[2.5]" />
+                        </div>
+                        <span className="text-[10px]">Cashout</span>
                       </button>
 
                       {/* Streak Calendar */}
                       <button 
                         onClick={() => setIsStreakModalOpen(true)}
-                        className="py-2 px-1 bg-white/[0.08] hover:bg-white/[0.14] border border-white/10 text-white rounded-2xl text-[11px] font-bold transition-all flex flex-col items-center justify-center gap-1 active:scale-95"
+                        className="py-2.5 px-1 bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-white rounded-2xl text-[11px] font-bold transition-all flex flex-col items-center justify-center gap-1.5 active:scale-95 shadow-sm group cursor-pointer"
                       >
-                        <Flame className="w-4 h-4 text-amber-400" />
-                        <span>Streak 🔥</span>
+                        <div className="w-7 h-7 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center group-hover:bg-amber-500 group-hover:text-white transition-all shadow-xs">
+                          <Flame className="w-4 h-4 fill-amber-400/20" />
+                        </div>
+                        <span className="text-[10px]">Streak 🔥</span>
                       </button>
 
                       {/* Upgrade Tiers */}
                       <button 
                         onClick={() => setIsTierModalOpen(true)}
-                        className="py-2 px-1 bg-white/[0.08] hover:bg-white/[0.14] border border-white/10 text-white rounded-2xl text-[11px] font-bold transition-all flex flex-col items-center justify-center gap-1 active:scale-95"
+                        className="py-2.5 px-1 bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 text-white rounded-2xl text-[11px] font-bold transition-all flex flex-col items-center justify-center gap-1.5 active:scale-95 shadow-sm group cursor-pointer"
                       >
-                        <Crown className="w-4 h-4 text-yellow-400" />
-                        <span>Tiers</span>
+                        <div className="w-7 h-7 rounded-xl bg-yellow-500/20 text-yellow-400 flex items-center justify-center group-hover:bg-yellow-500 group-hover:text-white transition-all shadow-xs">
+                          <Crown className="w-4 h-4 stroke-[2]" />
+                        </div>
+                        <span className="text-[10px]">Tiers 👑</span>
                       </button>
                     </div>
 
+                  </div>
+
+                  {/* 1-TAP VIRAL REFERRAL & WHATSAPP SHARE HUB */}
+                  <div className="p-4 rounded-3xl bg-gradient-to-br from-indigo-500/10 via-sky-500/5 to-cyan-500/10 dark:from-indigo-950/40 dark:via-zinc-900/60 dark:to-cyan-950/30 border border-indigo-200/80 dark:border-indigo-500/20 shadow-sm space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-2xl bg-indigo-500 text-white flex items-center justify-center font-bold text-sm shadow-md shadow-indigo-500/25">
+                          <Users className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <h4 className="text-xs font-black text-slate-900 dark:text-white leading-tight">
+                              Invite Friends &amp; Earn ₦1,000 Each
+                            </h4>
+                          </div>
+                          <span className="text-[10px] text-slate-500 dark:text-zinc-400 font-medium">
+                            3 friends activates ₦3,000 cashout floor
+                          </span>
+                        </div>
+                      </div>
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 font-mono text-[9px] font-black uppercase">
+                        +₦1,000 / Ref
+                      </span>
+                    </div>
+
+                    {/* REFERRAL LINK QUICK COPY BOX */}
+                    <div className="flex items-center gap-1.5 p-1.5 pl-3 rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200/80 dark:border-white/[0.08] text-xs">
+                      <span className="font-mono text-[11px] text-slate-600 dark:text-zinc-300 truncate flex-1 font-semibold select-all">
+                        {typeof window !== 'undefined' ? `${window.location.host}/?ref=${user?.referralCode || 'TP-EARN'}` : 'taskpulse.website'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleCopyReferralLink}
+                        className={`px-3 py-1.5 rounded-xl font-bold text-[10px] transition-all flex items-center gap-1 shrink-0 cursor-pointer ${
+                          hasCopiedRefLink
+                            ? 'bg-emerald-500 text-white shadow-xs'
+                            : 'bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-200'
+                        }`}
+                      >
+                        {hasCopiedRefLink ? (
+                          <>
+                            <Check className="w-3 h-3 stroke-[3]" />
+                            <span>Copied! ✓</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3 h-3" />
+                            <span>Copy Link</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    {/* ACTION BUTTONS (WHATSAPP & NATIVE SLOTS) */}
+                    <div className="flex items-center gap-2 pt-0.5">
+                      <button
+                        type="button"
+                        onClick={handleShareWhatsApp}
+                        className="flex-1 h-9 rounded-2xl bg-[#25D366] hover:bg-[#20ba59] text-white font-black text-[11px] shadow-sm shadow-[#25D366]/20 active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <Share2 className="w-3.5 h-3.5 stroke-[2.5]" />
+                        <span>Share on WhatsApp</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsReferralLockModalOpen(true)}
+                        className="px-3.5 h-9 rounded-2xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-200 font-bold text-[11px] active:scale-95 transition-all flex items-center justify-center gap-1 cursor-pointer"
+                      >
+                        <span>Slots ({activeReferralsCount}/3) →</span>
+                      </button>
+                    </div>
                   </div>
 
                   {/* ======================================================== */}
@@ -1928,118 +2054,162 @@ export default function App() {
                   
                   {/* ACTIVE WORKSPACE (If task in progress) */}
                   {activeTask && (
-                    <div className="bg-gradient-to-r from-zinc-900 to-sky-950 text-white rounded-3xl p-4 border border-cyan-500/30 shadow-lg space-y-3 relative overflow-hidden">
+                    <div className="bg-gradient-to-br from-zinc-900 via-slate-950 to-black text-white rounded-3xl p-5 border border-cyan-500/40 shadow-2xl space-y-4 relative overflow-hidden glow-cyan">
+                      <div className="absolute top-0 right-0 w-32 h-32 bg-cyan-500/10 rounded-full blur-2xl pointer-events-none"></div>
+
                       <div className="flex items-center justify-between">
-                        <span className="px-2.5 py-0.5 rounded-full bg-cyan-500 text-white text-[9px] font-black uppercase tracking-wider">
-                          ACTIVE TASK IN PROGRESS
+                        <span className="px-3 py-1 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
+                          <span>Active Mission In Progress</span>
                         </span>
-                        <span className="font-mono text-sm font-black text-amber-300">
-                          ⏱ {Math.floor(workspaceTimer / 60)}:{(workspaceTimer % 60).toString().padStart(2, '0')}
-                        </span>
+                        <div className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-amber-500/10 border border-amber-500/25">
+                          <Clock className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+                          <span className="font-mono text-xs font-black text-amber-300">
+                            {Math.floor(workspaceTimer / 60)}:{(workspaceTimer % 60).toString().padStart(2, '0')}
+                          </span>
+                        </div>
                       </div>
 
-                      <div>
-                        <h4 className="text-xs font-black text-white">{activeTask.title}</h4>
-                        <p className="text-[10px] text-sky-200 mt-0.5">{activeTask.company} · ₦{activeTask.reward} reward</p>
+                      <div className="space-y-1">
+                        <span className="text-[10px] font-mono font-bold text-cyan-400 uppercase tracking-widest">
+                          {activeTask.company} · {activeTask.category}
+                        </span>
+                        <h4 className="text-sm font-black text-white leading-tight">{activeTask.title}</h4>
+                        <div className="flex items-center gap-2 pt-0.5">
+                          <span className="text-xs font-mono font-black text-emerald-400 bg-emerald-500/15 px-2.5 py-0.5 rounded-lg border border-emerald-500/30">
+                            +₦{activeTask.reward.toLocaleString()} Escrowed
+                          </span>
+                          <span className="text-[10px] text-zinc-400 font-medium">🛡 Instant SLA Auto-Check</span>
+                        </div>
                       </div>
 
-                      <div className="bg-white/10 rounded-2xl p-3 space-y-2 border border-white/10">
-                        <label className="text-[10px] font-bold text-sky-100 block">
-                          Submit Verification Proof:
-                        </label>
-                        <input 
-                          type="text"
-                          value={taskProofInput}
-                          onChange={e => setTaskProofInput(e.target.value)}
-                          placeholder="Your social username or post URL"
-                          className="w-full h-9 px-3 rounded-xl bg-zinc-900/80 border border-cyan-500/30 text-xs text-white placeholder:text-zinc-400 focus:outline-none"
-                        />
+                      {/* SUBMISSION FORM WITH LIVE PREVIEW */}
+                      <div className="bg-white/[0.04] rounded-2xl p-3.5 space-y-3 border border-white/10">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-cyan-200 block">
+                            1. Profile Handle or Proof URL:
+                          </label>
+                          <input 
+                            type="text"
+                            value={taskProofInput}
+                            onChange={e => setTaskProofInput(e.target.value)}
+                            placeholder="e.g. @your_username or shared post link"
+                            className="w-full h-10 px-3.5 rounded-xl bg-black/60 border border-cyan-500/30 text-xs text-white placeholder:text-zinc-500 focus:outline-none focus:border-cyan-400 font-medium"
+                          />
+                        </div>
 
                         {/* Real Supabase Storage Screenshot / File Upload */}
-                        <input 
-                          type="file"
-                          ref={proofFileInputRef}
-                          accept="image/*"
-                          className="hidden"
-                          onChange={handleScreenshotFileSelect}
-                        />
-                        <button 
-                          type="button"
-                          disabled={isUploadingProof}
-                          onClick={() => proofFileInputRef.current?.click()}
-                          className="w-full py-2 px-3 bg-white/15 hover:bg-white/25 rounded-xl text-[10px] font-bold text-white flex items-center justify-center gap-1.5 border border-white/10 transition-all cursor-pointer active:scale-95 disabled:opacity-60"
-                        >
-                          {isUploadingProof ? (
-                            <>
-                              <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                              <span>Uploading screenshot...</span>
-                            </>
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] font-bold text-cyan-200 block">
+                            2. Verification Screenshot Proof:
+                          </label>
+                          <input 
+                            type="file"
+                            ref={proofFileInputRef}
+                            accept="image/*"
+                            className="hidden"
+                            onChange={handleScreenshotFileSelect}
+                          />
+
+                          {uploadedScreenshot ? (
+                            <div className="relative rounded-2xl overflow-hidden border border-cyan-500/40 bg-black/70 p-2 space-y-2">
+                              <div className="relative aspect-video w-full rounded-xl overflow-hidden bg-zinc-950 flex items-center justify-center">
+                                <img src={uploadedScreenshot} alt="Proof preview" className="w-full h-full object-cover" />
+                                <div className="absolute top-2 right-2 flex items-center gap-1.5 bg-black/80 backdrop-blur-md px-2 py-1 rounded-full border border-white/10">
+                                  <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                                  <span className="text-[9px] font-black text-emerald-400 uppercase font-mono">Proof Attached</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setUploadedScreenshot(null)}
+                                    className="w-4 h-4 rounded-full bg-white/20 hover:bg-white/40 text-white flex items-center justify-center text-[10px] ml-1 cursor-pointer"
+                                    title="Remove Screenshot"
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              </div>
+                              <button 
+                                type="button"
+                                onClick={() => proofFileInputRef.current?.click()}
+                                className="w-full py-1.5 px-3 bg-white/10 hover:bg-white/20 rounded-xl text-[10px] font-bold text-cyan-300 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                              >
+                                <span>Change Image</span>
+                              </button>
+                            </div>
                           ) : (
-                            <>
-                              <Camera className="w-3.5 h-3.5 text-cyan-300" />
-                              <span>{uploadedScreenshot ? 'Change Attached Screenshot ✓' : 'Upload Verification Screenshot (Photo/File)'}</span>
-                            </>
-                          )}
-                        </button>
-                        {uploadedScreenshot && (
-                          <div className="flex items-center justify-between px-2.5 py-1.5 bg-black/40 rounded-xl text-[10px] text-cyan-300 font-medium border border-cyan-400/20">
-                            <span className="truncate max-w-[200px]">📎 Screenshot attached ✓</span>
                             <button 
-                              type="button" 
-                              onClick={() => setUploadedScreenshot(null)} 
-                              className="text-slate-400 hover:text-white ml-2 text-xs font-bold"
+                              type="button"
+                              disabled={isUploadingProof}
+                              onClick={() => proofFileInputRef.current?.click()}
+                              className="w-full py-3 px-3 bg-white/[0.08] hover:bg-white/[0.14] rounded-xl text-xs font-bold text-white flex items-center justify-center gap-2 border border-dashed border-cyan-400/40 transition-all cursor-pointer tactile-button disabled:opacity-60"
                             >
-                              ✕
+                              {isUploadingProof ? (
+                                <>
+                                  <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                                  <span>Uploading screenshot...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Camera className="w-4 h-4 text-cyan-300" />
+                                  <span>Tap to Upload Screenshot (PNG, JPG)</span>
+                                </>
+                              )}
                             </button>
-                          </div>
-                        )}
+                          )}
+                        </div>
                       </div>
 
                       <div className="flex items-center gap-2 pt-1">
                         <button 
                           onClick={() => { setActiveTask(null); showToast('Task Abandoned', 'Reservation returned to pool.'); }}
-                          className="py-2 px-3 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-bold text-slate-300"
+                          className="py-2.5 px-4 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-bold text-zinc-300 tactile-button cursor-pointer"
                         >
                           Abandon
                         </button>
                         <button 
                           onClick={handleSubmitTaskProof}
-                          className="flex-1 py-2 px-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-white text-xs font-black uppercase tracking-wider shadow-md active:scale-95 transition-all"
+                          className="flex-1 py-2.5 px-4 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 hover:opacity-95 text-white text-xs font-black uppercase tracking-wider shadow-lg shadow-emerald-500/25 tactile-button flex items-center justify-center gap-1.5 cursor-pointer"
                         >
-                          Submit Proof (₦{activeTask.reward})
+                          <Check className="w-4 h-4 stroke-[3]" />
+                          <span>Submit Proof &amp; Claim ₦{activeTask.reward.toLocaleString()}</span>
                         </button>
                       </div>
                     </div>
                   )}
 
-                  {/* ONLY ONE ACTIVE TASK (USER DIRECTIVE) */}
+                  {/* ACTIVE TASKS FEED */}
                   <div className="space-y-3">
                     {tasksList.map(task => (
                       <div 
                         key={task.id}
-                        className="bg-white dark:bg-zinc-900/80 border border-slate-100 dark:border-white/[0.08] rounded-3xl p-4 shadow-sm hover:border-cyan-400/50 transition-all space-y-3"
+                        className="bg-white dark:bg-zinc-900/90 border border-slate-200/80 dark:border-white/[0.08] rounded-3xl p-5 shadow-sm hover:border-cyan-400/50 card-interactive space-y-3.5"
                       >
                         <div className="flex items-start justify-between gap-3">
-                          <div className="flex items-center gap-2.5">
-                            <div className="w-10 h-10 rounded-2xl bg-sky-50 dark:bg-zinc-800 text-xl flex items-center justify-center shrink-0">
-                              {task.platformIcon || '🎵'}
+                          <div className="flex items-center gap-3">
+                            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-sky-50 to-cyan-50 dark:from-zinc-800 dark:to-zinc-800/60 border border-sky-100 dark:border-white/10 text-2xl flex items-center justify-center shrink-0 shadow-xs">
+                              {task.platformIcon || '👥'}
                             </div>
                             <div>
-                              <span className="text-[10px] font-bold text-sky-600 dark:text-cyan-400 uppercase">
-                                {task.company} · {task.category}
-                              </span>
-                              <h4 className="text-xs font-extrabold text-slate-900 dark:text-white leading-snug">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] font-black font-mono text-cyan-600 dark:text-cyan-400 uppercase tracking-wider">
+                                  {task.company}
+                                </span>
+                                <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-400 font-bold">
+                                  {task.category}
+                                </span>
+                              </div>
+                              <h4 className="text-sm font-black text-slate-900 dark:text-white leading-snug mt-0.5">
                                 {task.title}
                               </h4>
                             </div>
                           </div>
 
                           <div className="text-right shrink-0">
-                            <span className="text-base font-black font-mono text-emerald-600 dark:text-emerald-400">
-                              +₦{task.reward}
+                            <span className="text-lg font-black font-mono text-emerald-600 dark:text-emerald-400 block leading-tight">
+                              +₦{task.reward.toLocaleString()}
                             </span>
-                            <span className="text-[8px] block text-slate-400 dark:text-zinc-500 uppercase font-bold">
-                              Escrowed
+                            <span className="text-[9px] text-emerald-600 dark:text-emerald-400 uppercase font-black font-mono bg-emerald-50 dark:bg-emerald-950/60 px-1.5 py-0.5 rounded-full inline-block mt-0.5">
+                              ✓ Escrowed
                             </span>
                           </div>
                         </div>
@@ -2048,29 +2218,36 @@ export default function App() {
                           {task.description}
                         </p>
 
-                        <div className="flex items-center justify-between text-[11px] text-slate-400 dark:text-zinc-500 pt-2 border-t border-slate-50 dark:border-white/[0.04]">
-                          <span>⏱ {task.time} · 🛡 {task.SLA}</span>
-                          <span className="font-mono font-bold text-slate-600 dark:text-zinc-300">{task.spotsLeft}/{task.spotsTotal} spots</span>
+                        <div className="flex items-center justify-between text-[11px] text-slate-400 dark:text-zinc-500 pt-2 border-t border-slate-100 dark:border-white/[0.04]">
+                          <span className="flex items-center gap-1">
+                            <Timer className="w-3.5 h-3.5 text-cyan-500" />
+                            <span>{task.time} · 🛡 {task.SLA}</span>
+                          </span>
+                          <span className="font-mono font-bold text-slate-600 dark:text-zinc-300">
+                            {task.spotsLeft}/{task.spotsTotal} slots available
+                          </span>
                         </div>
 
                         {task.category === 'Referral' ? (
                           <button 
+                            type="button"
                             onClick={() => {
                               setSelectedTaskForModal(null);
                               setIsReferralLockModalOpen(true);
                             }}
-                            className="w-full h-11 rounded-full bg-gradient-to-r from-indigo-500 via-sky-500 to-blue-600 hover:opacity-95 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-2 active:scale-95 transition-all cursor-pointer"
+                            className="w-full h-11 rounded-2xl bg-gradient-to-r from-indigo-500 via-sky-500 to-blue-600 hover:opacity-95 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-2 tactile-button cursor-pointer"
                           >
-                            <Share2 className="w-4 h-4" />
+                            <Share2 className="w-4 h-4 stroke-[2.5]" />
                             <span>Invite Friends &amp; Share Link (₦1,000 / Ref)</span>
                           </button>
                         ) : (
                           <button 
+                            type="button"
                             onClick={() => setSelectedTaskForModal(task)}
-                            className="w-full h-10 rounded-full bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white font-bold text-xs uppercase tracking-wider shadow-md shadow-sky-500/15 flex items-center justify-center gap-1.5 active:scale-95 transition-all"
+                            className="w-full h-11 rounded-2xl bg-gradient-to-r from-sky-500 via-cyan-500 to-blue-600 hover:opacity-95 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-sky-500/20 flex items-center justify-center gap-1.5 tactile-button cursor-pointer"
                           >
-                            <CheckSquare className="w-3.5 h-3.5" />
-                            <span>View Task Details (₦{task.reward})</span>
+                            <CheckSquare className="w-4 h-4 stroke-[2.5]" />
+                            <span>View Task Directive (₦{task.reward})</span>
                           </button>
                         )}
                       </div>
@@ -2145,7 +2322,7 @@ export default function App() {
                   </div>
 
                   {/* WITHDRAWABLE HERO BALANCE CARD */}
-                  <div className="p-5 rounded-3xl bg-gradient-to-br from-zinc-900 via-black to-zinc-950 text-white border border-white/10 shadow-2xl relative overflow-hidden space-y-4">
+                  <div className="p-5 rounded-3xl bg-gradient-to-br from-zinc-900 via-black to-zinc-950 text-white border border-white/10 shadow-2xl relative overflow-hidden space-y-4 glow-emerald">
                     <div className="absolute top-0 right-0 w-36 h-36 bg-gradient-to-bl from-emerald-500/20 to-transparent rounded-full blur-2xl pointer-events-none"></div>
 
                     <div className="flex items-center justify-between text-xs text-zinc-400 font-medium">
@@ -2161,6 +2338,23 @@ export default function App() {
                       </h2>
                     </div>
 
+                    {/* AUTOMATED PAYOUT NETWORK ROUTE VISUALIZATION */}
+                    <div className="p-3 rounded-2xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-between text-[11px]">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-xs shrink-0">
+                          ⚡
+                        </div>
+                        <div>
+                          <span className="text-zinc-400 text-[9px] block font-mono">Disbursement Rail</span>
+                          <span className="font-black text-white text-[11px]">Automated Interswitch / NIP Rail</span>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-zinc-400 text-[9px] block font-mono">Transfer Fee</span>
+                        <span className="font-mono font-black text-emerald-400 text-xs">₦0.00 (Subsidized)</span>
+                      </div>
+                    </div>
+
                     <div className="pt-2 border-t border-white/[0.08] flex items-center justify-between text-xs">
                       <div>
                         <span className="text-[10px] text-zinc-400 block">Remaining Tier Allowance</span>
@@ -2171,7 +2365,7 @@ export default function App() {
                       <button
                         type="button"
                         onClick={() => setIsTierModalOpen(true)}
-                        className="px-2.5 py-1 rounded-xl bg-white/10 hover:bg-white/20 text-white text-[10px] font-bold transition-all cursor-pointer"
+                        className="px-2.5 py-1 rounded-xl bg-white/10 hover:bg-white/20 text-white text-[10px] font-bold transition-all cursor-pointer tactile-button"
                       >
                         Upgrade Cap →
                       </button>
@@ -2428,12 +2622,42 @@ export default function App() {
                     </div>
                   </div>
 
+                  {/* QUICK CASH-OUT AMOUNT PRESETS */}
+                  <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-0.5">
+                    <span className="text-[10px] text-slate-400 dark:text-zinc-500 font-bold shrink-0">
+                      Quick Preset:
+                    </span>
+                    <button 
+                      type="button" 
+                      onClick={() => setCashoutAmount('3000')}
+                      className="px-2.5 py-1 rounded-xl bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 hover:bg-sky-50 dark:hover:bg-zinc-700 text-[10px] font-mono font-bold transition-all cursor-pointer tactile-button"
+                    >
+                      ₦3,000 (Min)
+                    </button>
+                    {withdrawableBalance > 3000 && (
+                      <button 
+                        type="button" 
+                        onClick={() => setCashoutAmount(String(Math.floor(withdrawableBalance / 2)))}
+                        className="px-2.5 py-1 rounded-xl bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 hover:bg-sky-50 dark:hover:bg-zinc-700 text-[10px] font-mono font-bold transition-all cursor-pointer tactile-button"
+                      >
+                        50% (₦{Math.floor(withdrawableBalance / 2).toLocaleString()})
+                      </button>
+                    )}
+                    <button 
+                      type="button" 
+                      onClick={() => setCashoutAmount(String(Math.min(withdrawableBalance, remainingTierAllowance > 0 ? remainingTierAllowance : withdrawableBalance)))}
+                      className="px-2.5 py-1 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800 text-[10px] font-mono font-black transition-all cursor-pointer tactile-button"
+                    >
+                      Max Cap (₦{Math.min(withdrawableBalance, remainingTierAllowance > 0 ? remainingTierAllowance : withdrawableBalance).toLocaleString()})
+                    </button>
+                  </div>
+
                   {/* PRIMARY ACTION BUTTON: ALWAYS SHOWS ACTIVE WITHDRAWAL BUTTON */}
                   <div className="pt-1">
                     <button
                       type="button"
                       onClick={handleWithdrawClick}
-                      className="w-full h-12 rounded-full bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 hover:opacity-95 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-emerald-500/25 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                      className="w-full h-12 rounded-2xl bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 hover:opacity-95 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-emerald-500/25 tactile-button glow-emerald flex items-center justify-center gap-2 cursor-pointer"
                     >
                       <ArrowUpRight className="w-4 h-4 stroke-[3]" />
                       <span>Withdraw ₦{Math.min(withdrawableBalance, remainingTierAllowance > 0 ? remainingTierAllowance : withdrawableBalance, currentTier.dailyMaxCashout).toLocaleString()} to Bank Now</span>
@@ -2696,48 +2920,107 @@ export default function App() {
               {activeTab === 'profile' && (
                 <div className="space-y-4 animate-in fade-in duration-300">
                   
-                  {/* MAIN PROFILE CARD */}
-                  <div className="bg-white dark:bg-zinc-900/80 border border-slate-100 dark:border-white/[0.08] rounded-3xl p-6 shadow-sm space-y-5 text-center">
-                    
-                    {/* User Avatar with Green Verified Badge */}
-                    <div className="flex flex-col items-center space-y-2">
-                      <div className="relative">
-                        <div className="w-20 h-20 rounded-full bg-gradient-to-br from-sky-400 to-blue-600 text-white flex items-center justify-center text-3xl font-black shadow-lg shadow-sky-500/25">
-                          <User className="w-10 h-10" />
-                        </div>
-                        <div className="absolute bottom-0 right-0 w-6 h-6 rounded-full bg-emerald-500 border-2 border-white dark:border-zinc-900 flex items-center justify-center text-white shadow-xs">
-                          <Check className="w-3.5 h-3.5 stroke-[3]" />
-                        </div>
-                      </div>
+                  {/* DIGITAL FINTECH MEMBERSHIP PASS CARD */}
+                  <div className="bg-gradient-to-br from-zinc-900 via-slate-950 to-black text-white border border-white/10 rounded-3xl p-6 shadow-2xl space-y-5 relative overflow-hidden glow-cyan">
+                    <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-bl from-cyan-500/15 via-blue-500/10 to-transparent rounded-full blur-2xl pointer-events-none"></div>
 
-                      {/* Cyan handle & KYC verification status pill */}
-                      <span className="text-sm font-black text-sky-500 dark:text-cyan-400 tracking-wide">
-                        @{user?.username}
-                      </span>
-
-                      <div className="flex items-center gap-2 pt-1">
-                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border flex items-center gap-1 ${
-                          user?.kycLevel?.includes('Tier 2') || user?.kycLevel?.includes('Level 2')
-                            ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/40'
-                            : 'bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800/40'
-                        }`}>
-                          <Fingerprint className="w-3 h-3" />
-                          {user?.kycLevel || 'Tier 1 (Basic)'}
+                    {/* PASS HEADER ROW */}
+                    <div className="flex items-center justify-between text-xs text-zinc-400 font-mono">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                        <span className="text-[10px] tracking-widest uppercase font-black text-zinc-300">
+                          TASKPULSE EXECUTIVE PASS
                         </span>
-
-                        {(!user?.kycLevel?.includes('Tier 2') && !user?.kycLevel?.includes('Level 2')) && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setKycError(null);
-                              setIsKycModalOpen(true);
-                            }}
-                            className="text-[10px] font-bold text-sky-500 dark:text-cyan-400 hover:underline cursor-pointer"
-                          >
-                            Verify KYC →
-                          </button>
-                        )}
                       </div>
+                      <span className="px-2.5 py-0.5 rounded-full bg-white/10 text-cyan-300 font-mono text-[9px] font-black uppercase border border-cyan-400/20">
+                        {currentTier.name}
+                      </span>
+                    </div>
+                    
+                    {/* AVATAR & IDENTITY */}
+                    <div className="flex items-center gap-4 text-left">
+                      <div className="relative shrink-0">
+                        <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-cyan-500 via-sky-500 to-blue-600 text-white flex items-center justify-center text-2xl font-black shadow-lg shadow-cyan-500/30">
+                          {user?.username ? user.username.slice(0, 1).toUpperCase() : <User className="w-8 h-8" />}
+                        </div>
+                        <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-emerald-500 border-2 border-black flex items-center justify-center text-white shadow-xs">
+                          <Check className="w-3 h-3 stroke-[3]" />
+                        </div>
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="text-base font-black text-white tracking-tight">
+                            {user?.firstName && user?.lastName ? `${user.firstName} ${user.lastName}` : (user?.username || 'Pulse Member')}
+                          </h3>
+                        </div>
+                        <span className="text-xs font-mono font-bold text-cyan-400 block mt-0.5">
+                          @{user?.username}
+                        </span>
+                        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                          <span className={`px-2 py-0.5 rounded-full text-[9px] font-mono font-black border flex items-center gap-1 ${
+                            user?.kycLevel?.includes('Tier 2') || user?.kycLevel?.includes('Level 2')
+                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                              : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                          }`}>
+                            <Fingerprint className="w-3 h-3" />
+                            <span>{user?.kycLevel || 'Tier 1 (Verified)'}</span>
+                          </span>
+                          <span className="text-[10px] font-mono text-zinc-400">
+                            NIP ID: TP-{user?.id ? user.id.slice(0, 6).toUpperCase() : '8842'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 4 FINTECH METRICS TILES */}
+                    <div className="grid grid-cols-2 gap-2.5 pt-1 border-t border-white/10 text-left">
+                      <div className="p-3 rounded-2xl bg-white/[0.04] border border-white/[0.06]">
+                        <span className="text-[10px] text-zinc-400 block font-medium">Withdrawable Balance</span>
+                        <span className="font-mono text-base font-black text-cyan-400 block mt-0.5">
+                          ₦{withdrawableBalance.toLocaleString()}.00
+                        </span>
+                        <span className="text-[9px] text-zinc-400 font-mono mt-0.5 block">Liquid Cash</span>
+                      </div>
+                      <div className="p-3 rounded-2xl bg-white/[0.04] border border-white/[0.06]">
+                        <span className="text-[10px] text-zinc-400 block font-medium">Lifetime Disbursed</span>
+                        <span className="font-mono text-base font-black text-emerald-400 block mt-0.5">
+                          ₦{totalWithdrawnLifetime.toLocaleString()}.00
+                        </span>
+                        <span className="text-[9px] text-emerald-500 font-mono mt-0.5 block">✓ Verified NIP</span>
+                      </div>
+                      <div className="p-3 rounded-2xl bg-white/[0.04] border border-white/[0.06]">
+                        <span className="text-[10px] text-zinc-400 block font-medium">Active Referrals</span>
+                        <span className="font-mono text-base font-black text-white block mt-0.5">
+                          {activeReferralsCount}/3 Qualified
+                        </span>
+                        <span className="text-[9px] text-amber-400 font-mono mt-0.5 block">₦1,000 / referral</span>
+                      </div>
+                      <div className="p-3 rounded-2xl bg-white/[0.04] border border-white/[0.06]">
+                        <span className="text-[10px] text-zinc-400 block font-medium">Daily Login Streak</span>
+                        <span className="font-mono text-base font-black text-orange-400 block mt-0.5">
+                          {user?.streakDays || 1} Days 🔥
+                        </span>
+                        <span className="text-[9px] text-zinc-400 font-mono mt-0.5 block">0% Paystack Fee</span>
+                      </div>
+                    </div>
+
+                  </div>
+
+                  {/* EDIT PROFILE DETAILS CARD */}
+                  <div className="bg-white dark:bg-zinc-900/90 border border-slate-200/80 dark:border-white/[0.08] rounded-3xl p-5 shadow-sm space-y-4 text-left">
+                    <div className="flex items-center justify-between border-b border-slate-100 dark:border-white/[0.06] pb-3">
+                      <div>
+                        <h4 className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-wider">
+                          Account Profile &amp; Contact
+                        </h4>
+                        <p className="text-[10px] text-slate-400 dark:text-zinc-500">
+                          Used for Paystack bank dispatch notifications &amp; KYC.
+                        </p>
+                      </div>
+                      <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 text-[10px] font-mono font-bold">
+                        ✓ Active
+                      </span>
                     </div>
 
                     {/* Profile Fields Form */}
@@ -3017,83 +3300,111 @@ export default function App() {
         </div>
 
         {/* ======================================================== */}
-        {/* BOTTOM NAVIGATION                                        */}
+        {/* BOTTOM NAVIGATION: SCULPTED FLOATING GLASS DOCK           */}
         {/* ======================================================== */}
-        <nav className="bg-white/95 dark:bg-[#0c0d12]/95 backdrop-blur-xl border-t border-slate-200/80 dark:border-white/[0.06] px-4 py-2 shrink-0 z-40 flex items-center justify-around transition-colors">
+        <nav className="glass-dock px-3 py-2 shrink-0 z-40 flex items-center justify-around transition-all">
           
+          {/* Tab 1: Home */}
           <button 
+            type="button"
             onClick={() => setActiveTab('home')}
-            className={`flex flex-col items-center gap-1 py-1.5 px-3 rounded-2xl transition-all cursor-pointer ${
+            className={`flex flex-col items-center gap-1 py-1.5 px-3 rounded-2xl tactile-button cursor-pointer ${
               activeTab === 'home' 
-                ? 'bg-blue-50/90 dark:bg-zinc-800 text-blue-600 dark:text-sky-400 font-black shadow-xs' 
-                : 'text-slate-500 hover:text-slate-800 dark:text-zinc-500 dark:hover:text-zinc-200'
+                ? 'bg-sky-500/10 dark:bg-cyan-500/15 text-sky-600 dark:text-cyan-400 border border-sky-500/25 dark:border-cyan-400/30 shadow-xs' 
+                : 'text-slate-400 hover:text-slate-700 dark:text-zinc-500 dark:hover:text-zinc-200'
             }`}
           >
-            <Compass className="w-5 h-5" />
-            <span className="text-[10px] font-extrabold tracking-tight">Home</span>
-          </button>
-
-          <button 
-            onClick={() => setActiveTab('tasks')}
-            className={`flex flex-col items-center gap-1 py-1.5 px-3 rounded-2xl relative transition-all cursor-pointer ${
-              activeTab === 'tasks' 
-                ? 'bg-blue-50/90 dark:bg-zinc-800 text-blue-600 dark:text-sky-400 font-black shadow-xs' 
-                : 'text-slate-500 hover:text-slate-800 dark:text-zinc-500 dark:hover:text-zinc-200'
-            }`}
-          >
-            <div className="relative">
-              <CheckSquare className="w-5 h-5" />
-              <span className="absolute -top-1 -right-1.5 w-3.5 h-3.5 rounded-full bg-blue-600 text-white text-[8px] font-black flex items-center justify-center">
-                1
-              </span>
-            </div>
-            <span className="text-[10px] font-extrabold tracking-tight">Tasks</span>
-          </button>
-
-          <button 
-            onClick={() => setActiveTab('withdraw')}
-            className={`flex flex-col items-center gap-1 py-1.5 px-3 rounded-2xl relative transition-all cursor-pointer ${
-              activeTab === 'withdraw' 
-                ? 'bg-blue-50/90 dark:bg-zinc-800 text-blue-600 dark:text-sky-400 font-black shadow-xs' 
-                : 'text-slate-500 hover:text-slate-800 dark:text-zinc-500 dark:hover:text-zinc-200'
-            }`}
-          >
-            <div className="relative">
-              <Wallet className="w-5 h-5" />
-              {isEligibleForWithdrawal && !isWithdrawalLockedByTime && withdrawableBalance >= 3000 && (
-                <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <div className="relative flex flex-col items-center">
+              <Compass className={`w-5 h-5 transition-transform ${activeTab === 'home' ? 'scale-110' : ''}`} />
+              {activeTab === 'home' && (
+                <span className="w-1 h-1 rounded-full bg-sky-500 dark:bg-cyan-400 shadow-[0_0_8px_rgba(6,182,212,0.9)] mt-0.5"></span>
               )}
             </div>
-            <span className="text-[10px] font-extrabold tracking-tight">Withdraw</span>
+            <span className="text-[10px] font-black tracking-tight">Home</span>
           </button>
 
+          {/* Tab 2: Tasks */}
           <button 
+            type="button"
+            onClick={() => setActiveTab('tasks')}
+            className={`flex flex-col items-center gap-1 py-1.5 px-3 rounded-2xl relative tactile-button cursor-pointer ${
+              activeTab === 'tasks' 
+                ? 'bg-sky-500/10 dark:bg-cyan-500/15 text-sky-600 dark:text-cyan-400 border border-sky-500/25 dark:border-cyan-400/30 shadow-xs' 
+                : 'text-slate-400 hover:text-slate-700 dark:text-zinc-500 dark:hover:text-zinc-200'
+            }`}
+          >
+            <div className="relative flex flex-col items-center">
+              <CheckSquare className={`w-5 h-5 transition-transform ${activeTab === 'tasks' ? 'scale-110' : ''}`} />
+              <span className="absolute -top-1 -right-2 w-3.5 h-3.5 rounded-full bg-sky-500 text-white text-[8px] font-black flex items-center justify-center shadow-xs">
+                1
+              </span>
+              {activeTab === 'tasks' && (
+                <span className="w-1 h-1 rounded-full bg-sky-500 dark:bg-cyan-400 shadow-[0_0_8px_rgba(6,182,212,0.9)] mt-0.5"></span>
+              )}
+            </div>
+            <span className="text-[10px] font-black tracking-tight">Tasks</span>
+          </button>
+
+          {/* Tab 3: Withdraw */}
+          <button 
+            type="button"
+            onClick={() => setActiveTab('withdraw')}
+            className={`flex flex-col items-center gap-1 py-1.5 px-3 rounded-2xl relative tactile-button cursor-pointer ${
+              activeTab === 'withdraw' 
+                ? 'bg-emerald-500/10 dark:bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25 dark:border-emerald-400/30 shadow-xs' 
+                : 'text-slate-400 hover:text-slate-700 dark:text-zinc-500 dark:hover:text-zinc-200'
+            }`}
+          >
+            <div className="relative flex flex-col items-center">
+              <Wallet className={`w-5 h-5 transition-transform ${activeTab === 'withdraw' ? 'scale-110 text-emerald-500' : ''}`} />
+              {isEligibleForWithdrawal && !isWithdrawalLockedByTime && withdrawableBalance >= 3000 ? (
+                <span className="absolute -top-1 -right-1.5 w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.9)] animate-pulse"></span>
+              ) : null}
+              {activeTab === 'withdraw' && (
+                <span className="w-1 h-1 rounded-full bg-emerald-500 dark:bg-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.9)] mt-0.5"></span>
+              )}
+            </div>
+            <span className="text-[10px] font-black tracking-tight">Withdraw</span>
+          </button>
+
+          {/* Tab 4: History */}
+          <button 
+            type="button"
             onClick={() => setActiveTab('history')}
-            className={`flex flex-col items-center gap-1 py-1.5 px-3 rounded-2xl relative transition-all cursor-pointer ${
+            className={`flex flex-col items-center gap-1 py-1.5 px-3 rounded-2xl relative tactile-button cursor-pointer ${
               activeTab === 'history' 
-                ? 'bg-blue-50/90 dark:bg-zinc-800 text-blue-600 dark:text-sky-400 font-black shadow-xs' 
-                : 'text-slate-500 hover:text-slate-800 dark:text-zinc-500 dark:hover:text-zinc-200'
+                ? 'bg-sky-500/10 dark:bg-cyan-500/15 text-sky-600 dark:text-cyan-400 border border-sky-500/25 dark:border-cyan-400/30 shadow-xs' 
+                : 'text-slate-400 hover:text-slate-700 dark:text-zinc-500 dark:hover:text-zinc-200'
             }`}
           >
-            <div className="relative">
-              <History className="w-5 h-5" />
-              <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-500"></span>
+            <div className="relative flex flex-col items-center">
+              <History className={`w-5 h-5 transition-transform ${activeTab === 'history' ? 'scale-110' : ''}`} />
+              {activeTab === 'history' && (
+                <span className="w-1 h-1 rounded-full bg-sky-500 dark:bg-cyan-400 shadow-[0_0_8px_rgba(6,182,212,0.9)] mt-0.5"></span>
+              )}
             </div>
-            <span className="text-[10px] font-extrabold tracking-tight">History</span>
+            <span className="text-[10px] font-black tracking-tight">History</span>
           </button>
 
+          {/* Tab 5: Profile */}
           <button 
+            type="button"
             onClick={() => setActiveTab('profile')}
-            className={`flex flex-col items-center gap-1 py-1.5 px-3.5 rounded-2xl transition-all cursor-pointer ${
+            className={`flex flex-col items-center gap-1 py-1.5 px-3.5 rounded-2xl tactile-button cursor-pointer ${
               activeTab === 'profile' 
-                ? 'bg-blue-50/90 dark:bg-zinc-800 text-blue-600 dark:text-sky-400 font-black shadow-xs' 
-                : 'text-slate-500 hover:text-slate-800 dark:text-zinc-500 dark:hover:text-zinc-200'
+                ? 'bg-sky-500/10 dark:bg-cyan-500/15 text-sky-600 dark:text-cyan-400 border border-sky-500/25 dark:border-cyan-400/30 shadow-xs' 
+                : 'text-slate-400 hover:text-slate-700 dark:text-zinc-500 dark:hover:text-zinc-200'
             }`}
           >
-            <div className="w-5 h-5 rounded-full border-2 border-current flex items-center justify-center">
-              <User className="w-3 h-3" />
+            <div className="relative flex flex-col items-center">
+              <div className={`w-5 h-5 rounded-full border-2 border-current flex items-center justify-center transition-transform ${activeTab === 'profile' ? 'scale-110' : ''}`}>
+                <User className="w-3 h-3" />
+              </div>
+              {activeTab === 'profile' && (
+                <span className="w-1 h-1 rounded-full bg-sky-500 dark:bg-cyan-400 shadow-[0_0_8px_rgba(6,182,212,0.9)] mt-0.5"></span>
+              )}
             </div>
-            <span className="text-[10px] font-extrabold tracking-tight">Profile</span>
+            <span className="text-[10px] font-black tracking-tight">Profile</span>
           </button>
 
         </nav>
@@ -5137,19 +5448,30 @@ export default function App() {
       )}
 
       {/* ======================================================== */}
-      {/* FLOATING TOAST NOTIFICATION                              */}
+      {/* FLOATING TOAST CAPSULE (DYNAMIC ISLAND NOTIFICATION)     */}
       {/* ======================================================== */}
       <div 
-        className={`fixed top-4 right-4 z-50 bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-3 transform transition-all duration-300 max-w-sm ${
-          toast.show ? 'translate-y-0 opacity-100 pointer-events-auto' : '-translate-y-10 opacity-0 pointer-events-none'
+        className={`fixed top-4 left-1/2 -translate-x-1/2 z-[100] max-w-[92vw] sm:max-w-md w-full px-3 pointer-events-none transition-all duration-300 ease-out ${
+          toast.show ? 'translate-y-0 opacity-100 scale-100' : '-translate-y-8 opacity-0 scale-95'
         }`}
       >
-        <div className="w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0">
-          <CheckCircle2 className="w-4 h-4" />
-        </div>
-        <div className="text-left">
-          <p className="text-xs font-bold leading-tight">{toast.title}</p>
-          <p className="text-[11px] opacity-80 leading-snug mt-0.5">{toast.subtitle}</p>
+        <div className="mx-auto bg-zinc-900/90 dark:bg-white/95 text-white dark:text-zinc-900 backdrop-blur-2xl border border-white/10 dark:border-zinc-200/50 rounded-3xl py-2.5 px-3.5 shadow-[0_20px_50px_rgba(0,0,0,0.35)] flex items-center justify-between gap-3 pointer-events-auto">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-2xl bg-emerald-500/20 text-emerald-400 dark:text-emerald-600 flex items-center justify-center shrink-0 border border-emerald-500/30">
+              <Sparkles className="w-4 h-4 fill-current" />
+            </div>
+            <div className="min-w-0 text-left">
+              <p className="text-xs font-black leading-tight tracking-tight truncate">{toast.title}</p>
+              <p className="text-[10px] text-zinc-300 dark:text-zinc-600 leading-snug truncate mt-0.5">{toast.subtitle}</p>
+            </div>
+          </div>
+          <button 
+            type="button"
+            onClick={() => setToast(prev => ({ ...prev, show: false }))}
+            className="w-6 h-6 rounded-full bg-white/10 dark:bg-zinc-200/60 flex items-center justify-center text-zinc-400 dark:text-zinc-600 hover:text-white dark:hover:text-black shrink-0 cursor-pointer"
+          >
+            <X className="w-3 h-3" />
+          </button>
         </div>
       </div>
 
