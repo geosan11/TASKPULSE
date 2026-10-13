@@ -178,7 +178,7 @@ export async function signUpUser(params: AuthUserSignup) {
     }
   }
 
-  // 3. Offline / Demo Mode Fallback
+  // 3. Offline / Local Fallback
   try {
     const localUsersStr = localStorage.getItem('taskpulse_registered_accounts_v1') || '[]';
     const users: any[] = JSON.parse(localUsersStr);
@@ -237,7 +237,7 @@ export async function signInUser(email: string, password: string) {
     }
   }
 
-  // Offline / Demo fallback
+  // Offline / Dev fallback
   if (import.meta.env.PROD) {
     return {
       success: false,
@@ -247,7 +247,7 @@ export async function signInUser(email: string, password: string) {
 
   return {
     success: true,
-    message: 'Signed in (Demo Mode)'
+    message: 'Signed in (Dev Mode)'
   };
 }
 
@@ -342,7 +342,7 @@ export async function claimDailyRewardRpc() {
     const currentStreak = Number(localStorage.getItem('taskpulse_streak_days') || '0') + 1;
     localStorage.setItem('taskpulse_streak_last_claimed', today);
     localStorage.setItem('taskpulse_streak_days', String(currentStreak));
-    return { streak_days: currentStreak, reward_amount: 100, claimed: true };
+    return { streak_days: currentStreak, reward_amount: 450, claimed: true };
   }
   const { data, error } = await supabase.rpc('claim_daily_reward');
   if (error) {
@@ -579,7 +579,7 @@ export interface DbTask {
   title: string;
   company: string;
   reward: number;
-  category: 'Social' | 'App Tests' | 'Surveys' | 'Field Audits';
+  category: 'Social' | 'App Tests' | 'Surveys' | 'Field Audits' | 'Referral';
   time: string;
   SLA: string;
   spotsLeft: number;

@@ -91,12 +91,12 @@ export async function initializeDeposit(amount?: number) {
   } catch (err: any) {
     if (!import.meta.env.PROD) {
       console.info('[Dev Mode] Simulating Paystack payment gateway initialization');
-      const depositRef = `dep_demo_${Date.now()}`;
+      const depositRef = `dep_dev_${Date.now()}`;
       return {
         status: true,
         data: {
           authorization_url: `${window.location.origin}/?verify_deposit=${depositRef}&amount=${amount || 3000}`,
-          access_code: 'demo_access_code',
+          access_code: 'dev_access_code',
           reference: depositRef,
           amount: amount || 3000,
         },
@@ -197,7 +197,7 @@ export async function linkBankAccount(params: {
           bank_name: params.bankName,
           account_number: params.accountNumber,
           account_name: 'CHUKWUDI OKAFOR',
-          recipient_code: `RCP_demo_${Date.now()}`,
+          recipient_code: `RCP_dev_${Date.now()}`,
         },
       };
     }
@@ -231,10 +231,10 @@ export async function requestDisbursement(params: {
         status: true,
         message: 'Disbursement queued successfully via Paystack NIP rails (Dev Mode).',
         data: {
-          reference: `trf_demo_${Date.now()}`,
+          reference: `trf_dev_${Date.now()}`,
           amount: params.amount,
           status: 'success',
-          recipient_code: 'RCP_demo',
+          recipient_code: 'RCP_dev',
         },
       };
     }

@@ -532,23 +532,24 @@ CREATE TABLE IF NOT EXISTS public.tasks (
 INSERT INTO public.tasks (
     id, title, company, reward, category, time_estimate, sla, spots_left, spots_total, description, steps, platform_icon, is_active
 ) VALUES (
-    't-soc-1',
-    'Follow & Like Brand Announcement on TikTok',
-    'Kuda FinTech Media',
-    450.00,
-    'Social',
-    '2m',
-    'Instant SLA Approval',
-    34,
-    150,
-    'Follow @kudabank on TikTok, like their latest pinned video, and submit your TikTok username or profile screenshot for instant escrow settlement.',
-    '["Open TikTok and navigate to official @kudabank profile.", "Tap Follow and Like the first pinned video regarding virtual card upgrades.", "Upload a screenshot or input your TikTok username to verify."]'::jsonb,
-    '🎵',
+    't-ref-growth',
+    'Invite Friends to TaskPulse (₦1,000 Per Referral)',
+    'TaskPulse Growth Network',
+    1000.00,
+    'Referral',
+    '1m',
+    'Instant Crediting & Cashout Unlock',
+    3,
+    3,
+    'Share your personal referral link with friends. Earn ₦1,000 immediately when each friend activates with ₦3,000. Referring 3 friends unlocks ₦3,000 total bonus and permanent bank withdrawals!',
+    '["Copy your unique referral invite link or tap Share on WhatsApp.", "Share with friends, family, or social media community.", "Earn ₦1,000 for each friend who joins and activates their Bronze Pulse account.", "Complete 3 referrals to permanently unlock the ₦3,000 minimum cashout threshold."]'::jsonb,
+    '👥',
     TRUE
 ) ON CONFLICT (id) DO UPDATE SET
     reward = EXCLUDED.reward,
     title = EXCLUDED.title,
-    description = EXCLUDED.description;
+    description = EXCLUDED.description,
+    is_active = TRUE;
 
 GRANT SELECT ON public.tasks TO anon, authenticated;
 ALTER TABLE public.tasks ENABLE ROW LEVEL SECURITY;
