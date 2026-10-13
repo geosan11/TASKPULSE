@@ -1233,6 +1233,14 @@ export default function App() {
       return;
     }
 
+    // If Supabase didn't provide a session immediately, automatically sign the user in
+    if (!res.session && supabase) {
+      const signInRes = await signInUser(authEmail, authPassword);
+      if (signInRes.success) {
+        await refreshUserData();
+      }
+    }
+
     const nameParts = authFullName.trim().split(' ');
     const fName = nameParts[0] || authUsername;
     const lName = nameParts.slice(1).join(' ') || '';
