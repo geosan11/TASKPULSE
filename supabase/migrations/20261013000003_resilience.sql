@@ -129,3 +129,70 @@ GRANT EXECUTE ON FUNCTION public.settle_deposit(TEXT, NUMERIC) TO authenticated,
 
 -- 3. Profile update permission for authenticated users
 GRANT UPDATE (full_name) ON public.profiles TO authenticated;
+
+-- 4. Bank Accounts: Restore table permissions & RLS policies for authenticated users
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.bank_accounts TO authenticated, service_role;
+
+ALTER TABLE public.bank_accounts ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users view own bank accounts" ON public.bank_accounts;
+CREATE POLICY "Users view own bank accounts"
+    ON public.bank_accounts FOR SELECT
+    TO authenticated
+    USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users insert own bank accounts" ON public.bank_accounts;
+CREATE POLICY "Users insert own bank accounts"
+    ON public.bank_accounts FOR INSERT
+    TO authenticated
+    WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users update own bank accounts" ON public.bank_accounts;
+CREATE POLICY "Users update own bank accounts"
+    ON public.bank_accounts FOR UPDATE
+    TO authenticated
+    USING (auth.uid() = user_id)
+    WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users delete own bank accounts" ON public.bank_accounts;
+CREATE POLICY "Users delete own bank accounts"
+    ON public.bank_accounts FOR DELETE
+    TO authenticated
+    USING (auth.uid() = user_id);
+
+-- 5. Stored Procedure: save_verified_bank_account (Security Definer RPC)
+CREATE OR REPLACE FUNCTION public.save_verified_bank_account(
+    p_user_id UUID,
+    p_bank_code TEXT,
+    p_bank_name TEXT,
+    p_account_number TEXT,
+    p_account_name TEXT,
+    p_recipient_code TEXT
+) RETURNS JSONB
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+    v_account public.bank_accounts%ROWTYPE;
+BEGIN
+    IF auth.role() = 'authenticated' AND auth.uid() IS NOT NULL AND auth.uid() <> p_user_id THEN
+        RAISE EXCEPTION 'unauthorized';
+    END IF;
+
+    INSERT INTO public.bank_accounts (
+        user_id, bank_code, bank_name, account_number, account_name, recipient_code, is_active
+    ) VALUES (
+        p_user_id, p_bank_code, p_bank_name, p_account_number, p_account_name, p_recipient_code, true
+    )
+    ON CONFLICT (user_id, account_number, bank_code) DO UPDATE SET
+        account_name = EXCLUDED.account_name,
+        recipient_code = EXCLUDED.recipient_code,
+        bank_name = EXCLUDED.bank_name,
+        is_active = true,
+        updated_at = NOW()
+    RETURNING * INTO v_account;
+
+    RETURN to_jsonb(v_account);
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.save_verified_bank_account(UUID, TEXT, TEXT, TEXT, TEXT, TEXT) TO authenticated, service_role;
+

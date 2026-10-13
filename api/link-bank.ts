@@ -233,32 +233,47 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const recipientCode = recipientRes.data.data.recipient_code;
 
-    // 7. Insert or activate bank account in Supabase
-    const { data: insertedBank, error: insertErr } = await client
-      .from('bank_accounts')
-      .upsert(
-        {
-          user_id: user.id,
-          bank_code: cleanBankCode,
-          bank_name: cleanBankName || 'Commercial Bank',
-          account_number: cleanAccount,
-          account_name: resolvedName,
-          recipient_code: recipientCode,
-          is_active: true,
-        },
-        { onConflict: 'user_id, account_number, bank_code' }
-      )
-      .select()
-      .single();
+    // 7. Insert or activate bank account in Supabase (with RPC resilience)
+    let savedBank = null;
+    const { data: rpcBank, error: rpcErr } = await client.rpc('save_verified_bank_account', {
+      p_user_id: user.id,
+      p_bank_code: cleanBankCode,
+      p_bank_name: cleanBankName || 'Commercial Bank',
+      p_account_number: cleanAccount,
+      p_account_name: resolvedName,
+      p_recipient_code: recipientCode,
+    });
 
-    if (insertErr) {
-      throw new HttpError(500, `Failed to save bank account: ${insertErr.message}`);
+    if (!rpcErr && rpcBank) {
+      savedBank = rpcBank;
+    } else {
+      const { data: insertedBank, error: insertErr } = await client
+        .from('bank_accounts')
+        .upsert(
+          {
+            user_id: user.id,
+            bank_code: cleanBankCode,
+            bank_name: cleanBankName || 'Commercial Bank',
+            account_number: cleanAccount,
+            account_name: resolvedName,
+            recipient_code: recipientCode,
+            is_active: true,
+          },
+          { onConflict: 'user_id, account_number, bank_code' }
+        )
+        .select()
+        .single();
+
+      if (insertErr) {
+        throw new HttpError(500, `Failed to save bank account: ${insertErr.message}`);
+      }
+      savedBank = insertedBank;
     }
 
     return res.status(200).json({
       status: true,
       message: 'Bank account linked successfully to Paystack.',
-      data: insertedBank,
+      data: savedBank,
     });
   } catch (err: any) {
     return handleApiError(res, err);

@@ -147,6 +147,7 @@ export async function signUpUser(params: AuthUserSignup) {
         email: email.trim().toLowerCase(),
         password,
         options: {
+          emailRedirectTo: typeof window !== 'undefined' ? window.location.origin : undefined,
           data: {
             username: username.trim().toLowerCase(),
             full_name: fullName.trim(),
@@ -248,6 +249,30 @@ export async function signInUser(email: string, password: string) {
     success: true,
     message: 'Signed in (Demo Mode)'
   };
+}
+
+/**
+ * Resend email confirmation link to user
+ */
+export async function resendVerificationEmail(email: string) {
+  if (!supabase) {
+    return { success: false, error: 'Database connection is not available.' };
+  }
+  try {
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email: email.trim().toLowerCase(),
+      options: {
+        emailRedirectTo: typeof window !== 'undefined' ? window.location.origin : undefined
+      }
+    });
+    if (error) {
+      return { success: false, error: error.message };
+    }
+    return { success: true, message: 'Verification link resent successfully.' };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Could not resend email.' };
+  }
 }
 
 /**

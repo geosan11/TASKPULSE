@@ -59,6 +59,7 @@ import {
   Receipt,
   Filter,
   Mail,
+  MailCheck,
   LogOut,
   LogIn,
   UserCheck,
@@ -74,6 +75,7 @@ import {
   signUpUser,
   signInUser,
   signOutUser,
+  resendVerificationEmail,
   checkDuplicateUser,
   getCurrentUserProfile,
   fetchTransactionsHistory,
@@ -174,6 +176,7 @@ interface UserProfile {
   accountStatus: string;
   kycLevel: string;
   kycStatus?: string;
+  emailConfirmed?: boolean;
   tierId: string;
   level: number;
   streakDays: number;
@@ -560,7 +563,7 @@ export default function App() {
 
   // Supabase Authentication & Duplicate Check States
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
+  const [authMode, setAuthMode] = useState<'signin' | 'signup' | 'verify_email'>('signin');
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authUsername, setAuthUsername] = useState('');
@@ -573,6 +576,37 @@ export default function App() {
   const [showAuthPassword, setShowAuthPassword] = useState(false);
   const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
   const [authAcceptTerms, setAuthAcceptTerms] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState<number>(0);
+  const [isResendingEmail, setIsResendingEmail] = useState<boolean>(false);
+
+  // Countdown timer for email resend cooldown
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const interval = setInterval(() => {
+      setResendCooldown(prev => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [resendCooldown]);
+
+  // Resend email confirmation link
+  const handleResendVerification = async () => {
+    if (!authEmail || resendCooldown > 0 || isResendingEmail) return;
+    setIsResendingEmail(true);
+    setAuthError(null);
+    try {
+      const res = await resendVerificationEmail(authEmail);
+      setIsResendingEmail(false);
+      if (res.success) {
+        setResendCooldown(60);
+        showToast('Verification Sent ✉️', `A fresh activation link was sent to ${authEmail.trim()}.`);
+      } else {
+        setAuthError(res.error || 'Could not resend email link.');
+      }
+    } catch (err: any) {
+      setIsResendingEmail(false);
+      setAuthError(err.message || 'Failed to send confirmation email.');
+    }
+  };
 
   // Centralized live data synchronization with Supabase
   const refreshUserData = async () => {
@@ -580,6 +614,7 @@ export default function App() {
     try {
       const { data: { user: authUser } } = await supabase.auth.getUser();
       if (!authUser) return;
+      const isEmailConfirmed = Boolean(authUser.email_confirmed_at || authUser.confirmed_at);
 
       const profile = await getCurrentUserProfile();
       if (profile) {
@@ -594,6 +629,7 @@ export default function App() {
           accountStatus: profile.kyc_status === 'verified' ? 'Identity Verified' : profile.kyc_status === 'pending' ? 'KYC In Review' : 'Basic Tier',
           kycLevel: profile.kyc_status === 'verified' ? 'Level 2 KYC' : 'Level 1 KYC',
           kycStatus: profile.kyc_status,
+          emailConfirmed: isEmailConfirmed,
           tierId: profile.tier_id || 'tier-1',
           level: 1,
           streakDays: profile.streak_days || 1,
@@ -748,16 +784,19 @@ export default function App() {
         const errDescription = hashParams.get('error_description');
         const err = hashParams.get('error');
 
-        if (errCode || err || errDescription) {
+          if (errCode || err || errDescription) {
           // Immediately wipe the ugly error hash from browser history & URL bar
           window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
           const friendlyMessage = errDescription
             ? decodeURIComponent(errDescription.replace(/\+/g, ' '))
             : errCode === 'otp_expired'
-            ? 'The email verification or OTP link has expired. Please sign in with your credentials or sign up.'
-            : 'Authentication verification link has expired. Please sign in.';
+            ? 'Your verification link has expired. You can request a fresh activation link below.'
+            : 'Authentication verification link has expired. Please sign in or request a new link.';
 
           showToast('Verification Notice', friendlyMessage);
+          if (errCode === 'otp_expired') {
+            setAuthMode('verify_email');
+          }
           setIsAuthModalOpen(true);
         }
       } catch (e) {
@@ -1233,12 +1272,15 @@ export default function App() {
       return;
     }
 
-    // If Supabase didn't provide a session immediately, automatically sign the user in
+    // If Supabase didn't provide a session immediately, email confirmation is active and required!
     if (!res.session && supabase) {
-      const signInRes = await signInUser(authEmail, authPassword);
-      if (signInRes.success) {
-        await refreshUserData();
-      }
+      setAuthMode('verify_email');
+      setResendCooldown(60);
+      setAuthError(null);
+      setAuthDuplicateError(null);
+      triggerConfetti();
+      showToast('Check Your Inbox ✉️', `Verification link sent to ${authEmail.trim()}`);
+      return;
     }
 
     const nameParts = authFullName.trim().split(' ');
@@ -1295,6 +1337,14 @@ export default function App() {
     setIsAuthSubmitting(false);
 
     if (!res.success) {
+      const errLower = (res.error || '').toLowerCase();
+      if (errLower.includes('email not confirmed') || errLower.includes('not confirmed') || errLower.includes('unconfirmed')) {
+        setAuthMode('verify_email');
+        setResendCooldown(60);
+        setAuthError(null);
+        showToast('Email Not Confirmed ✉️', 'Please click the verification link in your inbox to log in.');
+        return;
+      }
       setAuthError(res.error || 'Invalid credentials. Please verify your details.');
       return;
     }
@@ -1475,6 +1525,28 @@ export default function App() {
             )}
           </div>
         </header>
+
+        {/* Unconfirmed Email Notice Banner */}
+        {user && user.emailConfirmed === false && isSupabaseConfigured && (
+          <div className="bg-amber-500/15 border-b border-amber-500/30 px-3.5 py-2 flex items-center justify-between gap-2 text-xs">
+            <div className="flex items-center gap-2 min-w-0">
+              <Mail className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+              <span className="text-[11px] font-medium text-amber-800 dark:text-amber-200 truncate">
+                Please verify your email (<strong>{user.email}</strong>) to guarantee instant cashouts.
+              </span>
+            </div>
+            <button
+              onClick={() => {
+                setAuthEmail(user.email);
+                setAuthMode('verify_email');
+                setIsAuthModalOpen(true);
+              }}
+              className="text-[10px] font-bold text-amber-600 dark:text-amber-400 hover:underline shrink-0 cursor-pointer"
+            >
+              Verify Now →
+            </button>
+          </div>
+        )}
 
         {/* ======================================================== */}
         {/* SECURE GATEWAY STATUS BAR                                */}
@@ -3596,14 +3668,14 @@ export default function App() {
               <div>
                 <div className="flex items-center gap-1.5">
                   <div className="w-5 h-5 rounded-md bg-gradient-to-tr from-sky-500 to-cyan-400 flex items-center justify-center text-white text-[10px] font-black">
-                    ⚡
+                    {authMode === 'verify_email' ? '✉️' : '⚡'}
                   </div>
                   <span className="text-[10px] font-black text-sky-500 uppercase tracking-widest">
-                    {isSupabaseConfigured ? 'Supabase Auth Verified' : 'TaskPulse Account'}
+                    {authMode === 'verify_email' ? 'Email Verification' : isSupabaseConfigured ? 'Supabase Auth Verified' : 'TaskPulse Account'}
                   </span>
                 </div>
                 <h3 className="text-lg font-black text-slate-900 dark:text-white mt-1">
-                  {authMode === 'signin' ? 'Sign In to TaskPulse' : 'Create an Account'}
+                  {authMode === 'verify_email' ? 'Confirm Your Email' : authMode === 'signin' ? 'Sign In to TaskPulse' : 'Create an Account'}
                 </h3>
               </div>
               <button 
@@ -3614,41 +3686,221 @@ export default function App() {
               </button>
             </div>
 
-            {/* Mode Switcher Tabs */}
-            <div className="p-1 rounded-2xl bg-slate-100 dark:bg-zinc-900/90 border border-slate-200/60 dark:border-white/[0.06] flex items-center">
-              <button
-                type="button"
-                onClick={() => {
-                  setAuthMode('signin');
-                  setAuthError(null);
-                  setAuthDuplicateError(null);
-                }}
-                className={`flex-1 py-2 text-xs font-black rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                  authMode === 'signin'
-                    ? 'bg-white dark:bg-zinc-800 text-sky-500 dark:text-cyan-400 shadow-sm'
-                    : 'text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white'
-                }`}
-              >
-                <LogIn className="w-3.5 h-3.5" />
-                Sign In
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setAuthMode('signup');
-                  setAuthError(null);
-                  setAuthDuplicateError(null);
-                }}
-                className={`flex-1 py-2 text-xs font-black rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                  authMode === 'signup'
-                    ? 'bg-white dark:bg-zinc-800 text-sky-500 dark:text-cyan-400 shadow-sm'
-                    : 'text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white'
-                }`}
-              >
-                <UserPlus className="w-3.5 h-3.5" />
-                Create Account
-              </button>
-            </div>
+            {authMode === 'verify_email' ? (
+              <div className="space-y-4 py-1">
+                {/* Visual Hero Badge */}
+                <div className="text-center py-1">
+                  <div className="relative mx-auto w-16 h-16 rounded-3xl bg-gradient-to-tr from-sky-500 via-cyan-400 to-blue-600 p-[2px] shadow-xl shadow-sky-500/20 mb-3">
+                    <div className="w-full h-full rounded-[22px] bg-white dark:bg-zinc-900 flex items-center justify-center">
+                      <Mail className="w-8 h-8 text-sky-500 animate-pulse" />
+                    </div>
+                  </div>
+                  <h4 className="text-base font-black text-slate-900 dark:text-white">
+                    Check your inbox to verify
+                  </h4>
+                  <p className="text-xs text-slate-500 dark:text-zinc-400 mt-1 max-w-xs mx-auto leading-relaxed">
+                    We sent an activation link to your email. Click the link in your inbox to confirm your account and start earning on TaskPulse.
+                  </p>
+                </div>
+
+                {/* Recipient Email Address Pill */}
+                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-zinc-900/80 border border-slate-200 dark:border-white/[0.08] flex items-center justify-between gap-2 shadow-xs">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-7 h-7 rounded-xl bg-sky-500/10 flex items-center justify-center shrink-0">
+                      <MailCheck className="w-4 h-4 text-sky-500" />
+                    </div>
+                    <div className="min-w-0">
+                      <span className="text-[10px] uppercase tracking-wider text-slate-400 dark:text-zinc-500 font-bold block">
+                        Recipient Address
+                      </span>
+                      <span className="font-mono font-bold text-xs text-slate-900 dark:text-white truncate block">
+                        {authEmail || 'your.email@example.com'}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthMode('signup');
+                      setAuthError(null);
+                    }}
+                    className="text-[11px] font-bold text-sky-500 hover:text-sky-600 dark:text-sky-400 hover:underline shrink-0 cursor-pointer"
+                  >
+                    Edit
+                  </button>
+                </div>
+
+                {/* Quick Email Launcher Helper */}
+                {authEmail && (
+                  <div className="space-y-1.5">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500 block ml-1">
+                      Quick Access
+                    </span>
+                    <div className="grid grid-cols-2 gap-2">
+                      {authEmail.toLowerCase().includes('@gmail') ? (
+                        <a
+                          href="https://mail.google.com"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="h-10 px-3 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 border border-rose-200/60 dark:border-rose-900/40 text-rose-600 dark:text-rose-400 text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-xs"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                          Open Gmail
+                        </a>
+                      ) : authEmail.toLowerCase().includes('@yahoo') ? (
+                        <a
+                          href="https://mail.yahoo.com"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="h-10 px-3 rounded-xl bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/50 border border-purple-200/60 dark:border-purple-900/40 text-purple-600 dark:text-purple-400 text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-xs"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                          Open Yahoo
+                        </a>
+                      ) : authEmail.toLowerCase().includes('@outlook') || authEmail.toLowerCase().includes('@hotmail') ? (
+                        <a
+                          href="https://outlook.live.com"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="h-10 px-3 rounded-xl bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-900/50 border border-blue-200/60 dark:border-blue-900/40 text-blue-600 dark:text-blue-400 text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-xs"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                          Open Outlook
+                        </a>
+                      ) : (
+                        <a
+                          href={`mailto:${authEmail}`}
+                          className="h-10 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-200 text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-xs"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                          Open Mail App
+                        </a>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={handleResendVerification}
+                        disabled={resendCooldown > 0 || isResendingEmail}
+                        className={`h-10 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-xs cursor-pointer ${
+                          resendCooldown > 0 || isResendingEmail
+                            ? 'bg-slate-100 dark:bg-zinc-800 text-slate-400 dark:text-zinc-500 cursor-not-allowed border border-transparent'
+                            : 'bg-sky-50 hover:bg-sky-100 dark:bg-sky-950/40 dark:hover:bg-sky-900/50 border border-sky-200/60 dark:border-sky-800/40 text-sky-600 dark:text-sky-400'
+                        }`}
+                      >
+                        {isResendingEmail ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            <span>Sending...</span>
+                          </>
+                        ) : resendCooldown > 0 ? (
+                          <>
+                            <Clock className="w-3.5 h-3.5" />
+                            <span>Resend in {resendCooldown}s</span>
+                          </>
+                        ) : (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5" />
+                            <span>Resend Link</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Helpful Checklist Card */}
+                <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs space-y-2">
+                  <div className="flex items-center gap-1.5 font-bold text-amber-600 dark:text-amber-400 text-[11px]">
+                    <Sparkles className="w-3.5 h-3.5 shrink-0" />
+                    <span>How to activate:</span>
+                  </div>
+                  <ul className="text-[11px] text-slate-600 dark:text-zinc-300 space-y-1.5 pl-1 leading-snug">
+                    <li className="flex items-start gap-1.5">
+                      <span className="text-amber-500 font-bold shrink-0">1.</span>
+                      <span>Open the email sent from <strong>TaskPulse</strong>.</span>
+                    </li>
+                    <li className="flex items-start gap-1.5">
+                      <span className="text-amber-500 font-bold shrink-0">2.</span>
+                      <span>Click the <strong>Confirm your mail</strong> link.</span>
+                    </li>
+                    <li className="flex items-start gap-1.5">
+                      <span className="text-amber-500 font-bold shrink-0">3.</span>
+                      <span>Can't find it? Check your <strong>Spam</strong> or <strong>Promotions</strong> folder.</span>
+                    </li>
+                  </ul>
+                </div>
+
+                {/* Error Banner if any */}
+                {authError && (
+                  <div className="p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/60 flex items-start gap-2.5">
+                    <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                    <span className="text-xs text-rose-800 dark:text-rose-200 font-medium">{authError}</span>
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div className="space-y-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthMode('signin');
+                      setAuthError(null);
+                    }}
+                    className="w-full h-11 rounded-full bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-sky-500/25 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>I've Confirmed, Let Me Sign In</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthMode('signup');
+                      setAuthError(null);
+                    }}
+                    className="w-full text-center text-[11px] font-bold text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white py-1 block cursor-pointer"
+                  >
+                    Use a different email address
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* Mode Switcher Tabs */}
+                <div className="p-1 rounded-2xl bg-slate-100 dark:bg-zinc-900/90 border border-slate-200/60 dark:border-white/[0.06] flex items-center">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthMode('signin');
+                      setAuthError(null);
+                      setAuthDuplicateError(null);
+                    }}
+                    className={`flex-1 py-2 text-xs font-black rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                      authMode === 'signin'
+                        ? 'bg-white dark:bg-zinc-800 text-sky-500 dark:text-cyan-400 shadow-sm'
+                        : 'text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <LogIn className="w-3.5 h-3.5" />
+                    Sign In
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthMode('signup');
+                      setAuthError(null);
+                      setAuthDuplicateError(null);
+                    }}
+                    className={`flex-1 py-2 text-xs font-black rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                      authMode === 'signup'
+                        ? 'bg-white dark:bg-zinc-800 text-sky-500 dark:text-cyan-400 shadow-sm'
+                        : 'text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <UserPlus className="w-3.5 h-3.5" />
+                    Create Account
+                  </button>
+                </div>
 
             {/* Anti-Duplicate Notice for Registration */}
             {authMode === 'signup' && (
@@ -3884,6 +4136,8 @@ export default function App() {
                 🔒 All accounts protected by Supabase Row-Level Security (RLS) & PostgreSQL UNIQUE constraints.
               </span>
             </div>
+            </>
+            )}
 
           </div>
         </div>
