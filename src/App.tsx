@@ -598,7 +598,7 @@ export default function App() {
       setIsResendingEmail(false);
       if (res.success) {
         setResendCooldown(60);
-        showToast('Verification Sent ✉️', `A fresh activation link was sent to ${authEmail.trim()}.`);
+        showToast('Verification Sent ✉️', `Look for an email from "Supabase Auth" sent to ${authEmail.trim()}`);
       } else {
         setAuthError(res.error || 'Could not resend email link.');
       }
@@ -1065,7 +1065,7 @@ export default function App() {
     try {
       const storagePath = await uploadTaskProofImage(file, user.id);
       setUploadedScreenshot(storagePath);
-      showToast('Screenshot Attached ✓', 'Proof uploaded to Supabase Storage taskpulse-proofs.');
+      showToast('Screenshot Attached ✓', 'Verification screenshot attached successfully.');
     } catch (err: any) {
       showToast('Upload Failed', err.message || 'Could not upload screenshot.');
     } finally {
@@ -1279,7 +1279,7 @@ export default function App() {
       setAuthError(null);
       setAuthDuplicateError(null);
       triggerConfetti();
-      showToast('Check Your Inbox ✉️', `Verification link sent to ${authEmail.trim()}`);
+      showToast('Check Your Inbox ✉️', `Look for an email from "Supabase Auth" sent to ${authEmail.trim()}`);
       return;
     }
 
@@ -1342,7 +1342,7 @@ export default function App() {
         setAuthMode('verify_email');
         setResendCooldown(60);
         setAuthError(null);
-        showToast('Email Not Confirmed ✉️', 'Please click the verification link in your inbox to log in.');
+        showToast('Email Not Confirmed ✉️', 'Please confirm the email from "Supabase Auth" to log in.');
         return;
       }
       setAuthError(res.error || 'Invalid credentials. Please verify your details.');
@@ -1532,7 +1532,7 @@ export default function App() {
             <div className="flex items-center gap-2 min-w-0">
               <Mail className="w-3.5 h-3.5 text-amber-500 shrink-0" />
               <span className="text-[11px] font-medium text-amber-800 dark:text-amber-200 truncate">
-                Please verify your email (<strong>{user.email}</strong>) to guarantee instant cashouts.
+                Confirm the email from <strong>"Supabase Auth"</strong> (sent to <strong>{user.email}</strong>) to guarantee instant cashouts.
               </span>
             </div>
             <button
@@ -1978,7 +1978,7 @@ export default function App() {
                           {isUploadingProof ? (
                             <>
                               <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                              <span>Uploading to Supabase Storage...</span>
+                              <span>Uploading screenshot...</span>
                             </>
                           ) : (
                             <>
@@ -1988,8 +1988,8 @@ export default function App() {
                           )}
                         </button>
                         {uploadedScreenshot && (
-                          <div className="flex items-center justify-between px-2.5 py-1.5 bg-black/40 rounded-xl text-[10px] text-cyan-300 font-mono border border-cyan-400/20">
-                            <span className="truncate max-w-[200px]">📎 Attached: {uploadedScreenshot}</span>
+                          <div className="flex items-center justify-between px-2.5 py-1.5 bg-black/40 rounded-xl text-[10px] text-cyan-300 font-medium border border-cyan-400/20">
+                            <span className="truncate max-w-[200px]">📎 Screenshot attached ✓</span>
                             <button 
                               type="button" 
                               onClick={() => setUploadedScreenshot(null)} 
@@ -2581,7 +2581,7 @@ export default function App() {
                       </div>
                       <span className="px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 text-[10px] font-black flex items-center gap-1">
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                        {isSupabaseConfigured ? 'Supabase Active' : 'Local Storage Mode'}
+                        {isSupabaseConfigured ? 'Cloud Sync Active' : 'Offline Mode'}
                       </span>
                     </div>
 
@@ -2626,18 +2626,6 @@ export default function App() {
                         Log Out
                       </button>
                     </div>
-
-                    <button
-                      onClick={() => {
-                        setAuthMode('signup');
-                        setAuthError(null);
-                        setAuthDuplicateError(null);
-                        setIsAuthModalOpen(true);
-                      }}
-                      className="w-full text-center text-[11px] font-bold text-sky-500 hover:underline pt-1 block cursor-pointer"
-                    >
-                      + Create Another Account (New Registration)
-                    </button>
                   </div>
 
                   {/* LEGAL COMPLIANCE & POLICIES CARD */}
@@ -3468,7 +3456,7 @@ export default function App() {
           <div className="bg-white dark:bg-[#111218] border border-slate-200 dark:border-white/[0.08] rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl">
             <div className="flex items-start justify-between">
               <div>
-                <span className="text-[10px] font-black text-cyan-500 uppercase tracking-wider">Paystack Bank Resolve API</span>
+                <span className="text-[10px] font-black text-cyan-500 uppercase tracking-wider">Instant Account Verification</span>
                 <h3 className="text-base font-black text-slate-900 dark:text-white mt-0.5">Link NUBAN Bank Account</h3>
               </div>
               <button 
@@ -3513,7 +3501,7 @@ export default function App() {
                 {isResolvingAccount ? (
                   <span className="text-xs font-bold text-cyan-500 flex items-center gap-1.5">
                     <span className="w-2.5 h-2.5 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin"></span>
-                    <span>Resolving with Paystack API...</span>
+                    <span>Verifying account details...</span>
                   </span>
                 ) : resolvedAccountName ? (
                   <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
@@ -3532,7 +3520,7 @@ export default function App() {
                 disabled={!resolvedAccountName}
                 className="w-full h-11 rounded-full bg-gradient-to-r from-sky-500 to-blue-600 text-white font-bold text-xs uppercase tracking-wider shadow-md mt-2 disabled:opacity-50"
               >
-                Save &amp; Verify with Paystack
+                Save &amp; Link Bank Account
               </button>
             </form>
           </div>
@@ -3671,7 +3659,7 @@ export default function App() {
                     {authMode === 'verify_email' ? '✉️' : '⚡'}
                   </div>
                   <span className="text-[10px] font-black text-sky-500 uppercase tracking-widest">
-                    {authMode === 'verify_email' ? 'Email Verification' : isSupabaseConfigured ? 'Supabase Auth Verified' : 'TaskPulse Account'}
+                    {authMode === 'verify_email' ? 'Email Verification' : 'Verified Secure Access'}
                   </span>
                 </div>
                 <h3 className="text-lg font-black text-slate-900 dark:text-white mt-1">
@@ -3699,8 +3687,36 @@ export default function App() {
                     Check your inbox to verify
                   </h4>
                   <p className="text-xs text-slate-500 dark:text-zinc-400 mt-1 max-w-xs mx-auto leading-relaxed">
-                    We sent an activation link to your email. Click the link in your inbox to confirm your account and start earning on TaskPulse.
+                    We sent an activation link to your email. Check for a message from <strong className="text-sky-600 dark:text-cyan-400">"Supabase Auth"</strong> to confirm your account.
                   </p>
+                </div>
+
+                {/* SENDER CALLOUT: SUPABASE AUTH */}
+                <div className="p-3.5 rounded-2xl bg-sky-50/80 dark:bg-sky-950/40 border border-sky-200/80 dark:border-sky-800/60 space-y-2 text-left">
+                  <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-sky-700 dark:text-cyan-400">
+                    <Mail className="w-3.5 h-3.5 text-sky-500" />
+                    <span>Important: Look for this email</span>
+                  </div>
+                  <div className="space-y-1.5 text-xs">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] text-slate-500 dark:text-zinc-400">Sender Name:</span>
+                      <span className="font-bold text-sky-700 dark:text-cyan-300 bg-white dark:bg-zinc-800 px-2 py-0.5 rounded-lg border border-sky-200/60 dark:border-white/[0.08] text-[11px]">
+                        Supabase Auth
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] text-slate-500 dark:text-zinc-400">Sender Address:</span>
+                      <span className="font-mono text-[10px] text-slate-700 dark:text-zinc-300">
+                        noreply@mail.app.supabase.io
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] text-slate-500 dark:text-zinc-400">Subject Line:</span>
+                      <span className="font-bold text-slate-800 dark:text-zinc-200 text-[11px]">
+                        "Confirm your signup"
+                      </span>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Recipient Email Address Pill */}
@@ -3817,15 +3833,15 @@ export default function App() {
                   <ul className="text-[11px] text-slate-600 dark:text-zinc-300 space-y-1.5 pl-1 leading-snug">
                     <li className="flex items-start gap-1.5">
                       <span className="text-amber-500 font-bold shrink-0">1.</span>
-                      <span>Open the email sent from <strong>TaskPulse</strong>.</span>
+                      <span>Search your inbox for sender <strong>"Supabase Auth"</strong> or subject <strong>"Confirm your signup"</strong>.</span>
                     </li>
                     <li className="flex items-start gap-1.5">
                       <span className="text-amber-500 font-bold shrink-0">2.</span>
-                      <span>Click the <strong>Confirm your mail</strong> link.</span>
+                      <span>Click the <strong>Confirm your mail</strong> link inside.</span>
                     </li>
                     <li className="flex items-start gap-1.5">
                       <span className="text-amber-500 font-bold shrink-0">3.</span>
-                      <span>Can't find it? Check your <strong>Spam</strong> or <strong>Promotions</strong> folder.</span>
+                      <span>Can't find it in your primary inbox? Check your <strong>Spam</strong> or <strong>Promotions</strong> folder.</span>
                     </li>
                   </ul>
                 </div>
@@ -4133,7 +4149,7 @@ export default function App() {
 
             <div className="pt-2 text-center border-t border-slate-100 dark:border-white/[0.06]">
               <span className="text-[10px] text-slate-400 dark:text-zinc-500 block">
-                🔒 All accounts protected by Supabase Row-Level Security (RLS) & PostgreSQL UNIQUE constraints.
+                🔒 Protected by 256-bit bank-grade encryption & anti-fraud security.
               </span>
             </div>
             </>
