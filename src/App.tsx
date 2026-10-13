@@ -83,6 +83,7 @@ import {
   upgradeTierRpc,
   submitKycRpc,
   submitTaskProofRpc,
+  uploadTaskProofImage,
   updateProfileFullName,
   fetchActiveTasks
 } from './lib/supabaseClient';
@@ -490,6 +491,28 @@ export default function App() {
   const [workspaceTimer, setWorkspaceTimer] = useState<number>(1800);
   const [taskProofInput, setTaskProofInput] = useState('');
   const [uploadedScreenshot, setUploadedScreenshot] = useState<string | null>(null);
+  const [isUploadingProof, setIsUploadingProof] = useState<boolean>(false);
+  const proofFileInputRef = React.useRef<HTMLInputElement | null>(null);
+
+  // Live Offline / Online Connectivity Sentinel
+  const [isOnline, setIsOnline] = useState<boolean>(() => typeof navigator !== 'undefined' ? navigator.onLine : true);
+
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      showToast('Connection Restored', 'Back online. Real-time sync active.');
+    };
+    const handleOffline = () => {
+      setIsOnline(false);
+      showToast('Offline Mode Active', 'Network connection lost. Live operations paused.');
+    };
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   // Paystack Deposit Modal for 3k Drop
   const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
@@ -714,8 +737,34 @@ export default function App() {
     };
   }, []);
 
-  // Check URL query parameters for Paystack return callback & Referral invite (?ref=...)
+  // Check URL hash errors & query parameters for Paystack callback & Referral invite
   useEffect(() => {
+    // 0. Intercept Supabase Auth URL Hash Errors (#error=access_denied&error_code=otp_expired...)
+    if (typeof window !== 'undefined' && window.location.hash) {
+      try {
+        const hashStr = window.location.hash.replace(/^#/, '');
+        const hashParams = new URLSearchParams(hashStr);
+        const errCode = hashParams.get('error_code');
+        const errDescription = hashParams.get('error_description');
+        const err = hashParams.get('error');
+
+        if (errCode || err || errDescription) {
+          // Immediately wipe the ugly error hash from browser history & URL bar
+          window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
+          const friendlyMessage = errDescription
+            ? decodeURIComponent(errDescription.replace(/\+/g, ' '))
+            : errCode === 'otp_expired'
+            ? 'The email verification or OTP link has expired. Please sign in with your credentials or sign up.'
+            : 'Authentication verification link has expired. Please sign in.';
+
+          showToast('Verification Notice', friendlyMessage);
+          setIsAuthModalOpen(true);
+        }
+      } catch (e) {
+        console.warn('Error reading URL hash:', e);
+      }
+    }
+
     const urlParams = new URLSearchParams(window.location.search);
 
     // 1. Referral Link capture (?ref=CODE or ?referral=CODE)
@@ -957,6 +1006,35 @@ export default function App() {
     showToast('Task Reserved', `${task.title} allocated to your active workspace.`);
   };
 
+  // Real Supabase Storage Task Proof File Upload
+  const handleScreenshotFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!user?.id) {
+      showToast('Authentication Required', 'Please sign in to upload task proof images.');
+      setIsAuthModalOpen(true);
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      showToast('File Too Large', 'Screenshot must be under 5MB.');
+      return;
+    }
+
+    setIsUploadingProof(true);
+    try {
+      const storagePath = await uploadTaskProofImage(file, user.id);
+      setUploadedScreenshot(storagePath);
+      showToast('Screenshot Attached ✓', 'Proof uploaded to Supabase Storage taskpulse-proofs.');
+    } catch (err: any) {
+      showToast('Upload Failed', err.message || 'Could not upload screenshot.');
+    } finally {
+      setIsUploadingProof(false);
+      if (e.target) e.target.value = '';
+    }
+  };
+
   // Submit Task Proof (Database Persistence)
   const handleSubmitTaskProof = async () => {
     if (!activeTask) return;
@@ -972,7 +1050,7 @@ export default function App() {
         company: activeTask.company,
         rewardAmount: activeTask.reward,
         category: activeTask.category,
-        proofScreenshotUrl: taskProofInput,
+        proofScreenshotUrl: uploadedScreenshot || taskProofInput,
       });
 
       setActiveTask(null);
@@ -1308,7 +1386,7 @@ export default function App() {
   const referralVolumePercent = Math.min(100, Math.round((totalReferralsDeposit / targetReferralVolume) * 100));
 
   return (
-    <div className={`h-screen w-full overflow-hidden flex flex-col items-center justify-center p-0 md:p-3 select-none transition-colors duration-300 ${isDarkMode ? 'dark bg-[#070709] text-white' : 'bg-[#eef2f6] text-slate-900'}`}>
+    <div className={`h-[100dvh] w-full overflow-hidden flex flex-col items-center justify-center p-0 md:p-3 select-none transition-colors duration-300 ${isDarkMode ? 'dark bg-[#070709] text-white' : 'bg-[#eef2f6] text-slate-900'}`}>
       
       {/* AMBIENT AURORA BACKGROUND GLOWS */}
       <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
@@ -1319,7 +1397,13 @@ export default function App() {
       {/* PHONE CANVAS CONTAINER */}
       <div className={`relative z-10 w-full max-w-md h-full md:max-h-[852px] ${isDarkMode ? 'dark bg-[#0c0d12] text-white md:border-white/[0.08]' : 'bg-[#f8fafc] text-slate-900 md:border-slate-200/90 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.08)]'} md:rounded-[46px] shadow-2xl md:border overflow-hidden flex flex-col transition-colors duration-300`}>
         
-        {/* ======================================================== */}
+        {/* LIVE OFFLINE BANNER */}
+        {!isOnline && (
+          <div className="bg-rose-600 text-white text-[11px] font-bold py-1.5 px-3 flex items-center justify-center gap-1.5 shrink-0 z-50 animate-in slide-in-from-top">
+            <AlertTriangle className="w-3.5 h-3.5" />
+            <span>Offline: No Internet Connection. Retrying...</span>
+          </div>
+        )}
         {/* TOP STATUS BAR & HEADER                                  */}
         {/* ======================================================== */}
         <header className="px-5 py-3.5 bg-white/95 dark:bg-[#0c0d12]/95 backdrop-blur-xl border-b border-slate-200/80 dark:border-white/[0.06] flex items-center justify-between shrink-0 z-40 transition-colors">
@@ -1797,16 +1881,44 @@ export default function App() {
                           className="w-full h-9 px-3 rounded-xl bg-zinc-900/80 border border-cyan-500/30 text-xs text-white placeholder:text-zinc-400 focus:outline-none"
                         />
 
+                        {/* Real Supabase Storage Screenshot / File Upload */}
+                        <input 
+                          type="file"
+                          ref={proofFileInputRef}
+                          accept="image/*"
+                          className="hidden"
+                          onChange={handleScreenshotFileSelect}
+                        />
                         <button 
-                          onClick={() => {
-                            setUploadedScreenshot('Screenshot_Verified.png');
-                            showToast('Screenshot Attached', 'Device telemetry validated.');
-                          }}
-                          className="w-full py-1.5 px-2 bg-white/15 hover:bg-white/25 rounded-xl text-[10px] font-bold text-white flex items-center justify-center gap-1"
+                          type="button"
+                          disabled={isUploadingProof}
+                          onClick={() => proofFileInputRef.current?.click()}
+                          className="w-full py-2 px-3 bg-white/15 hover:bg-white/25 rounded-xl text-[10px] font-bold text-white flex items-center justify-center gap-1.5 border border-white/10 transition-all cursor-pointer active:scale-95 disabled:opacity-60"
                         >
-                          <Camera className="w-3.5 h-3.5 text-cyan-300" />
-                          <span>{uploadedScreenshot ? 'Screenshot Attached ✓' : 'Upload Verification Screenshot'}</span>
+                          {isUploadingProof ? (
+                            <>
+                              <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                              <span>Uploading to Supabase Storage...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Camera className="w-3.5 h-3.5 text-cyan-300" />
+                              <span>{uploadedScreenshot ? 'Change Attached Screenshot ✓' : 'Upload Verification Screenshot (Photo/File)'}</span>
+                            </>
+                          )}
                         </button>
+                        {uploadedScreenshot && (
+                          <div className="flex items-center justify-between px-2.5 py-1.5 bg-black/40 rounded-xl text-[10px] text-cyan-300 font-mono border border-cyan-400/20">
+                            <span className="truncate max-w-[200px]">📎 Attached: {uploadedScreenshot}</span>
+                            <button 
+                              type="button" 
+                              onClick={() => setUploadedScreenshot(null)} 
+                              className="text-slate-400 hover:text-white ml-2 text-xs font-bold"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        )}
                       </div>
 
                       <div className="flex items-center gap-2 pt-1">

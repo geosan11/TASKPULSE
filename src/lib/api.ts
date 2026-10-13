@@ -31,10 +31,27 @@ export async function apiFetch<T = any>(
     headers.set('Content-Type', 'application/json');
   }
 
-  const response = await fetch(endpoint, {
+  let response = await fetch(endpoint, {
     ...options,
     headers,
   });
+
+  // Transparent Token Auto-Healing: If 401 is received, attempt session refresh and retry once
+  if (response.status === 401 && supabase) {
+    try {
+      const { data: refreshData } = await supabase.auth.refreshSession();
+      const newToken = refreshData.session?.access_token;
+      if (newToken) {
+        headers.set('Authorization', `Bearer ${newToken}`);
+        response = await fetch(endpoint, {
+          ...options,
+          headers,
+        });
+      }
+    } catch {
+      // Ignore refresh error and process original response
+    }
+  }
 
   let payload: any = null;
   const contentType = response.headers.get('content-type') || '';

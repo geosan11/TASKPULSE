@@ -24,17 +24,34 @@ function handleApiError(res: VercelResponse, err: any) {
 }
 
 let _adminClient: SupabaseClient | null = null;
-function getAdminClient(): SupabaseClient {
-  if (_adminClient) return _adminClient;
+function getSupabaseClient(userToken?: string): SupabaseClient {
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
-    throw new Error('Database server misconfiguration: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is missing.');
+  const serviceKey =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_SERVICE_KEY ||
+    process.env.SUPABASE_SECRET_KEY ||
+    process.env.SERVICE_ROLE_KEY ||
+    process.env.VITE_SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_KEY;
+
+  if (url && serviceKey) {
+    if (_adminClient && !userToken) return _adminClient;
+    const client = createClient(url, serviceKey, {
+      auth: { persistSession: false, autoRefreshToken: false }
+    });
+    if (!userToken) _adminClient = client;
+    return client;
   }
-  _adminClient = createClient(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false }
+
+  const anonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+  if (!url || (!serviceKey && !anonKey)) {
+    throw new Error('Database server misconfiguration: SUPABASE_URL or Supabase API keys are missing. In Vercel Project Settings > Environment Variables, please add SUPABASE_SERVICE_ROLE_KEY.');
+  }
+
+  return createClient(url, anonKey!, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: userToken ? { headers: { Authorization: `Bearer ${userToken}` } } : undefined
   });
-  return _adminClient;
 }
 
 async function requireUser(req: VercelRequest): Promise<{ user: User; token: string }> {
@@ -45,15 +62,15 @@ async function requireUser(req: VercelRequest): Promise<{ user: User; token: str
   }
   const token = headerValue.slice(7).trim();
   if (!token) throw new HttpError(401, 'Authentication token missing.');
-  const admin = getAdminClient();
-  const { data, error } = await admin.auth.getUser(token);
+  const client = getSupabaseClient(token);
+  const { data, error } = await client.auth.getUser(token);
   if (error || !data?.user) throw new HttpError(401, 'Session invalid or expired. Please sign in again.');
   return { user: data.user, token };
 }
 
 function getPaystackSecretKey(): string {
   const key = process.env.PAYSTACK_SECRET_KEY;
-  if (!key) throw new HttpError(500, 'PAYSTACK_SECRET_KEY is not configured on the server.');
+  if (!key) throw new HttpError(500, 'PAYSTACK_SECRET_KEY is not configured on the server. Please add PAYSTACK_SECRET_KEY in Vercel Project Settings > Environment Variables.');
   return key;
 }
 
@@ -87,7 +104,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const { user } = await requireUser(req);
+    const { user, token } = await requireUser(req);
     const { accountNumber, bankCode, bankName } = req.body || {};
 
     const cleanAccount = String(accountNumber || '').trim();
@@ -101,10 +118,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       throw new HttpError(400, 'Invalid bank code format.');
     }
 
-    const admin = getAdminClient();
+    const client = getSupabaseClient(token);
 
     // 1. Get user profile
-    const { data: profile, error: profErr } = await admin
+    const { data: profile, error: profErr } = await client
       .from('profiles')
       .select('full_name')
       .eq('id', user.id)
@@ -137,7 +154,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (isGenericName) {
       // Auto-sync profile name with verified banking identity
-      await admin
+      await client
         .from('profiles')
         .update({ full_name: resolvedName })
         .eq('id', user.id);
@@ -161,7 +178,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // 4. Check maximum banks per user (limit 3)
-    const { count: bankCount, error: countErr } = await admin
+    const { count: bankCount, error: countErr } = await client
       .from('bank_accounts')
       .select('id', { count: 'exact', head: true })
       .eq('user_id', user.id)
@@ -175,7 +192,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // 5. Prevent duplicate linking across different accounts
-    const { data: existingOther } = await admin
+    const { data: existingOther } = await client
       .from('bank_accounts')
       .select('id')
       .eq('account_number', cleanAccount)
@@ -217,7 +234,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const recipientCode = recipientRes.data.data.recipient_code;
 
     // 7. Insert or activate bank account in Supabase
-    const { data: insertedBank, error: insertErr } = await admin
+    const { data: insertedBank, error: insertErr } = await client
       .from('bank_accounts')
       .upsert(
         {

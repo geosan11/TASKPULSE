@@ -25,17 +25,34 @@ function handleApiError(res: VercelResponse, err: any) {
 }
 
 let _adminClient: SupabaseClient | null = null;
-function getAdminClient(): SupabaseClient {
-  if (_adminClient) return _adminClient;
+function getSupabaseClient(userToken?: string): SupabaseClient {
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
-    throw new Error('Database server misconfiguration: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is missing.');
+  const serviceKey =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_SERVICE_KEY ||
+    process.env.SUPABASE_SECRET_KEY ||
+    process.env.SERVICE_ROLE_KEY ||
+    process.env.VITE_SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_KEY;
+
+  if (url && serviceKey) {
+    if (_adminClient && !userToken) return _adminClient;
+    const client = createClient(url, serviceKey, {
+      auth: { persistSession: false, autoRefreshToken: false }
+    });
+    if (!userToken) _adminClient = client;
+    return client;
   }
-  _adminClient = createClient(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false }
+
+  const anonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+  if (!url || (!serviceKey && !anonKey)) {
+    throw new Error('Database server misconfiguration: SUPABASE_URL or Supabase API keys are missing. In Vercel Project Settings > Environment Variables, please add SUPABASE_SERVICE_ROLE_KEY.');
+  }
+
+  return createClient(url, anonKey!, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: userToken ? { headers: { Authorization: `Bearer ${userToken}` } } : undefined
   });
-  return _adminClient;
 }
 
 async function requireUser(req: VercelRequest): Promise<{ user: User; token: string }> {
@@ -46,15 +63,15 @@ async function requireUser(req: VercelRequest): Promise<{ user: User; token: str
   }
   const token = headerValue.slice(7).trim();
   if (!token) throw new HttpError(401, 'Authentication token missing.');
-  const admin = getAdminClient();
-  const { data, error } = await admin.auth.getUser(token);
+  const client = getSupabaseClient(token);
+  const { data, error } = await client.auth.getUser(token);
   if (error || !data?.user) throw new HttpError(401, 'Session invalid or expired. Please sign in again.');
   return { user: data.user, token };
 }
 
 function getPaystackSecretKey(): string {
   const key = process.env.PAYSTACK_SECRET_KEY;
-  if (!key) throw new HttpError(500, 'PAYSTACK_SECRET_KEY is not configured on the server.');
+  if (!key) throw new HttpError(500, 'PAYSTACK_SECRET_KEY is not configured on the server. Please add PAYSTACK_SECRET_KEY in Vercel Project Settings > Environment Variables.');
   return key;
 }
 
@@ -88,7 +105,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const { user } = await requireUser(req);
+    const { user, token } = await requireUser(req);
     const { amount, bankAccountId, idempotencyKey } = req.body || {};
 
     const numAmount = Number(amount);
@@ -104,10 +121,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Create deterministic unique transfer reference (max 40 chars)
     const txRef = 'co_' + crypto.createHash('sha256').update(`${user.id}:${safeClientKey}`).digest('hex').substring(0, 32);
 
-    const admin = getAdminClient();
+    const client = getSupabaseClient(token);
 
     // 1. Atomically evaluate all rules & deduct balance in Supabase
-    const { data: rpcResult, error: rpcErr } = await admin.rpc('request_cashout', {
+    const { data: rpcResult, error: rpcErr } = await client.rpc('request_cashout', {
       p_user_id: user.id,
       p_amount: numAmount,
       p_bank_account_id: bankAccountId,
@@ -148,7 +165,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let recipientCode = rpcResult?.recipient_code;
     if (!recipientCode) {
       // Automatic fallback: Retrieve bank details and register recipient on Paystack immediately
-      const { data: bankRow } = await admin
+      const { data: bankRow } = await client
         .from('bank_accounts')
         .select('account_number, bank_code, account_name')
         .eq('id', bankAccountId)
@@ -173,7 +190,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         if (rcRes.ok && rcRes.data?.data?.recipient_code) {
           recipientCode = rcRes.data.data.recipient_code;
-          await admin
+          await client
             .from('bank_accounts')
             .update({ recipient_code: recipientCode })
             .eq('id', bankAccountId);
@@ -183,7 +200,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (!recipientCode) {
       // Auto-refund in database if recipient cannot be established
-      await admin.rpc('finalize_cashout', {
+      await client.rpc('finalize_cashout', {
         p_reference: txRef,
         p_outcome: 'failed',
       });
@@ -215,7 +232,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!paystackRes.ok || !paystackRes.data?.status) {
       console.error('[Cashout Transfer Error]', paystackRes.data);
       // Auto-refund in database
-      await admin.rpc('finalize_cashout', {
+      await client.rpc('finalize_cashout', {
         p_reference: txRef,
         p_outcome: 'failed',
       });
@@ -231,7 +248,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // If Paystack returned immediate success, mark disbursed
     if (transferStatus === 'success') {
-      await admin.rpc('finalize_cashout', {
+      await client.rpc('finalize_cashout', {
         p_reference: txRef,
         p_outcome: 'success',
       });

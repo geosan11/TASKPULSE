@@ -24,39 +24,56 @@ function handleApiError(res: VercelResponse, err: any) {
 }
 
 let _adminClient: SupabaseClient | null = null;
-function getAdminClient(): SupabaseClient {
-  if (_adminClient) return _adminClient;
+function getSupabaseClient(userToken?: string): SupabaseClient {
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
-    throw new Error('Database server misconfiguration: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is missing.');
+  const serviceKey =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_SERVICE_KEY ||
+    process.env.SUPABASE_SECRET_KEY ||
+    process.env.SERVICE_ROLE_KEY ||
+    process.env.VITE_SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_KEY;
+
+  if (url && serviceKey) {
+    if (_adminClient && !userToken) return _adminClient;
+    const client = createClient(url, serviceKey, {
+      auth: { persistSession: false, autoRefreshToken: false }
+    });
+    if (!userToken) _adminClient = client;
+    return client;
   }
-  _adminClient = createClient(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false }
+
+  const anonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+  if (!url || (!serviceKey && !anonKey)) {
+    throw new Error('Database server misconfiguration: SUPABASE_URL or Supabase API keys are missing. In Vercel Project Settings > Environment Variables, please add SUPABASE_SERVICE_ROLE_KEY.');
+  }
+
+  return createClient(url, anonKey!, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: userToken ? { headers: { Authorization: `Bearer ${userToken}` } } : undefined
   });
-  return _adminClient;
 }
 
-async function getOptionalUser(req: VercelRequest): Promise<User | null> {
+async function getOptionalUser(req: VercelRequest): Promise<{ user: User | null; token?: string }> {
   try {
     const authHeader = req.headers.authorization || req.headers.Authorization;
     const headerValue = Array.isArray(authHeader) ? authHeader[0] : authHeader;
     if (!headerValue || !headerValue.toLowerCase().startsWith('bearer ')) {
-      return null;
+      return { user: null };
     }
     const token = headerValue.slice(7).trim();
-    if (!token) return null;
-    const admin = getAdminClient();
-    const { data } = await admin.auth.getUser(token);
-    return data?.user || null;
+    if (!token) return { user: null };
+    const client = getSupabaseClient(token);
+    const { data } = await client.auth.getUser(token);
+    return { user: data?.user || null, token };
   } catch {
-    return null;
+    return { user: null };
   }
 }
 
 function getPaystackSecretKey(): string {
   const key = process.env.PAYSTACK_SECRET_KEY;
-  if (!key) throw new HttpError(500, 'PAYSTACK_SECRET_KEY is not configured on the server.');
+  if (!key) throw new HttpError(500, 'PAYSTACK_SECRET_KEY is not configured on the server. Please add PAYSTACK_SECRET_KEY in Vercel Project Settings > Environment Variables.');
   return key;
 }
 
@@ -90,14 +107,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const optionalUser = await getOptionalUser(req);
+    const { user: optionalUser, token: userToken } = await getOptionalUser(req);
     const reference = req.body?.reference || req.query?.reference;
 
     if (!reference || typeof reference !== 'string') {
       throw new HttpError(400, 'Transaction reference is required.');
     }
 
-    const admin = getAdminClient();
+    const client = getSupabaseClient(userToken);
 
     // 1. Verify directly with Paystack API
     const paystackRes = await paystackRequest<{
@@ -131,7 +148,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const actualAmountNaira = Math.floor(txData.amount / 100);
 
     // 2. Call the database settle_deposit RPC with row locks and idempotency
-    const { data: settleResult, error: settleErr } = await admin.rpc('settle_deposit', {
+    const { data: settleResult, error: settleErr } = await client.rpc('settle_deposit', {
       p_reference: reference,
       p_paid_amount: actualAmountNaira,
     });
@@ -141,7 +158,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // 3. Resolve target user ID from transaction record or auth session
-    const { data: txRecord } = await admin
+    const { data: txRecord } = await client
       .from('transactions')
       .select('user_id')
       .eq('reference', reference)
@@ -151,7 +168,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     let updatedProfile = null;
     if (targetUserId) {
-      const { data: prof } = await admin
+      const { data: prof } = await client
         .from('profiles')
         .select('is_activated, withdrawable_balance, tier_id')
         .eq('id', targetUserId)

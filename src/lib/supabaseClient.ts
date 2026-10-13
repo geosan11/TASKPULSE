@@ -354,7 +354,7 @@ export async function upgradeTierRpc(targetTierId: string) {
     return { success: true, tier_id: targetTierId, stake_deducted: reqStake };
   }
   const { data, error } = await supabase.rpc('upgrade_tier_from_wallet', {
-    p_target_tier_id: targetTierId,
+    p_tier_id: targetTierId,
   });
   if (error) {
     if (error.message.includes('insufficient_balance')) {
