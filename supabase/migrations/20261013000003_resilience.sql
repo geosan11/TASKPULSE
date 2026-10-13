@@ -127,5 +127,5 @@ $$;
 
 GRANT EXECUTE ON FUNCTION public.settle_deposit(TEXT, NUMERIC) TO authenticated, service_role;
 
--- 3. Grant profile columns for bank account linking
-GRANT UPDATE (full_name, bank_account_number, bank_code, bank_name, account_name, paystack_recipient_code) ON public.profiles TO authenticated;
+-- 3. Profile update permission for authenticated users
+GRANT UPDATE (full_name) ON public.profiles TO authenticated;
