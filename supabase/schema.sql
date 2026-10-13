@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     email TEXT UNIQUE NOT NULL,
     username VARCHAR(50) UNIQUE NOT NULL,
     full_name VARCHAR(100),
-    phone VARCHAR(20),
+    phone VARCHAR(20) UNIQUE,
     tier_id VARCHAR(20) NOT NULL DEFAULT 'tier-1', -- tier-1 (Bronze) to tier-6 (VIP)
     is_activated BOOLEAN NOT NULL DEFAULT FALSE,
     activation_timestamp TIMESTAMPTZ,
@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
 CREATE INDEX IF NOT EXISTS idx_profiles_username ON public.profiles(username);
 CREATE INDEX IF NOT EXISTS idx_profiles_referral_code ON public.profiles(referral_code);
 CREATE INDEX IF NOT EXISTS idx_profiles_tier_id ON public.profiles(tier_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_profiles_phone ON public.profiles(phone);
 
 -- =========================================================================
 -- 2. TRANSACTIONS LEDGER TABLE (IMMUTABLE FINTECH AUDIT TRAIL)
@@ -158,12 +159,19 @@ CREATE INDEX IF NOT EXISTS idx_bank_accounts_user_id ON public.bank_accounts(use
 -- Automatically provisions a profile whenever a new user registers via Supabase Auth
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger AS $$
+DECLARE
+    v_ref_code VARCHAR(20);
+    v_referrer_id UUID;
 BEGIN
+    v_ref_code := 'TP' || UPPER(SUBSTRING(MD5(new.id::text) FROM 1 FOR 6));
+
     INSERT INTO public.profiles (
         id, 
         email, 
         username, 
         full_name, 
+        phone,
+        referred_by_code,
         referral_code
     )
     VALUES (
@@ -171,9 +179,38 @@ BEGIN
         new.email,
         COALESCE(new.raw_user_meta_data->>'username', split_part(new.email, '@', 1)),
         COALESCE(new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1)),
-        'TP' || UPPER(SUBSTRING(MD5(new.id::text) FROM 1 FOR 6))
+        new.raw_user_meta_data->>'phone',
+        new.raw_user_meta_data->>'referred_by_code',
+        v_ref_code
     )
     ON CONFLICT (id) DO NOTHING;
+
+    -- Automatically register referral lineage if referred_by_code is supplied
+    IF new.raw_user_meta_data->>'referred_by_code' IS NOT NULL AND TRIM(new.raw_user_meta_data->>'referred_by_code') <> '' THEN
+        SELECT id INTO v_referrer_id
+        FROM public.profiles
+        WHERE referral_code = TRIM(new.raw_user_meta_data->>'referred_by_code')
+        LIMIT 1;
+
+        IF v_referrer_id IS NOT NULL THEN
+            INSERT INTO public.referrals (
+                referrer_id,
+                referee_id,
+                referee_name,
+                referee_username,
+                deposited_amount,
+                joined_time
+            ) VALUES (
+                v_referrer_id,
+                new.id,
+                COALESCE(new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1)),
+                COALESCE(new.raw_user_meta_data->>'username', split_part(new.email, '@', 1)),
+                0.00,
+                'Just registered'
+            );
+        END IF;
+    END IF;
+
     RETURN new;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
@@ -197,6 +234,56 @@ DROP TRIGGER IF EXISTS set_profiles_updated_at ON public.profiles;
 CREATE TRIGGER set_profiles_updated_at
     BEFORE UPDATE ON public.profiles
     FOR EACH ROW EXECUTE PROCEDURE public.set_updated_at();
+
+-- =========================================================================
+-- DUPLICATE USER DETECTION RPC (ALLOWS PRE-SIGNUP CHECKS ACROSS RLS)
+-- =========================================================================
+CREATE OR REPLACE FUNCTION public.check_user_exists(
+    p_email TEXT DEFAULT NULL,
+    p_username TEXT DEFAULT NULL,
+    p_phone TEXT DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_email_exists BOOLEAN := FALSE;
+    v_username_exists BOOLEAN := FALSE;
+    v_phone_exists BOOLEAN := FALSE;
+BEGIN
+    IF p_email IS NOT NULL AND TRIM(p_email) <> '' THEN
+        SELECT EXISTS (
+            SELECT 1 FROM public.profiles 
+            WHERE lower(email) = lower(TRIM(p_email))
+        ) INTO v_email_exists;
+    END IF;
+
+    IF p_username IS NOT NULL AND TRIM(p_username) <> '' THEN
+        SELECT EXISTS (
+            SELECT 1 FROM public.profiles 
+            WHERE lower(username) = lower(TRIM(p_username))
+        ) INTO v_username_exists;
+    END IF;
+
+    IF p_phone IS NOT NULL AND TRIM(p_phone) <> '' THEN
+        SELECT EXISTS (
+            SELECT 1 FROM public.profiles 
+            WHERE phone = TRIM(p_phone)
+        ) INTO v_phone_exists;
+    END IF;
+
+    RETURN jsonb_build_object(
+        'exists', (v_email_exists OR v_username_exists OR v_phone_exists),
+        'email_taken', v_email_exists,
+        'username_taken', v_username_exists,
+        'phone_taken', v_phone_exists
+    );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.check_user_exists TO anon, authenticated, service_role;
 
 -- =========================================================================
 -- 7. ATOMIC BALANCE MUTATION STORED PROCEDURE (ROW LOCK PREVENTS RACE CONDITIONS)

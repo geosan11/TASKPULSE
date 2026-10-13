@@ -57,9 +57,23 @@ import {
   Download,
   Search,
   Receipt,
-  Filter
+  Filter,
+  Mail,
+  LogOut,
+  LogIn,
+  UserCheck,
+  ShieldAlert
 } from 'lucide-react';
 import { triggerConfetti } from './utils/confetti';
+import {
+  supabase,
+  isSupabaseConfigured,
+  signUpUser,
+  signInUser,
+  signOutUser,
+  checkDuplicateUser,
+  getCurrentUserProfile
+} from './lib/supabaseClient';
 
 interface Task {
   id: string;
@@ -492,6 +506,83 @@ export default function App() {
   const [editLastName, setEditLastName] = useState(user?.lastName || 'ONUABUGHICHI');
   const [editEmail, setEditEmail] = useState(user?.email || 'emmanuelonuabughichi@gmail.com');
   const [editPhone, setEditPhone] = useState(user?.phone || '08165961134');
+
+  // Supabase Authentication & Duplicate Check States
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authUsername, setAuthUsername] = useState('');
+  const [authFullName, setAuthFullName] = useState('');
+  const [authPhone, setAuthPhone] = useState('');
+  const [authReferralCode, setAuthReferralCode] = useState('');
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authDuplicateError, setAuthDuplicateError] = useState<string | null>(null);
+  const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
+  const [showAuthPassword, setShowAuthPassword] = useState(false);
+  const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
+
+  // Sync Supabase Auth Session
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) return;
+
+    // Check initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        getCurrentUserProfile().then(profile => {
+          if (profile) {
+            const nameParts = (profile.full_name || '').trim().split(' ');
+            setUser(prev => ({
+              ...prev!,
+              username: profile.username || prev!.username,
+              email: profile.email || prev!.email,
+              phone: profile.phone || prev!.phone,
+              firstName: nameParts[0] || prev!.firstName,
+              lastName: nameParts.slice(1).join(' ') || prev!.lastName,
+              tierId: profile.tier_id || prev!.tierId,
+              referralCode: profile.referral_code || prev!.referralCode
+            }));
+            if (profile.withdrawable_balance !== undefined) {
+              setWithdrawableBalance(Number(profile.withdrawable_balance));
+            }
+            if (profile.is_activated) {
+              setIsActivated(true);
+            }
+          }
+        });
+      }
+    });
+
+    // Listen to Auth State Changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' && session?.user) {
+        const profile = await getCurrentUserProfile();
+        if (profile) {
+          const nameParts = (profile.full_name || '').trim().split(' ');
+          setUser(prev => ({
+            ...prev!,
+            username: profile.username || prev!.username,
+            email: profile.email || prev!.email,
+            phone: profile.phone || prev!.phone,
+            firstName: nameParts[0] || prev!.firstName,
+            lastName: nameParts.slice(1).join(' ') || prev!.lastName,
+            tierId: profile.tier_id || prev!.tierId,
+            referralCode: profile.referral_code || prev!.referralCode
+          }));
+          if (profile.withdrawable_balance !== undefined) {
+            setWithdrawableBalance(Number(profile.withdrawable_balance));
+          }
+          if (profile.is_activated) {
+            setIsActivated(true);
+          }
+        }
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
 
   // Toast
   const [toast, setToast] = useState<{ title: string; subtitle: string; show: boolean }>({
@@ -970,6 +1061,167 @@ export default function App() {
     setAddAccountNum('');
     triggerConfetti();
     showToast('Paystack Recipient Saved', `${newBank.bankName} verified & linked for instant payouts.`);
+  };
+
+  // Check Duplicate Field on blur
+  const handleCheckDuplicateField = async (field: 'email' | 'username' | 'phone') => {
+    if (authMode !== 'signup') return;
+    if (field === 'email' && !authEmail) return;
+    if (field === 'username' && !authUsername) return;
+    if (field === 'phone' && !authPhone) return;
+
+    setIsCheckingDuplicate(true);
+    const result = await checkDuplicateUser(
+      field === 'email' ? authEmail : '',
+      field === 'username' ? authUsername : '',
+      field === 'phone' ? authPhone : ''
+    );
+    setIsCheckingDuplicate(false);
+
+    if (result.exists) {
+      setAuthDuplicateError(result.message || 'This detail is already registered.');
+    } else if (authDuplicateError) {
+      setAuthDuplicateError(null);
+    }
+  };
+
+  // Sign Up Handler with Strict Duplicate Prevention
+  const handleAuthSignUp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError(null);
+    setAuthDuplicateError(null);
+
+    if (!authEmail || !authPassword || !authUsername || !authFullName || !authPhone) {
+      setAuthError('Please fill in all required registration fields.');
+      return;
+    }
+
+    if (authPassword.length < 6) {
+      setAuthError('Password must be at least 6 characters long.');
+      return;
+    }
+
+    setIsAuthSubmitting(true);
+
+    // 1. Strict Duplicate Check (Email, Username, Phone)
+    const dupCheck = await checkDuplicateUser(authEmail, authUsername, authPhone);
+    if (dupCheck.exists) {
+      setIsAuthSubmitting(false);
+      setAuthDuplicateError(dupCheck.message || 'The same person cannot register twice. Duplicate details detected.');
+      return;
+    }
+
+    // 2. Perform Registration
+    const res = await signUpUser({
+      email: authEmail,
+      password: authPassword,
+      username: authUsername,
+      fullName: authFullName,
+      phone: authPhone,
+      referralCode: authReferralCode
+    });
+
+    setIsAuthSubmitting(false);
+
+    if (!res.success) {
+      setAuthError(res.error || 'Failed to create account.');
+      return;
+    }
+
+    const nameParts = authFullName.trim().split(' ');
+    const fName = nameParts[0] || authUsername;
+    const lName = nameParts.slice(1).join(' ') || '';
+
+    const newProfile: UserProfile = {
+      username: authUsername.trim().toUpperCase(),
+      firstName: fName.toUpperCase(),
+      lastName: lName.toUpperCase(),
+      email: authEmail.trim(),
+      phone: authPhone.trim(),
+      accountStatus: 'Fully Verified',
+      kycLevel: 'Level 1 KYC',
+      tierId: 'tier-1',
+      level: 1,
+      streakDays: 1,
+      streakClaimedToday: false,
+      dailyQuestProgress: 0,
+      referralCode: `TP-${authUsername.trim().toUpperCase()}`,
+      wagerActive: false,
+      activationDate: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    };
+
+    setUser(newProfile);
+    setEditFirstName(newProfile.firstName);
+    setEditLastName(newProfile.lastName);
+    setEditEmail(newProfile.email);
+    setEditPhone(newProfile.phone);
+    setIsActivated(false);
+    setWithdrawableBalance(0);
+    setTotalWithdrawnLifetime(0);
+    setHasUpgradedAfterLimit(false);
+    setHasReceivedDoubleCredit(false);
+
+    setIsAuthModalOpen(false);
+    triggerConfetti();
+    showToast(`Welcome, @${authUsername.toUpperCase()}!`, 'Your TaskPulse account has been created successfully.');
+  };
+
+  // Sign In Handler
+  const handleAuthSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError(null);
+    setAuthDuplicateError(null);
+
+    if (!authEmail || !authPassword) {
+      setAuthError('Please enter your email and password.');
+      return;
+    }
+
+    setIsAuthSubmitting(true);
+    const res = await signInUser(authEmail, authPassword);
+    setIsAuthSubmitting(false);
+
+    if (!res.success) {
+      setAuthError(res.error || 'Invalid credentials. Please verify your details.');
+      return;
+    }
+
+    if (res.profile) {
+      const p = res.profile;
+      const nameParts = (p.full_name || '').trim().split(' ');
+      setUser({
+        username: p.username || 'USER',
+        firstName: nameParts[0] || p.username,
+        lastName: nameParts.slice(1).join(' ') || '',
+        email: p.email,
+        phone: p.phone || '',
+        accountStatus: 'Fully Verified',
+        kycLevel: 'Level 2 KYC',
+        tierId: p.tier_id || 'tier-1',
+        level: 2,
+        streakDays: p.streak_days || 1,
+        streakClaimedToday: false,
+        dailyQuestProgress: 1,
+        referralCode: p.referral_code || `TP-${p.username}`,
+        wagerActive: false,
+        activationDate: 'Oct 2026'
+      });
+      if (p.withdrawable_balance !== undefined) setWithdrawableBalance(Number(p.withdrawable_balance));
+      if (p.is_activated !== undefined) setIsActivated(Boolean(p.is_activated));
+      if (p.has_upgraded_after_limit !== undefined) setHasUpgradedAfterLimit(Boolean(p.has_upgraded_after_limit));
+    }
+
+    setIsAuthModalOpen(false);
+    triggerConfetti();
+    showToast('Signed In!', 'Welcome back to TaskPulse.');
+  };
+
+  // Sign Out Handler
+  const handleAuthSignOut = async () => {
+    await signOutUser();
+    showToast('Signed Out', 'You have been safely logged out.');
+    setAuthMode('signin');
+    setIsAuthModalOpen(true);
   };
 
   // Save Profile
@@ -2048,6 +2300,76 @@ export default function App() {
                     </div>
                   </div>
 
+                  {/* SUPABASE ACCOUNT & AUTHENTICATION CARD */}
+                  <div className="bg-white dark:bg-zinc-900/80 border border-slate-100 dark:border-white/[0.08] rounded-3xl p-5 shadow-sm space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Shield className="w-4 h-4 text-emerald-500" />
+                        <span className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-zinc-300">
+                          Account & Security
+                        </span>
+                      </div>
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 text-[10px] font-black flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                        {isSupabaseConfigured ? 'Supabase Active' : 'Local Storage Mode'}
+                      </span>
+                    </div>
+
+                    <div className="p-3.5 bg-slate-50/70 dark:bg-zinc-800/40 rounded-2xl border border-slate-100 dark:border-white/[0.06] space-y-2 text-xs">
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-400 dark:text-zinc-500">Connected Handle:</span>
+                        <span className="font-bold text-sky-500 dark:text-cyan-400">@{user?.username}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-400 dark:text-zinc-500">Linked Email:</span>
+                        <span className="font-mono text-slate-700 dark:text-zinc-300 font-semibold truncate max-w-[190px]">{user?.email}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-400 dark:text-zinc-500">Verified Phone:</span>
+                        <span className="font-mono text-slate-700 dark:text-zinc-300 font-semibold">{user?.phone}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-400 dark:text-zinc-500">Anti-Sybil Defense:</span>
+                        <span className="text-emerald-600 dark:text-emerald-400 font-bold">1 Person = 1 Account</span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <button
+                        onClick={() => {
+                          setAuthMode('signin');
+                          setAuthError(null);
+                          setAuthDuplicateError(null);
+                          setIsAuthModalOpen(true);
+                        }}
+                        className="h-10 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-200 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <UserCheck className="w-3.5 h-3.5 text-sky-500" />
+                        Switch Account
+                      </button>
+
+                      <button
+                        onClick={handleAuthSignOut}
+                        className="h-10 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 border border-rose-200/60 dark:border-rose-900/40 text-rose-600 dark:text-rose-400 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <LogOut className="w-3.5 h-3.5" />
+                        Log Out
+                      </button>
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        setAuthMode('signup');
+                        setAuthError(null);
+                        setAuthDuplicateError(null);
+                        setIsAuthModalOpen(true);
+                      }}
+                      className="w-full text-center text-[11px] font-bold text-sky-500 hover:underline pt-1 block cursor-pointer"
+                    >
+                      + Create Another Account (New Registration)
+                    </button>
+                  </div>
+
                 </div>
               )}
             </>
@@ -3074,6 +3396,273 @@ export default function App() {
             >
               Close Calendar
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODAL: SUPABASE AUTHENTICATION & DUPLICATE DEFENSE        */}
+      {/* ======================================================== */}
+      {isAuthModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-[#10121a] border border-slate-200 dark:border-white/[0.1] rounded-3xl max-w-sm w-full p-6 space-y-4 shadow-2xl relative max-h-[92vh] overflow-y-auto">
+            
+            {/* Header with Close */}
+            <div className="flex items-start justify-between">
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-5 h-5 rounded-md bg-gradient-to-tr from-sky-500 to-cyan-400 flex items-center justify-center text-white text-[10px] font-black">
+                    ⚡
+                  </div>
+                  <span className="text-[10px] font-black text-sky-500 uppercase tracking-widest">
+                    {isSupabaseConfigured ? 'Supabase Auth Verified' : 'TaskPulse Account'}
+                  </span>
+                </div>
+                <h3 className="text-lg font-black text-slate-900 dark:text-white mt-1">
+                  {authMode === 'signin' ? 'Sign In to TaskPulse' : 'Create an Account'}
+                </h3>
+              </div>
+              <button 
+                onClick={() => setIsAuthModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 flex items-center justify-center text-slate-400 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Mode Switcher Tabs */}
+            <div className="p-1 rounded-2xl bg-slate-100 dark:bg-zinc-900/90 border border-slate-200/60 dark:border-white/[0.06] flex items-center">
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMode('signin');
+                  setAuthError(null);
+                  setAuthDuplicateError(null);
+                }}
+                className={`flex-1 py-2 text-xs font-black rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                  authMode === 'signin'
+                    ? 'bg-white dark:bg-zinc-800 text-sky-500 dark:text-cyan-400 shadow-sm'
+                    : 'text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <LogIn className="w-3.5 h-3.5" />
+                Sign In
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMode('signup');
+                  setAuthError(null);
+                  setAuthDuplicateError(null);
+                }}
+                className={`flex-1 py-2 text-xs font-black rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                  authMode === 'signup'
+                    ? 'bg-white dark:bg-zinc-800 text-sky-500 dark:text-cyan-400 shadow-sm'
+                    : 'text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                Create Account
+              </button>
+            </div>
+
+            {/* Anti-Duplicate Notice for Registration */}
+            {authMode === 'signup' && (
+              <div className="p-3 rounded-2xl bg-sky-50/80 dark:bg-sky-950/30 border border-sky-100 dark:border-sky-800/40 flex items-start gap-2.5">
+                <Shield className="w-4 h-4 text-sky-500 shrink-0 mt-0.5" />
+                <div className="text-[11px] text-sky-900 dark:text-sky-200 leading-tight">
+                  <span className="font-black block text-sky-600 dark:text-cyan-400 mb-0.5">Strict Anti-Sybil Defense</span>
+                  Each person is strictly limited to <strong>1 account</strong>. The same person cannot register twice using duplicate emails, phones, or usernames.
+                </div>
+              </div>
+            )}
+
+            {/* Real-Time Duplicate Warning Alert */}
+            {authDuplicateError && (
+              <div className="p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/60 flex items-start gap-2.5 animate-in shake">
+                <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                <div className="text-xs text-rose-800 dark:text-rose-200 leading-tight">
+                  <span className="font-black block text-rose-600 dark:text-rose-400 mb-0.5">Duplicate Registration Blocked</span>
+                  {authDuplicateError}
+                </div>
+              </div>
+            )}
+
+            {/* General Auth Error Alert */}
+            {authError && !authDuplicateError && (
+              <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 flex items-start gap-2.5">
+                <ShieldAlert className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                <div className="text-xs text-amber-800 dark:text-amber-200 leading-tight">
+                  <span className="font-black block text-amber-600 dark:text-amber-400 mb-0.5">Authentication Error</span>
+                  {authError}
+                </div>
+              </div>
+            )}
+
+            {/* Form */}
+            <form onSubmit={authMode === 'signup' ? handleAuthSignUp : handleAuthSignIn} className="space-y-3">
+              
+              {/* Extra fields for SIGN UP */}
+              {authMode === 'signup' && (
+                <>
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-700 dark:text-zinc-300 ml-1">
+                      Full Legal Name
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={authFullName}
+                        onChange={e => setAuthFullName(e.target.value)}
+                        placeholder="e.g. Emmanuel Onuabughichi"
+                        className="w-full h-11 pl-10 pr-4 rounded-full bg-slate-50 dark:bg-zinc-800/80 border border-slate-200 dark:border-white/[0.08] text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500"
+                        required
+                      />
+                      <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between ml-1">
+                      <label className="text-xs font-bold text-slate-700 dark:text-zinc-300">
+                        Username Handle
+                      </label>
+                      <span className="text-[10px] text-slate-400">Unique @handle</span>
+                    </div>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={authUsername}
+                        onChange={e => setAuthUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
+                        onBlur={() => handleCheckDuplicateField('username')}
+                        placeholder="e.g. DOCTORR"
+                        className="w-full h-11 pl-10 pr-4 rounded-full bg-slate-50 dark:bg-zinc-800/80 border border-slate-200 dark:border-white/[0.08] text-xs font-bold uppercase text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500"
+                        required
+                      />
+                      <span className="text-slate-400 font-bold text-xs absolute left-3.5 top-3.5">@</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between ml-1">
+                      <label className="text-xs font-bold text-slate-700 dark:text-zinc-300">
+                        Nigerian Phone Number
+                      </label>
+                      <span className="text-[10px] text-slate-400">1 Account per SIM</span>
+                    </div>
+                    <div className="relative">
+                      <input
+                        type="tel"
+                        value={authPhone}
+                        onChange={e => setAuthPhone(e.target.value.replace(/\D/g, ''))}
+                        onBlur={() => handleCheckDuplicateField('phone')}
+                        placeholder="08165961134"
+                        maxLength={11}
+                        className="w-full h-11 pl-10 pr-4 rounded-full bg-slate-50 dark:bg-zinc-800/80 border border-slate-200 dark:border-white/[0.08] text-xs font-bold font-mono text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500"
+                        required
+                      />
+                      <Phone className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Email Address (Both Modes) */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between ml-1">
+                  <label className="text-xs font-bold text-slate-700 dark:text-zinc-300">
+                    Email Address
+                  </label>
+                  {authMode === 'signup' && <span className="text-[10px] text-slate-400">No duplicate emails</span>}
+                </div>
+                <div className="relative">
+                  <input
+                    type="email"
+                    value={authEmail}
+                    onChange={e => setAuthEmail(e.target.value)}
+                    onBlur={() => handleCheckDuplicateField('email')}
+                    placeholder="your.email@gmail.com"
+                    className="w-full h-11 pl-10 pr-4 rounded-full bg-slate-50 dark:bg-zinc-800/80 border border-slate-200 dark:border-white/[0.08] text-xs font-medium text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500"
+                    required
+                  />
+                  <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+                </div>
+              </div>
+
+              {/* Password (Both Modes) */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between ml-1">
+                  <label className="text-xs font-bold text-slate-700 dark:text-zinc-300">
+                    Password
+                  </label>
+                  {authMode === 'signup' && <span className="text-[10px] text-slate-400">Min 6 characters</span>}
+                </div>
+                <div className="relative">
+                  <input
+                    type={showAuthPassword ? 'text' : 'password'}
+                    value={authPassword}
+                    onChange={e => setAuthPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full h-11 pl-10 pr-10 rounded-full bg-slate-50 dark:bg-zinc-800/80 border border-slate-200 dark:border-white/[0.08] text-xs font-medium text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500"
+                    required
+                  />
+                  <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+                  <button
+                    type="button"
+                    onClick={() => setShowAuthPassword(!showAuthPassword)}
+                    className="absolute right-3.5 top-3.5 text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer"
+                  >
+                    {showAuthPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Optional Referral Code for Sign Up */}
+              {authMode === 'signup' && (
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700 dark:text-zinc-300 ml-1">
+                    Referral Code (Optional)
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={authReferralCode}
+                      onChange={e => setAuthReferralCode(e.target.value.toUpperCase())}
+                      placeholder="e.g. TP-DOCTORR-2026"
+                      className="w-full h-11 pl-10 pr-4 rounded-full bg-slate-50 dark:bg-zinc-800/80 border border-slate-200 dark:border-white/[0.08] text-xs font-bold uppercase tracking-wider text-slate-900 dark:text-white focus:outline-none focus:border-cyan-500"
+                    />
+                    <Gift className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+                  </div>
+                </div>
+              )}
+
+              {/* Submit Button */}
+              <button
+                type="submit"
+                disabled={isAuthSubmitting || Boolean(authDuplicateError)}
+                className={`w-full h-11 rounded-full font-bold text-xs uppercase tracking-wider shadow-lg transition-all active:scale-[0.98] mt-2 flex items-center justify-center gap-2 cursor-pointer ${
+                  authDuplicateError
+                    ? 'bg-slate-200 dark:bg-zinc-800 text-slate-400 cursor-not-allowed'
+                    : 'bg-gradient-to-r from-sky-500 via-cyan-400 to-blue-600 text-white shadow-sky-500/25 hover:opacity-95'
+                }`}
+              >
+                {isAuthSubmitting ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                    <span>{authMode === 'signup' ? 'Verifying & Creating...' : 'Signing In...'}</span>
+                  </>
+                ) : (
+                  <span>{authMode === 'signup' ? 'Create My Account' : 'Sign In to Account'}</span>
+                )}
+              </button>
+            </form>
+
+            <div className="pt-2 text-center border-t border-slate-100 dark:border-white/[0.06]">
+              <span className="text-[10px] text-slate-400 dark:text-zinc-500 block">
+                🔒 All accounts protected by Supabase Row-Level Security (RLS) & PostgreSQL UNIQUE constraints.
+              </span>
+            </div>
+
           </div>
         </div>
       )}
