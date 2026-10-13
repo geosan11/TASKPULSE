@@ -5,6 +5,7 @@
 -- 1. Free-Tier Quota Guards: No binary blobs, B-Tree indexes on all FKs, strict RLS
 -- 2. FinTech Double-Entry Ledger: Balances updated via atomic PostgreSQL functions
 -- 3. Idempotent Reference Constraints: Prevents duplicate charges or double cashouts
+-- 4. Re-runnable / Idempotent: Can be executed multiple times without policy errors
 -- =========================================================================
 
 -- Enable required extensions
@@ -47,23 +48,16 @@ CREATE INDEX IF NOT EXISTS idx_profiles_tier_id ON public.profiles(tier_id);
 CREATE TABLE IF NOT EXISTS public.transactions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-    type VARCHAR(30) NOT NULL CHECK (type IN (
-        'deposit',         -- Inflow (e.g. ₦3,000 activation or wallet funding)
-        'cashout',         -- Outflow (Paystack NIP Bank Disbursement)
-        'deposit_match',   -- 100% Initial Deposit Double match upon 3 qualified referrals
-        'task_payout',     -- Bounty earned from verified task submission
-        'streak_reward',   -- Daily habit streak cash bonus
-        'tier_upgrade'     -- Tier limit expansion
-    )),
+    type VARCHAR(30) NOT NULL,
     amount NUMERIC(14,2) NOT NULL CHECK (amount > 0.00),
     fee NUMERIC(14,2) NOT NULL DEFAULT 0.00 CHECK (fee >= 0.00),
     net_amount NUMERIC(14,2) GENERATED ALWAYS AS (
         CASE 
-            WHEN type = 'cashout' THEN (amount - fee)
+            WHEN lower(type) = 'cashout' THEN (amount - fee)
             ELSE amount
         END
     ) STORED,
-    status VARCHAR(20) NOT NULL DEFAULT 'settled' CHECK (status IN ('pending', 'settled', 'declined', 'disbursed')),
+    status VARCHAR(20) NOT NULL DEFAULT 'settled',
     reference VARCHAR(100) UNIQUE NOT NULL, -- Paystack reference or internal cryptographic ref
     channel VARCHAR(30) DEFAULT 'paystack',
     title VARCHAR(120) NOT NULL,
@@ -71,7 +65,21 @@ CREATE TABLE IF NOT EXISTS public.transactions (
     destination_bank VARCHAR(100),
     destination_account VARCHAR(20),
     metadata JSONB DEFAULT '{}'::jsonb,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- Flexible case-insensitive constraints supporting both camelCase and snake_case
+    CONSTRAINT chk_tx_type CHECK (
+        lower(type) IN (
+            'deposit', 
+            'cashout', 
+            'deposit_match', 'match',
+            'task_payout', 'taskpayout',
+            'streak_reward', 'streakreward',
+            'tier_upgrade', 'tierupgrade'
+        )
+    ),
+    CONSTRAINT chk_tx_status CHECK (
+        lower(status) IN ('pending', 'settled', 'declined', 'disbursed')
+    )
 );
 
 -- Critical Indexes to eliminate sequential scans on pagination & filtering
@@ -116,7 +124,7 @@ CREATE TABLE IF NOT EXISTS public.task_completions (
     category VARCHAR(50) DEFAULT 'Social',
     proof_text TEXT,
     proof_screenshot_url TEXT, -- Strictly a Supabase Storage path/URL (NEVER binary blob!)
-    status VARCHAR(20) NOT NULL DEFAULT 'approved' CHECK (status IN ('pending', 'approved', 'rejected')),
+    status VARCHAR(20) NOT NULL DEFAULT 'approved' CHECK (lower(status) IN ('pending', 'approved', 'rejected')),
     sla_time VARCHAR(50) DEFAULT 'Instant SLA Approval',
     completed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -145,7 +153,53 @@ CREATE TABLE IF NOT EXISTS public.bank_accounts (
 CREATE INDEX IF NOT EXISTS idx_bank_accounts_user_id ON public.bank_accounts(user_id);
 
 -- =========================================================================
--- 6. ATOMIC BALANCE MUTATION STORED PROCEDURE (ROW LOCK PREVENTS RACE CONDITIONS)
+-- 6. AUTOMATIC USER PROFILE CREATION TRIGGER (AUTH HOOK)
+-- =========================================================================
+-- Automatically provisions a profile whenever a new user registers via Supabase Auth
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger AS $$
+BEGIN
+    INSERT INTO public.profiles (
+        id, 
+        email, 
+        username, 
+        full_name, 
+        referral_code
+    )
+    VALUES (
+        new.id,
+        new.email,
+        COALESCE(new.raw_user_meta_data->>'username', split_part(new.email, '@', 1)),
+        COALESCE(new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1)),
+        'TP' || UPPER(SUBSTRING(MD5(new.id::text) FROM 1 FOR 6))
+    )
+    ON CONFLICT (id) DO NOTHING;
+    RETURN new;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+-- Bind trigger to auth.users safely
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+    AFTER INSERT ON auth.users
+    FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
+
+-- Automatic updated_at timestamp trigger
+CREATE OR REPLACE FUNCTION public.set_updated_at()
+RETURNS trigger AS $$
+BEGIN
+    new.updated_at = NOW();
+    RETURN new;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS set_profiles_updated_at ON public.profiles;
+CREATE TRIGGER set_profiles_updated_at
+    BEFORE UPDATE ON public.profiles
+    FOR EACH ROW EXECUTE PROCEDURE public.set_updated_at();
+
+-- =========================================================================
+-- 7. ATOMIC BALANCE MUTATION STORED PROCEDURE (ROW LOCK PREVENTS RACE CONDITIONS)
 -- =========================================================================
 -- This function executes atomic balance changes and ledger inserts inside
 -- a single ACID transaction. Clients cannot manipulate balances directly.
@@ -171,7 +225,10 @@ DECLARE
     v_new_balance NUMERIC(14,2);
     v_new_withdrawn NUMERIC(14,2);
     v_tx_id UUID;
+    v_normalized_type TEXT;
 BEGIN
+    v_normalized_type := lower(p_type);
+
     -- 0. Anti-Double Entry Guard (Prevents duplicate charges/credits on network retries)
     SELECT id INTO v_tx_id
     FROM public.transactions
@@ -197,14 +254,21 @@ BEGIN
     END IF;
 
     -- 2. Validate balance requirements
-    IF p_type = 'cashout' THEN
+    IF v_normalized_type = 'cashout' THEN
         IF v_profile.withdrawable_balance < p_amount THEN
             RAISE EXCEPTION 'Insufficient balance: ₦% requested, ₦% available', p_amount, v_profile.withdrawable_balance;
         END IF;
         v_new_balance := v_profile.withdrawable_balance - p_amount;
         v_new_withdrawn := v_profile.total_withdrawn_lifetime + p_amount;
+    ELSIF v_normalized_type IN ('tier_upgrade', 'tierupgrade') AND (p_metadata->>'paid_from_wallet')::boolean IS TRUE THEN
+        -- If tier upgrade was purchased with internal wallet balance
+        IF v_profile.withdrawable_balance < p_amount THEN
+            RAISE EXCEPTION 'Insufficient balance for upgrade: ₦% required', p_amount;
+        END IF;
+        v_new_balance := v_profile.withdrawable_balance - p_amount;
+        v_new_withdrawn := v_profile.total_withdrawn_lifetime;
     ELSE
-        -- Deposits, bounties, bonuses credit the balance
+        -- Deposits, bounties, deposit matches, streak bonuses credit the balance
         v_new_balance := v_profile.withdrawable_balance + p_amount;
         v_new_withdrawn := v_profile.total_withdrawn_lifetime;
     END IF;
@@ -227,7 +291,7 @@ BEGIN
         p_type,
         p_amount,
         p_fee,
-        CASE WHEN p_type = 'cashout' THEN 'disbursed' ELSE 'settled' END,
+        CASE WHEN v_normalized_type = 'cashout' THEN 'disbursed' ELSE 'settled' END,
         p_reference,
         p_title,
         p_description,
@@ -253,8 +317,11 @@ BEGIN
 END;
 $$;
 
+-- Grant execution permissions
+GRANT EXECUTE ON FUNCTION public.execute_financial_mutation TO authenticated, service_role;
+
 -- =========================================================================
--- 7. ROW-LEVEL SECURITY (RLS) POLICIES
+-- 8. ROW-LEVEL SECURITY (RLS) POLICIES (CLEAN & IDEMPOTENT)
 -- =========================================================================
 -- Enable RLS on all tables
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
@@ -263,60 +330,92 @@ ALTER TABLE public.referrals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.task_completions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.bank_accounts ENABLE ROW LEVEL SECURITY;
 
--- Profiles: Users can view and update their own profile only
+-- Profiles Policies
+DROP POLICY IF EXISTS "Users view own profile" ON public.profiles;
 CREATE POLICY "Users view own profile"
     ON public.profiles FOR SELECT
     USING (auth.uid() = id);
 
+DROP POLICY IF EXISTS "Users update own profile" ON public.profiles;
 CREATE POLICY "Users update own profile"
     ON public.profiles FOR UPDATE
     USING (auth.uid() = id)
     WITH CHECK (auth.uid() = id);
 
--- Transactions: Read-only for authenticated user; inserts restricted to service role or functions
+DROP POLICY IF EXISTS "Users insert own profile" ON public.profiles;
+CREATE POLICY "Users insert own profile"
+    ON public.profiles FOR INSERT
+    WITH CHECK (auth.uid() = id);
+
+-- Transactions Policies
+DROP POLICY IF EXISTS "Users view own transactions" ON public.transactions;
 CREATE POLICY "Users view own transactions"
     ON public.transactions FOR SELECT
     USING (auth.uid() = user_id);
 
--- Referrals: Users can view their own invited referrals
+-- Referrals Policies
+DROP POLICY IF EXISTS "Users view own referrals" ON public.referrals;
 CREATE POLICY "Users view own referrals"
     ON public.referrals FOR SELECT
-    USING (auth.uid() = referrer_id);
+    USING (auth.uid() = referrer_id OR auth.uid() = referee_id);
 
--- Task Completions: Users can view and insert their task submissions
+DROP POLICY IF EXISTS "Users insert referrals" ON public.referrals;
+CREATE POLICY "Users insert referrals"
+    ON public.referrals FOR INSERT
+    WITH CHECK (auth.uid() = referrer_id OR auth.uid() = referee_id);
+
+-- Task Completions Policies
+DROP POLICY IF EXISTS "Users view own task completions" ON public.task_completions;
 CREATE POLICY "Users view own task completions"
     ON public.task_completions FOR SELECT
     USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users insert task completions" ON public.task_completions;
 CREATE POLICY "Users insert task completions"
     ON public.task_completions FOR INSERT
     WITH CHECK (auth.uid() = user_id);
 
--- Bank Accounts: Users can view, add, and manage their own bank accounts
+-- Bank Accounts Policies
+DROP POLICY IF EXISTS "Users view own bank accounts" ON public.bank_accounts;
 CREATE POLICY "Users view own bank accounts"
     ON public.bank_accounts FOR SELECT
     USING (auth.uid() = user_id);
 
-CREATE POLICY "Users manage own bank accounts"
-    ON public.bank_accounts FOR ALL
+DROP POLICY IF EXISTS "Users insert own bank accounts" ON public.bank_accounts;
+CREATE POLICY "Users insert own bank accounts"
+    ON public.bank_accounts FOR INSERT
+    WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users update own bank accounts" ON public.bank_accounts;
+CREATE POLICY "Users update own bank accounts"
+    ON public.bank_accounts FOR UPDATE
     USING (auth.uid() = user_id)
     WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users delete own bank accounts" ON public.bank_accounts;
+CREATE POLICY "Users delete own bank accounts"
+    ON public.bank_accounts FOR DELETE
+    USING (auth.uid() = user_id);
+
 -- =========================================================================
--- 8. SUPABASE STORAGE BUCKET CONFIGURATION (FOR TASK PROOFS)
+-- 9. SUPABASE STORAGE BUCKET CONFIGURATION (FOR TASK PROOFS)
 -- =========================================================================
--- Insert storage bucket for task screenshots (if storage schema exists)
+-- Create storage bucket for task screenshots (if storage schema exists)
 INSERT INTO storage.buckets (id, name, public)
 VALUES ('taskpulse-proofs', 'taskpulse-proofs', true)
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT (id) DO UPDATE SET public = true;
 
--- Storage policy: Users can upload to taskpulse-proofs bucket
+-- Clean existing storage policies to ensure safe re-runs
+DROP POLICY IF EXISTS "Authenticated users upload task proofs" ON storage.objects;
+DROP POLICY IF EXISTS "Public read task proofs" ON storage.objects;
+
+-- Storage policy: Authenticated users can upload screenshots to taskpulse-proofs bucket
 CREATE POLICY "Authenticated users upload task proofs"
     ON storage.objects FOR INSERT
     TO authenticated
-    WITH CHECK (bucket_id = 'taskpulse-proofs' AND auth.uid()::text = (storage.foldername(name))[1]);
+    WITH CHECK (bucket_id = 'taskpulse-proofs');
 
--- Storage policy: Public read access for verification
+-- Storage policy: Public read access for proof verification
 CREATE POLICY "Public read task proofs"
     ON storage.objects FOR SELECT
     TO public
