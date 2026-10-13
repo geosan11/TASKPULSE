@@ -283,20 +283,20 @@ const DEFAULT_TASKS: Task[] = [
 const LIVE_COMMUNITY_PAYOUTS = [
   { user: 'Grace O.', action: 'withdrew ₦15,000 via Moniepoint', bank: 'Moniepoint', time: '1m ago' },
   { user: 'Doctorr', action: 'earned ₦450 on TikTok Follow Task', bank: 'Escrow', time: '3m ago' },
-  { user: 'Chinedu A.', action: 'claimed ₦300 Day 5 Streak Bonus', bank: 'Wallet', time: '5m ago' },
+  { user: 'Chinedu A.', action: 'claimed ₦100 Daily Login Bonus', bank: 'Wallet', time: '5m ago' },
   { user: 'Blessing K.', action: 'withdrew ₦24,000 via OPay', bank: 'OPay', time: '8m ago' },
   { user: 'Tunde M.', action: 'upgraded to Silver Pulse (₦10k)', bank: 'Tier', time: '10m ago' },
   { user: 'Favour E.', action: 'withdrew ₦9,500 via Kuda Bank', bank: 'Kuda', time: '14m ago' }
 ];
 
 const STREAK_DAYS_CONFIG = [
-  { day: 1, reward: 50, label: '₦50', status: 'claimed' },
+  { day: 1, reward: 100, label: '₦100', status: 'claimed' },
   { day: 2, reward: 100, label: '₦100', status: 'claimed' },
-  { day: 3, reward: 150, label: '₦150', status: 'claimed' },
-  { day: 4, reward: 200, label: '₦200', status: 'claimed' },
-  { day: 5, reward: 300, label: '₦300', status: 'active' },
-  { day: 6, reward: 450, label: '₦450', status: 'locked' },
-  { day: 7, reward: 1000, label: '₦1,000 🎁', status: 'locked' }
+  { day: 3, reward: 100, label: '₦100', status: 'claimed' },
+  { day: 4, reward: 100, label: '₦100', status: 'claimed' },
+  { day: 5, reward: 100, label: '₦100', status: 'active' },
+  { day: 6, reward: 100, label: '₦100', status: 'locked' },
+  { day: 7, reward: 100, label: '₦100 🎁', status: 'locked' }
 ];
 
 const INITIAL_DEMO_REFERRALS: Referral[] = [];
@@ -305,6 +305,18 @@ export default function App() {
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
     return localStorage.getItem('taskpulse_theme') !== 'light';
   });
+
+  // Synchronize Dark / Light Theme on Document Root
+  useEffect(() => {
+    localStorage.setItem('taskpulse_theme', isDarkMode ? 'dark' : 'light');
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+      document.documentElement.setAttribute('data-theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      document.documentElement.setAttribute('data-theme', 'light');
+    }
+  }, [isDarkMode]);
 
   // Mandatory Minimum Drop Rule
   const [isActivated, setIsActivated] = useState<boolean>(() => {
@@ -537,6 +549,7 @@ export default function App() {
   const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
   const [showAuthPassword, setShowAuthPassword] = useState(false);
   const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
+  const [authAcceptTerms, setAuthAcceptTerms] = useState(false);
 
   // Sync Supabase Auth Session
   useEffect(() => {
@@ -930,7 +943,7 @@ export default function App() {
     }
     processedIdempotencyKeys.add(streakKey);
 
-    const bonus = 300;
+    const bonus = 100;
     setWithdrawableBalance(prev => prev + bonus);
     setUser({
       ...user,
@@ -940,7 +953,7 @@ export default function App() {
     addTransactionSafe({
       id: `tx-${Date.now()}`,
       type: 'Streak',
-      title: 'Day 5 Login Multiplier',
+      title: 'Daily Login Reward',
       sub: '0% Paystack withdrawal fee active',
       amount: bonus,
       status: 'Settled',
@@ -948,7 +961,7 @@ export default function App() {
       reference: `ref_tp_streak_${Date.now()}`
     });
     triggerConfetti();
-    showToast('🔥 +₦300 Claimed!', 'Your 5-day streak is blazing! 0% Paystack fees unlocked.');
+    showToast('🔥 +₦100 Claimed!', 'Daily login reward credited! 0% Paystack fees unlocked.');
     setIsStreakModalOpen(false);
   };
 
@@ -1137,6 +1150,11 @@ export default function App() {
       return;
     }
 
+    if (!authAcceptTerms) {
+      setAuthError('You must read and agree to the Terms of Service & Privacy Policy to create an account.');
+      return;
+    }
+
     setIsAuthSubmitting(true);
 
     // 1. Strict Duplicate Check (Email, Username, Phone)
@@ -1313,21 +1331,21 @@ export default function App() {
   const referralVolumePercent = Math.min(100, Math.round((totalReferralsDeposit / targetReferralVolume) * 100));
 
   return (
-    <div className={`h-screen w-full overflow-hidden flex flex-col items-center justify-center p-0 md:p-3 select-none transition-colors duration-300 ${isDarkMode ? 'dark bg-[#070709] text-white' : 'bg-[#f4f6f8] text-slate-900'}`}>
+    <div className={`h-screen w-full overflow-hidden flex flex-col items-center justify-center p-0 md:p-3 select-none transition-colors duration-300 ${isDarkMode ? 'dark bg-[#070709] text-white' : 'bg-[#eef2f6] text-slate-900'}`}>
       
       {/* AMBIENT AURORA BACKGROUND GLOWS */}
       <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
-        <div className="absolute top-[-10%] right-[-10%] w-[550px] h-[550px] rounded-full bg-cyan-500/10 dark:bg-cyan-500/15 blur-[140px] animate-float-slow"></div>
-        <div className="absolute bottom-[-10%] left-[-10%] w-[650px] h-[650px] rounded-full bg-blue-600/10 dark:bg-sky-500/10 blur-[150px] animate-float-slow [animation-delay:2.5s]"></div>
+        <div className="absolute top-[-10%] right-[-10%] w-[550px] h-[550px] rounded-full bg-blue-500/5 dark:bg-cyan-500/15 blur-[140px] animate-float-slow"></div>
+        <div className="absolute bottom-[-10%] left-[-10%] w-[650px] h-[650px] rounded-full bg-indigo-500/5 dark:bg-sky-500/10 blur-[150px] animate-float-slow [animation-delay:2.5s]"></div>
       </div>
 
       {/* PHONE CANVAS CONTAINER */}
-      <div className="relative z-10 w-full max-w-md h-full md:max-h-[852px] bg-white dark:bg-[#0c0d12] md:rounded-[46px] shadow-2xl md:border md:border-slate-200/90 dark:md:border-white/[0.08] overflow-hidden flex flex-col transition-colors duration-300">
+      <div className={`relative z-10 w-full max-w-md h-full md:max-h-[852px] ${isDarkMode ? 'dark bg-[#0c0d12] text-white md:border-white/[0.08]' : 'bg-[#f8fafc] text-slate-900 md:border-slate-200/90 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.08)]'} md:rounded-[46px] shadow-2xl md:border overflow-hidden flex flex-col transition-colors duration-300`}>
         
         {/* ======================================================== */}
         {/* TOP STATUS BAR & HEADER                                  */}
         {/* ======================================================== */}
-        <header className="px-5 py-3.5 bg-white/95 dark:bg-[#0c0d12]/95 backdrop-blur-xl border-b border-slate-100 dark:border-white/[0.06] flex items-center justify-between shrink-0 z-40 transition-colors">
+        <header className="px-5 py-3.5 bg-white/95 dark:bg-[#0c0d12]/95 backdrop-blur-xl border-b border-slate-200/80 dark:border-white/[0.06] flex items-center justify-between shrink-0 z-40 transition-colors">
           <div className="flex items-center gap-3">
             <button 
               onClick={() => setIsLedgerModalOpen(true)}
@@ -2540,14 +2558,14 @@ export default function App() {
         {/* ======================================================== */}
         {/* BOTTOM NAVIGATION                                        */}
         {/* ======================================================== */}
-        <nav className="bg-white/95 dark:bg-[#0c0d12]/95 backdrop-blur-xl border-t border-slate-100 dark:border-white/[0.06] px-4 py-2 shrink-0 z-40 flex items-center justify-around transition-colors">
+        <nav className="bg-white/95 dark:bg-[#0c0d12]/95 backdrop-blur-xl border-t border-slate-200/80 dark:border-white/[0.06] px-4 py-2 shrink-0 z-40 flex items-center justify-around transition-colors">
           
           <button 
             onClick={() => setActiveTab('home')}
-            className={`flex flex-col items-center gap-1 py-1 px-3 rounded-2xl transition-all ${
+            className={`flex flex-col items-center gap-1 py-1.5 px-3 rounded-2xl transition-all cursor-pointer ${
               activeTab === 'home' 
-                ? 'bg-sky-50 dark:bg-zinc-800 text-sky-500 dark:text-cyan-400 font-black' 
-                : 'text-slate-400 hover:text-slate-600 dark:text-zinc-500 dark:hover:text-zinc-200'
+                ? 'bg-blue-50/90 dark:bg-zinc-800 text-blue-600 dark:text-sky-400 font-black shadow-xs' 
+                : 'text-slate-500 hover:text-slate-800 dark:text-zinc-500 dark:hover:text-zinc-200'
             }`}
           >
             <Compass className="w-5 h-5" />
@@ -2556,15 +2574,15 @@ export default function App() {
 
           <button 
             onClick={() => setActiveTab('tasks')}
-            className={`flex flex-col items-center gap-1 py-1 px-3 rounded-2xl relative transition-all ${
+            className={`flex flex-col items-center gap-1 py-1.5 px-3 rounded-2xl relative transition-all cursor-pointer ${
               activeTab === 'tasks' 
-                ? 'bg-sky-50 dark:bg-zinc-800 text-sky-500 dark:text-cyan-400 font-black' 
-                : 'text-slate-400 hover:text-slate-600 dark:text-zinc-500 dark:hover:text-zinc-200'
+                ? 'bg-blue-50/90 dark:bg-zinc-800 text-blue-600 dark:text-sky-400 font-black shadow-xs' 
+                : 'text-slate-500 hover:text-slate-800 dark:text-zinc-500 dark:hover:text-zinc-200'
             }`}
           >
             <div className="relative">
               <CheckSquare className="w-5 h-5" />
-              <span className="absolute -top-1 -right-1.5 w-3.5 h-3.5 rounded-full bg-cyan-500 text-white text-[8px] font-black flex items-center justify-center">
+              <span className="absolute -top-1 -right-1.5 w-3.5 h-3.5 rounded-full bg-blue-600 text-white text-[8px] font-black flex items-center justify-center">
                 1
               </span>
             </div>
@@ -2573,25 +2591,25 @@ export default function App() {
 
           <button 
             onClick={() => setActiveTab('history')}
-            className={`flex flex-col items-center gap-1 py-1 px-3 rounded-2xl relative transition-all ${
+            className={`flex flex-col items-center gap-1 py-1.5 px-3 rounded-2xl relative transition-all cursor-pointer ${
               activeTab === 'history' 
-                ? 'bg-sky-50 dark:bg-zinc-800 text-sky-500 dark:text-cyan-400 font-black' 
-                : 'text-slate-400 hover:text-slate-600 dark:text-zinc-500 dark:hover:text-zinc-200'
+                ? 'bg-blue-50/90 dark:bg-zinc-800 text-blue-600 dark:text-sky-400 font-black shadow-xs' 
+                : 'text-slate-500 hover:text-slate-800 dark:text-zinc-500 dark:hover:text-zinc-200'
             }`}
           >
             <div className="relative">
               <History className="w-5 h-5" />
-              <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-cyan-500"></span>
+              <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-500"></span>
             </div>
             <span className="text-[10px] font-extrabold tracking-tight">History</span>
           </button>
 
           <button 
             onClick={() => setActiveTab('profile')}
-            className={`flex flex-col items-center gap-1 py-1 px-4 rounded-full transition-all ${
+            className={`flex flex-col items-center gap-1 py-1.5 px-3.5 rounded-2xl transition-all cursor-pointer ${
               activeTab === 'profile' 
-                ? 'bg-cyan-50 dark:bg-zinc-800 text-cyan-600 dark:text-cyan-400 font-black' 
-                : 'text-slate-400 hover:text-slate-600 dark:text-zinc-500 dark:hover:text-zinc-200'
+                ? 'bg-blue-50/90 dark:bg-zinc-800 text-blue-600 dark:text-sky-400 font-black shadow-xs' 
+                : 'text-slate-500 hover:text-slate-800 dark:text-zinc-500 dark:hover:text-zinc-200'
             }`}
           >
             <div className="w-5 h-5 rounded-full border-2 border-current flex items-center justify-center">
@@ -3547,7 +3565,7 @@ export default function App() {
                   : 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-lg shadow-orange-500/25 active:scale-95'
               }`}
             >
-              {user?.streakClaimedToday ? 'Already Claimed Today ✓' : 'Claim Day 5 Reward (₦300)'}
+              {user?.streakClaimedToday ? 'Already Claimed Today ✓' : 'Claim Daily Reward (₦100)'}
             </button>
 
             <button 
@@ -3796,14 +3814,52 @@ export default function App() {
                 </div>
               )}
 
+              {/* Terms of Service Acceptance Checkbox for Sign Up */}
+              {authMode === 'signup' && (
+                <div className="flex items-start gap-2.5 p-3 rounded-2xl bg-slate-50 dark:bg-zinc-800/60 border border-slate-200/80 dark:border-white/[0.08] text-xs">
+                  <input
+                    type="checkbox"
+                    id="authTermsCheckbox"
+                    checked={authAcceptTerms}
+                    onChange={e => setAuthAcceptTerms(e.target.checked)}
+                    className="mt-0.5 w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0 accent-blue-600"
+                    required
+                  />
+                  <label htmlFor="authTermsCheckbox" className="text-[11px] text-slate-600 dark:text-zinc-400 leading-snug cursor-pointer select-none">
+                    I agree to the{' '}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTermsTab('terms');
+                        setIsTermsModalOpen(true);
+                      }}
+                      className="font-black text-blue-600 dark:text-sky-400 hover:underline cursor-pointer"
+                    >
+                      Terms of Service
+                    </button>{' '}
+                    and{' '}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTermsTab('privacy');
+                        setIsTermsModalOpen(true);
+                      }}
+                      className="font-black text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
+                    >
+                      Privacy Policy (NDPR)
+                    </button>
+                  </label>
+                </div>
+              )}
+
               {/* Submit Button */}
               <button
                 type="submit"
-                disabled={isAuthSubmitting || Boolean(authDuplicateError)}
+                disabled={isAuthSubmitting || Boolean(authDuplicateError) || (authMode === 'signup' && !authAcceptTerms)}
                 className={`w-full h-11 rounded-full font-bold text-xs uppercase tracking-wider shadow-lg transition-all active:scale-[0.98] mt-2 flex items-center justify-center gap-2 cursor-pointer ${
-                  authDuplicateError
+                  authDuplicateError || (authMode === 'signup' && !authAcceptTerms)
                     ? 'bg-slate-200 dark:bg-zinc-800 text-slate-400 cursor-not-allowed'
-                    : 'bg-gradient-to-r from-sky-500 via-cyan-400 to-blue-600 text-white shadow-sky-500/25 hover:opacity-95'
+                    : 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-blue-500/25 hover:opacity-95'
                 }`}
               >
                 {isAuthSubmitting ? (
