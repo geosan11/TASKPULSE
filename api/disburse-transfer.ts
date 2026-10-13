@@ -133,6 +133,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (rpcErr) {
       const msg = rpcErr.message;
+      if (msg.includes('not_activated')) {
+        throw new HttpError(403, 'Account not activated: A minimum deposit of ₦3,000 is required before making your first withdrawal.');
+      }
       if (msg.includes('cooldown_active')) {
         throw new HttpError(403, '48-hour security cooling-off period active since your activation. Please check your unlock countdown.');
       }

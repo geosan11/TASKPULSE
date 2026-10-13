@@ -454,6 +454,7 @@ export default function App() {
 
   const [isReferralLockModalOpen, setIsReferralLockModalOpen] = useState<boolean>(false);
   const [isTierModalOpen, setIsTierModalOpen] = useState<boolean>(false);
+  const [isConditionsNotMetModalOpen, setIsConditionsNotMetModalOpen] = useState<boolean>(false);
 
   // Computed Referral Metrics
   const activeReferralsCount = referrals.filter(r => r.depositedAmount >= 3000).length;
@@ -576,6 +577,16 @@ export default function App() {
   }, [savedBanks]);
 
   const [selectedBankId, setSelectedBankId] = useState('');
+
+  // Comprehensive Withdrawal Conditions Sentinel (Single Source of Truth)
+  const areAllWithdrawalConditionsMet = Boolean(
+    isActivated &&
+    !isWithdrawalLockedByTime &&
+    isEligibleForWithdrawal &&
+    withdrawableBalance >= 3000 &&
+    remainingTierAllowance > 0 &&
+    savedBanks.length > 0
+  );
 
   // Paystack Withdrawal Modal Workflow
   const [isCashoutModalOpen, setIsCashoutModalOpen] = useState(false);
@@ -1016,41 +1027,15 @@ export default function App() {
     }
   };
 
-  // WITHDRAW CLICK HANDLER (Enforces 48h Lock, Referral / Upgrade Rule, Minimum ₦3,000, & Tier Limits)
+  // WITHDRAW CLICK HANDLER (Enforces All 6 Conditions; Pops up Conditions Not Met Modal on Unmet)
   const handleWithdrawClick = () => {
-    if (!isActivated) {
-      setIsDepositModalOpen(true);
+    if (!areAllWithdrawalConditionsMet) {
+      setIsConditionsNotMetModalOpen(true);
       return;
     }
 
-    if (isWithdrawalLockedByTime) {
-      setIsSecurityLockModalOpen(true);
-      return;
-    }
-
-    if (!isEligibleForWithdrawal) {
-      setIsReferralLockModalOpen(true);
-      showToast('Referral Condition Required', 'Minimum withdrawal (₦3,000) only applies once your referrals triple your initial deposit, or after upgrading tier.');
-      return;
-    }
-
-    if (remainingTierAllowance <= 0) {
-      setIsTierModalOpen(true);
-      showToast('Tier Withdrawal Cap Reached', `You have reached the ₦${currentTier.withdrawalCap.toLocaleString()} limit for ${currentTier.name}. Upgrade tier now to withdraw immediately!`);
-      return;
-    }
-
-    if (withdrawableBalance < 3000) {
-      showToast('Minimum Balance Required', 'Minimum withdrawal amount is ₦3,000.');
-      return;
-    }
-
-    if (savedBanks.length === 0) {
-      setIsAddBankModalOpen(true);
-      showToast('Link Bank Account', 'Please add a verified NUBAN bank account before withdrawing.');
-      return;
-    }
-
+    const maxWithdrawableNow = Math.min(withdrawableBalance, remainingTierAllowance, currentTier.dailyMaxCashout);
+    setCashoutAmount(maxWithdrawableNow.toString());
     setCashoutStep('amount');
     setIsCashoutModalOpen(true);
   };
@@ -1077,16 +1062,11 @@ export default function App() {
     }
   };
 
-  // Start Task
+  // Start Task (Users can earn freely through tasks and referrals before depositing to withdraw)
   const handleStartTask = (task: Task) => {
     if (task.id === 't-ref-growth' || task.category === 'Referral') {
       setSelectedTaskForModal(null);
       setIsReferralLockModalOpen(true);
-      return;
-    }
-    if (!isActivated) {
-      setSelectedTaskForModal(null);
-      setIsDepositModalOpen(true);
       return;
     }
     setActiveTask(task);
@@ -1156,7 +1136,7 @@ export default function App() {
     }
   };
 
-  // Paystack Cashout Initiation (Moves to confirmation step)
+  // Paystack Cashout Initiation (Moves to confirmation step with tier cap clamping)
   const handleInitiateCashout = (e: React.FormEvent) => {
     e.preventDefault();
     const amt = Math.floor(Number(cashoutAmount));
@@ -1170,9 +1150,15 @@ export default function App() {
       return;
     }
     if (amt > remainingTierAllowance) {
-      showToast('Tier Limit Exceeded', `Your remaining allowance for ${currentTier.name} is ₦${remainingTierAllowance.toLocaleString()}. Upgrade tier to withdraw more!`);
-      setIsTierModalOpen(true);
-      return;
+      if (remainingTierAllowance >= 3000) {
+        setCashoutAmount(remainingTierAllowance.toString());
+        showToast('Clamped to Tier Cap', `Your max cashout for ${currentTier.name} is ₦${remainingTierAllowance.toLocaleString()}. The remaining ₦${(withdrawableBalance - remainingTierAllowance).toLocaleString()} stays safe in your wallet until you upgrade.`);
+        return;
+      } else {
+        showToast('Tier Limit Reached', `Your remaining allowance for ${currentTier.name} is ₦${remainingTierAllowance.toLocaleString()}. Please upgrade your tier to withdraw your balance.`);
+        setIsTierModalOpen(true);
+        return;
+      }
     }
     if (amt > currentTier.dailyMaxCashout) {
       showToast('Single Transfer Limit Exceeded', `Max single cashout for ${currentTier.name} is ₦${currentTier.dailyMaxCashout.toLocaleString()}.`);
@@ -1626,62 +1612,42 @@ export default function App() {
           {/* TAB 1: HOME (Hero Balance, Streak, Payout Ticker)        */}
           {/* ======================================================== */}
           {activeTab === 'home' && (
-            !isActivated ? (
-              <div className="flex-1 flex flex-col justify-center items-center py-6 px-2 text-center space-y-5 animate-in fade-in duration-300">
-                
-                <div className="relative">
-                  <div className="w-20 h-20 rounded-3xl bg-gradient-to-tr from-sky-500 via-cyan-400 to-blue-600 text-white flex items-center justify-center text-3xl shadow-xl shadow-cyan-500/20">
-                    💎
+            <div className="space-y-4 animate-in fade-in duration-300">
+              
+              {/* FREEMIUM NOTICE BANNER (ENCOURAGES REFERRING & BUILDING UP BALANCE BEFORE DEPOSIT) */}
+              {!isActivated && (
+                <div 
+                  onClick={() => setIsDepositModalOpen(true)}
+                  className="p-3.5 rounded-3xl bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-amber-500/10 border border-amber-500/30 dark:border-amber-500/20 flex items-center justify-between gap-3 cursor-pointer hover:border-amber-500/50 transition-all shadow-xs"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-9 h-9 rounded-2xl bg-amber-500/20 text-amber-500 dark:text-amber-400 flex items-center justify-center shrink-0 text-base font-bold">
+                      ⚡
+                    </div>
+                    <div className="min-w-0">
+                      <h4 className="text-xs font-black text-slate-900 dark:text-white flex items-center gap-1.5 flex-wrap">
+                        <span>Freemium Mode Active</span>
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-300 font-extrabold uppercase tracking-wide">
+                          Deposit ₦3,000 to Cashout
+                        </span>
+                      </h4>
+                      <p className="text-[11px] text-slate-500 dark:text-zinc-400 leading-snug mt-0.5">
+                        Refer friends (+₦1,000/ref) &amp; claim daily streak (+₦450) freely. Deposit ₦3,000 anytime when you are ready to withdraw!
+                      </p>
+                    </div>
                   </div>
-                  <div className="absolute -bottom-1 -right-1 w-8 h-8 rounded-2xl bg-amber-500 border-2 border-white dark:border-[#0c0d12] flex items-center justify-center text-white text-xs shadow-md">
-                    🔒
-                  </div>
-                </div>
-
-                <div className="space-y-1">
-                  <h2 className="text-xl font-black text-slate-900 dark:text-white">
-                    Drop ₦3,000 to Activate
-                  </h2>
-                  <p className="text-xs text-slate-500 dark:text-zinc-400 max-w-xs mx-auto leading-relaxed font-medium">
-                    A minimum deposit of ₦3,000 is required to activate Bronze Pulse. 100% credited to your wallet balance.
-                  </p>
-                </div>
-
-                {/* CLEAN SIMPLE 3-ROW CARD */}
-                <div className="w-full bg-white dark:bg-zinc-900/80 border border-slate-100 dark:border-white/[0.08] rounded-3xl p-5 shadow-xl text-left space-y-3">
-                  <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-zinc-400">
-                    <span>Entry Stake (Bronze Pulse):</span>
-                    <span className="font-mono text-base font-black text-slate-900 dark:text-white">₦3,000</span>
-                  </div>
-                  <div className="flex items-center justify-between text-xs font-bold text-emerald-600 dark:text-emerald-400">
-                    <span>Credited to Your Balance:</span>
-                    <span className="font-mono text-base font-black">+₦3,000.00</span>
-                  </div>
-                  <div className="pt-2 border-t border-slate-100 dark:border-zinc-800 flex items-center justify-between text-[11px] text-slate-500 dark:text-zinc-400 font-semibold">
-                    <span>Bronze Withdrawal Cap:</span>
-                    <span className="text-cyan-500 font-black uppercase">₦24,000 (8x RETURN) ✓</span>
-                  </div>
-                </div>
-
-                {/* ACTION BUTTON */}
-                <div className="w-full space-y-2 pt-1">
-                  <button 
-                    onClick={() => setIsDepositModalOpen(true)}
-                    className="w-full h-12 rounded-full bg-gradient-to-r from-sky-500 via-cyan-500 to-blue-600 hover:opacity-95 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-sky-500/25 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsDepositModalOpen(true);
+                    }}
+                    className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-black text-xs shrink-0 shadow-md shadow-amber-500/20 active:scale-95 transition-all cursor-pointer"
                   >
-                    <CreditCard className="w-4 h-4" />
-                    <span>Drop ₦3,000 via Paystack</span>
+                    Deposit ₦3k
                   </button>
                 </div>
-
-                <div className="inline-flex items-center gap-1.5 text-[10px] text-slate-400 dark:text-zinc-500 font-semibold">
-                  <Shield className="w-3.5 h-3.5 text-emerald-500" />
-                  <span>Secured 256-bit encryption by Paystack</span>
-                </div>
-
-              </div>
-            ) : (
-              <div className="space-y-4 animate-in fade-in duration-300">
+              )}
                   
                   {/* ULTRA-PREMIUM REVOLUT BLACK CARD */}
                   <div className="relative rounded-3xl bg-gradient-to-br from-zinc-900 via-black to-zinc-950 text-white p-5 border border-white/10 shadow-2xl overflow-hidden group">
@@ -1765,36 +1731,13 @@ export default function App() {
                         <span>Fund</span>
                       </button>
 
-                      {/* Cashout (Navigates directly to dedicated Withdraw Dashboard) */}
+                      {/* Cashout (Triggers withdrawal or shows Conditions Not Met popup) */}
                       <button 
-                        onClick={() => setActiveTab('withdraw')}
-                        className={`py-2 px-1 rounded-2xl text-[11px] font-bold transition-all flex flex-col items-center justify-center gap-1 active:scale-95 shadow-md ${
-                          isWithdrawalLockedByTime || remainingTierAllowance <= 0 || !isEligibleForWithdrawal
-                            ? 'bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300'
-                            : 'bg-gradient-to-tr from-cyan-500 to-sky-500 text-white'
-                        }`}
+                        onClick={handleWithdrawClick}
+                        className="py-2 px-1 bg-gradient-to-tr from-cyan-500 to-sky-500 hover:opacity-95 text-white rounded-2xl text-[11px] font-bold transition-all flex flex-col items-center justify-center gap-1 active:scale-95 shadow-md cursor-pointer"
                       >
-                        {isWithdrawalLockedByTime ? (
-                          <>
-                            <LockKeyhole className="w-4 h-4 text-amber-400" />
-                            <span>Cashout (48h)</span>
-                          </>
-                        ) : remainingTierAllowance <= 0 ? (
-                          <>
-                            <ArrowUpCircle className="w-4 h-4 text-amber-400 animate-pulse" />
-                            <span>Upgrade Tier</span>
-                          </>
-                        ) : !isEligibleForWithdrawal ? (
-                          <>
-                            <Users className="w-4 h-4 text-amber-400" />
-                            <span>Cashout (3 Refs)</span>
-                          </>
-                        ) : (
-                          <>
-                            <ArrowUpRight className="w-4 h-4 text-white" />
-                            <span>Cashout</span>
-                          </>
-                        )}
+                        <ArrowUpRight className="w-4 h-4 text-white" />
+                        <span>Cashout</span>
                       </button>
 
                       {/* Streak Calendar */}
@@ -1975,9 +1918,7 @@ export default function App() {
                   </div>
 
                 </div>
-              )
-            )
-          }
+              )}
 
               {/* ======================================================== */}
               {/* TAB 2: TASKS (EXACTLY ONE TASK + "MORE COMING SOON")     */}
@@ -2314,18 +2255,55 @@ export default function App() {
                   </div>
 
                   {/* 3-STEP CASHOUT ELIGIBILITY CHECKLIST (VERY COMPREHENSIBLE) */}
+                  {/* TIER ALLOWANCE RETENTION CALLOUT */}
+                  {withdrawableBalance > remainingTierAllowance && remainingTierAllowance > 0 && (
+                    <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/25 flex items-start gap-2.5 text-xs text-amber-800 dark:text-amber-300">
+                      <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-bold block">Tier Limit Cap Active ({currentTier.name})</span>
+                        <span className="text-[11px] opacity-90 block mt-0.5 leading-relaxed">
+                          You can withdraw up to <strong>₦{remainingTierAllowance.toLocaleString()}</strong> under your current tier. The remaining <strong>₦{(withdrawableBalance - remainingTierAllowance).toLocaleString()}</strong> stays securely in your wallet until you upgrade your tier!
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 4-STEP CASHOUT ELIGIBILITY CHECKLIST */}
                   <div className="bg-white dark:bg-zinc-900/80 border border-slate-200 dark:border-white/[0.08] rounded-3xl p-5 shadow-sm space-y-3.5">
                     <div>
                       <h4 className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-zinc-200">
                         Withdrawal Checklist &amp; Qualification
                       </h4>
                       <p className="text-[11px] text-slate-500 dark:text-zinc-400 mt-0.5">
-                        All 3 conditions below must be green to execute a bank cashout.
+                        Requirements to disburse automated NIP payouts to your bank.
                       </p>
                     </div>
 
                     <div className="space-y-2 text-xs">
-                      {/* Check 1: 48h Security Seasoning */}
+                      {/* Check 1: ₦3,000 Activation Deposit */}
+                      <div 
+                        onClick={() => !isActivated && setIsDepositModalOpen(true)}
+                        className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                          isActivated
+                            ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
+                            : 'bg-amber-50 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <span className="text-base">{isActivated ? '✓' : '💳'}</span>
+                          <div>
+                            <span className="font-bold text-xs block">1. ₦3,000 Account Activation Deposit</span>
+                            <span className="text-[10px] opacity-80 block">
+                              {isActivated ? '₦3,000 deposited · Account activated for cashout' : 'Deposit ₦3,000 anytime to unlock withdrawals'}
+                            </span>
+                          </div>
+                        </div>
+                        <span className="font-mono font-bold text-[11px] shrink-0">
+                          {isActivated ? 'Passed ✓' : 'Deposit ₦3k →'}
+                        </span>
+                      </div>
+
+                      {/* Check 2: 48h Security Seasoning */}
                       <div 
                         onClick={() => setIsSecurityLockModalOpen(true)}
                         className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-2 ${
@@ -2337,7 +2315,7 @@ export default function App() {
                         <div className="flex items-center gap-2.5">
                           <span className="text-base">{!isWithdrawalLockedByTime ? '✓' : '🔒'}</span>
                           <div>
-                            <span className="font-bold text-xs block">1. 48-Hour Security Seasoning</span>
+                            <span className="font-bold text-xs block">2. 48-Hour Security Seasoning</span>
                             <span className="text-[10px] opacity-80 block">
                               {!isWithdrawalLockedByTime ? 'Account seasoned · Ready for withdrawal' : `Cooling period remaining: ${countdownParts.fullString}`}
                             </span>
@@ -2348,7 +2326,7 @@ export default function App() {
                         </span>
                       </div>
 
-                      {/* Check 2: 3 Qualified Referrals (₦1k/ref) OR Tier Upgrade */}
+                      {/* Check 3: 3 Qualified Referrals (₦1k/ref) OR Tier Upgrade */}
                       <div 
                         onClick={() => isEligibleForWithdrawal ? (hasUpgradedAfterLimit ? setIsTierModalOpen(true) : setIsReferralLockModalOpen(true)) : setIsReferralLockModalOpen(true)}
                         className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-2 ${
@@ -2360,7 +2338,7 @@ export default function App() {
                         <div className="flex items-center gap-2.5">
                           <span className="text-base">{isEligibleForWithdrawal ? '✓' : '👥'}</span>
                           <div>
-                            <span className="font-bold text-xs block">2. 3 Qualified Referrals (₦1,000 / Ref) or Tier Upgrade</span>
+                            <span className="font-bold text-xs block">3. 3 Qualified Referrals (₦1,000 / Ref) or Tier Upgrade</span>
                             <span className="text-[10px] opacity-80 block">
                               {isEligibleForWithdrawal
                                 ? (hasUpgradedAfterLimit ? 'Tier Upgraded · Cashout condition satisfied ✓' : '3 Referrals Met · Cashout unlocked ✓')
@@ -2373,7 +2351,7 @@ export default function App() {
                         </span>
                       </div>
 
-                      {/* Check 3: Minimum ₦3,000 Balance */}
+                      {/* Check 4: Minimum ₦3,000 Balance */}
                       <div 
                         className={`p-3 rounded-2xl border flex items-center justify-between gap-2 ${
                           withdrawableBalance >= 3000
@@ -2384,7 +2362,7 @@ export default function App() {
                         <div className="flex items-center gap-2.5">
                           <span className="text-base">{withdrawableBalance >= 3000 ? '✓' : '💰'}</span>
                           <div>
-                            <span className="font-bold text-xs block">3. Minimum Cashout Floor (₦3,000)</span>
+                            <span className="font-bold text-xs block">4. Minimum Cashout Floor (₦3,000)</span>
                             <span className="text-[10px] opacity-80 block">
                               {withdrawableBalance >= 3000 ? `₦${withdrawableBalance.toLocaleString()} available · Floor met` : `Current balance: ₦${withdrawableBalance.toLocaleString()} (Needs ₦3,000 min)`}
                             </span>
@@ -2394,43 +2372,76 @@ export default function App() {
                           {withdrawableBalance >= 3000 ? 'Passed ✓' : 'Below ₦3k'}
                         </span>
                       </div>
+                      {/* Check 5: Tier Withdrawal Allowance */}
+                      <div 
+                        onClick={() => remainingTierAllowance <= 0 && setIsTierModalOpen(true)}
+                        className={`p-3 rounded-2xl border transition-all flex items-center justify-between gap-2 ${
+                          remainingTierAllowance <= 0 ? 'cursor-pointer' : ''
+                        } ${
+                          remainingTierAllowance > 0
+                            ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
+                            : 'bg-rose-50 dark:bg-rose-950/30 border-rose-300 dark:border-rose-800 text-rose-800 dark:text-rose-300'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <span className="text-base">{remainingTierAllowance > 0 ? '✓' : '⚠️'}</span>
+                          <div>
+                            <span className="font-bold text-xs block">5. Tier Withdrawal Cap Allowance</span>
+                            <span className="text-[10px] opacity-80 block">
+                              {remainingTierAllowance > 0 
+                                ? `₦${remainingTierAllowance.toLocaleString()} remaining allowance on ${currentTier.name}` 
+                                : `Cap reached (₦${currentTier.withdrawalCap.toLocaleString()}) · Upgrade tier to unlock remaining ₦${withdrawableBalance.toLocaleString()}`}
+                            </span>
+                          </div>
+                        </div>
+                        <span className="font-mono font-bold text-[11px] shrink-0">
+                          {remainingTierAllowance > 0 ? 'Passed ✓' : 'Cap Reached →'}
+                        </span>
+                      </div>
+
+                      {/* Check 6: Verified NUBAN Bank Account */}
+                      <div 
+                        onClick={() => savedBanks.length === 0 && setIsAddBankModalOpen(true)}
+                        className={`p-3 rounded-2xl border transition-all flex items-center justify-between gap-2 ${
+                          savedBanks.length === 0 ? 'cursor-pointer' : ''
+                        } ${
+                          savedBanks.length > 0
+                            ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
+                            : 'bg-slate-50 dark:bg-zinc-800/60 border-slate-200 dark:border-white/10 text-slate-500 dark:text-zinc-400'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <span className="text-base">{savedBanks.length > 0 ? '✓' : '🏦'}</span>
+                          <div>
+                            <span className="font-bold text-xs block">6. Verified Destination Bank Account</span>
+                            <span className="text-[10px] opacity-80 block">
+                              {savedBanks.length > 0 
+                                ? `${savedBanks[0].bankName} (${savedBanks[0].accountNumber}) · Verified ✓` 
+                                : 'No payout bank linked yet · Link a 10-digit NUBAN'}
+                            </span>
+                          </div>
+                        </div>
+                        <span className="font-mono font-bold text-[11px] shrink-0">
+                          {savedBanks.length > 0 ? 'Passed ✓' : 'Link Bank →'}
+                        </span>
+                      </div>
                     </div>
                   </div>
 
-                  {/* PRIMARY ACTION BUTTON */}
+                  {/* PRIMARY ACTION BUTTON: ALWAYS SHOWS ACTIVE WITHDRAWAL BUTTON */}
                   <div className="pt-1">
-                    {isEligibleForWithdrawal && !isWithdrawalLockedByTime && withdrawableBalance >= 3000 ? (
-                      <button
-                        type="button"
-                        onClick={handleWithdrawClick}
-                        className="w-full h-12 rounded-full bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 hover:opacity-95 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-emerald-500/25 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer"
-                      >
-                        <ArrowUpRight className="w-4 h-4 stroke-[3]" />
-                        <span>Withdraw ₦{withdrawableBalance.toLocaleString()} to Bank Now</span>
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (isWithdrawalLockedByTime) {
-                            setIsSecurityLockModalOpen(true);
-                          } else if (!isEligibleForWithdrawal) {
-                            setIsReferralLockModalOpen(true);
-                          } else {
-                            showToast('Minimum Balance', 'You need at least ₦3,000 in your wallet to withdraw.');
-                          }
-                        }}
-                        className="w-full h-12 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-200 font-bold text-xs uppercase tracking-wider border border-slate-200 dark:border-white/10 flex items-center justify-center gap-2 cursor-pointer transition-all"
-                      >
-                        <LockKeyhole className="w-4 h-4 text-amber-500 shrink-0" />
-                        <span className="truncate">
-                          {isWithdrawalLockedByTime
-                            ? `Cooling Period Active (${countdownParts.fullString})`
-                            : !isEligibleForWithdrawal
-                            ? 'Invite 3 Friends (₦1,000/ref) to Unlock Cashout →'
-                            : 'Need at least ₦3,000 to Cashout'}
-                        </span>
-                      </button>
+                    <button
+                      type="button"
+                      onClick={handleWithdrawClick}
+                      className="w-full h-12 rounded-full bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 hover:opacity-95 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-emerald-500/25 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <ArrowUpRight className="w-4 h-4 stroke-[3]" />
+                      <span>Withdraw ₦{Math.min(withdrawableBalance, remainingTierAllowance > 0 ? remainingTierAllowance : withdrawableBalance, currentTier.dailyMaxCashout).toLocaleString()} to Bank Now</span>
+                    </button>
+                    {withdrawableBalance > remainingTierAllowance && remainingTierAllowance > 0 && (
+                      <p className="text-center text-[10px] text-amber-600 dark:text-amber-400 mt-1.5 font-medium">
+                        💡 Remaining ₦{(withdrawableBalance - remainingTierAllowance).toLocaleString()} stays safe in your wallet until you upgrade your tier.
+                      </p>
                     )}
                   </div>
 
@@ -3189,7 +3200,7 @@ export default function App() {
       {/* ======================================================== */}
       {isReferralLockModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white dark:bg-[#111218] border border-indigo-400/50 dark:border-indigo-500/40 rounded-3xl max-w-sm w-full p-6 space-y-4 shadow-2xl text-center relative overflow-hidden">
+          <div className="bg-white dark:bg-[#111218] border border-indigo-400/50 dark:border-indigo-500/40 rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl text-center relative max-h-[88vh] overflow-y-auto no-scrollbar">
             
             <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-indigo-500 via-cyan-400 to-indigo-500"></div>
 
@@ -3313,7 +3324,7 @@ export default function App() {
       {/* ======================================================== */}
       {isSecurityLockModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white dark:bg-[#111218] border border-amber-300 dark:border-amber-500/30 rounded-3xl max-w-sm w-full p-6 space-y-5 shadow-2xl text-center relative overflow-hidden">
+          <div className="bg-white dark:bg-[#111218] border border-amber-300 dark:border-amber-500/30 rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl text-center relative max-h-[88vh] overflow-y-auto no-scrollbar">
             
             <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-400 via-yellow-300 to-amber-500"></div>
 
@@ -3385,11 +3396,348 @@ export default function App() {
       )}
 
       {/* ======================================================== */}
+      {/* MODAL: WITHDRAWAL CONDITIONS NOT MET POPUP               */}
+      {/* ======================================================== */}
+      {isConditionsNotMetModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-[#111218] border border-amber-300 dark:border-amber-500/30 rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl relative max-h-[88vh] overflow-y-auto no-scrollbar">
+            
+            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-400 via-orange-400 to-rose-500 rounded-t-3xl"></div>
+
+            {/* Header with Close Button */}
+            <div className="flex items-start justify-between pt-1">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-amber-50 dark:bg-amber-950/50 border border-amber-300 dark:border-amber-500/40 flex items-center justify-center text-amber-500 shadow-sm shrink-0">
+                  <ShieldAlert className="w-5 h-5 text-amber-500" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400 block">
+                    Cashout Eligibility Sentinel
+                  </span>
+                  <h3 className="text-base font-black text-slate-900 dark:text-white leading-tight">
+                    Conditions Not Met
+                  </h3>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsConditionsNotMetModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-white transition-all cursor-pointer shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-600 dark:text-zinc-300 leading-relaxed font-medium">
+              You must satisfy all 6 compliance criteria before your automated Paystack NIP bank disbursement can proceed.
+            </p>
+
+            {/* PROGRESS SUMMARY BAR */}
+            <div className="p-3 rounded-2xl bg-slate-50 dark:bg-zinc-900/80 border border-slate-200 dark:border-white/[0.08] space-y-2">
+              <div className="flex justify-between items-center text-xs font-bold">
+                <span className="text-slate-700 dark:text-zinc-300">Readiness Score:</span>
+                <span className="font-mono text-amber-600 dark:text-amber-400 font-black">
+                  {[
+                    isActivated,
+                    !isWithdrawalLockedByTime,
+                    isEligibleForWithdrawal,
+                    withdrawableBalance >= 3000,
+                    remainingTierAllowance > 0,
+                    savedBanks.length > 0
+                  ].filter(Boolean).length} / 6 Met
+                </span>
+              </div>
+              <div className="w-full bg-slate-200 dark:bg-zinc-800 h-2 rounded-full overflow-hidden">
+                <div 
+                  className="bg-gradient-to-r from-amber-400 via-orange-400 to-emerald-500 h-full rounded-full transition-all duration-500"
+                  style={{
+                    width: `${Math.round(
+                      ([
+                        isActivated,
+                        !isWithdrawalLockedByTime,
+                        isEligibleForWithdrawal,
+                        withdrawableBalance >= 3000,
+                        remainingTierAllowance > 0,
+                        savedBanks.length > 0
+                      ].filter(Boolean).length / 6) * 100
+                    )}%`
+                  }}
+                ></div>
+              </div>
+              <div className="flex justify-between text-[10px] text-slate-400 font-semibold">
+                <span>Withdrawable: <strong className="text-slate-700 dark:text-white font-mono">₦{withdrawableBalance.toLocaleString()}</strong></span>
+                <span>Minimum: <strong className="text-slate-700 dark:text-white font-mono">₦3,000</strong></span>
+              </div>
+            </div>
+
+            {/* CONDITIONS CHECKLIST WITH DIRECT 1-TAP ACTION BUTTONS */}
+            <div className="space-y-2">
+
+              {/* 1. Account Activation (₦3,000 Deposit) */}
+              <div className={`p-3 rounded-2xl border transition-all ${
+                isActivated 
+                  ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
+                  : 'bg-amber-50/70 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700/60 text-slate-800 dark:text-zinc-200'
+              }`}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-start gap-2.5">
+                    <span className="text-base leading-none mt-0.5">{isActivated ? '✓' : '💳'}</span>
+                    <div>
+                      <h4 className="font-bold text-xs">1. ₦3,000 Activation Deposit</h4>
+                      <p className="text-[10px] opacity-80 mt-0.5 leading-snug">
+                        {isActivated ? '₦3,000 deposit confirmed · Account activated' : 'Deposit ₦3,000 to activate wallet and withdraw your accumulated earnings.'}
+                      </p>
+                    </div>
+                  </div>
+                  <span className="font-mono font-bold text-[10px] shrink-0">
+                    {isActivated ? 'Passed ✓' : 'Unmet'}
+                  </span>
+                </div>
+                {!isActivated && (
+                  <div className="mt-2.5 pt-2 border-t border-amber-200 dark:border-white/10 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsConditionsNotMetModalOpen(false);
+                        setIsDepositModalOpen(true);
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:opacity-95 text-white font-black text-[10px] uppercase tracking-wider shadow-sm active:scale-95 transition-all flex items-center gap-1 cursor-pointer"
+                    >
+                      <CreditCard className="w-3 h-3" />
+                      <span>Deposit ₦3,000 Now →</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* 2. 48-Hour Security Cooling Window */}
+              <div className={`p-3 rounded-2xl border transition-all ${
+                !isWithdrawalLockedByTime
+                  ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
+                  : 'bg-amber-50/70 dark:bg-amber-950/30 border-amber-300 dark:border-amber-700/60 text-slate-800 dark:text-zinc-200'
+              }`}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-start gap-2.5">
+                    <span className="text-base leading-none mt-0.5">{!isWithdrawalLockedByTime ? '✓' : '🔒'}</span>
+                    <div>
+                      <h4 className="font-bold text-xs">2. 48-Hour Security Seasoning</h4>
+                      <p className="text-[10px] opacity-80 mt-0.5 leading-snug">
+                        {!isWithdrawalLockedByTime 
+                          ? 'Account seasoned · Ready for transfer' 
+                          : `Cooling window active: ${countdownParts.fullString} remaining (${seasoningProgressPercent}% seasoned).`}
+                      </p>
+                    </div>
+                  </div>
+                  <span className="font-mono font-bold text-[10px] shrink-0">
+                    {!isWithdrawalLockedByTime ? 'Passed ✓' : countdownParts.fullString.slice(0, 7)}
+                  </span>
+                </div>
+                {isWithdrawalLockedByTime && (
+                  <div className="mt-2.5 pt-2 border-t border-amber-200 dark:border-white/10 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsConditionsNotMetModalOpen(false);
+                        setIsSecurityLockModalOpen(true);
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-[10px] active:scale-95 transition-all flex items-center gap-1 cursor-pointer"
+                    >
+                      <Clock className="w-3 h-3" />
+                      <span>View Countdown Timer →</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* 3. 3 Referrals (₦1k/ref) OR Tier Upgrade */}
+              <div className={`p-3 rounded-2xl border transition-all ${
+                isEligibleForWithdrawal
+                  ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
+                  : 'bg-indigo-50/70 dark:bg-indigo-950/30 border-indigo-300 dark:border-indigo-700/60 text-slate-800 dark:text-zinc-200'
+              }`}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-start gap-2.5">
+                    <span className="text-base leading-none mt-0.5">{isEligibleForWithdrawal ? '✓' : '👥'}</span>
+                    <div>
+                      <h4 className="font-bold text-xs">3. 3 Qualified Referrals or Upgrade</h4>
+                      <p className="text-[10px] opacity-80 mt-0.5 leading-snug">
+                        {isEligibleForWithdrawal
+                          ? (hasUpgradedAfterLimit ? 'Tier upgraded · Cashout condition satisfied ✓' : '3 Referrals activated · ₦3k commission earned ✓')
+                          : `${activeReferralsCount}/3 friends activated (₦${totalReferralsDeposit.toLocaleString()} volume). Earn ₦1k/ref or upgrade.`}
+                      </p>
+                    </div>
+                  </div>
+                  <span className="font-mono font-bold text-[10px] shrink-0">
+                    {isEligibleForWithdrawal ? 'Passed ✓' : `${activeReferralsCount}/3`}
+                  </span>
+                </div>
+                {!isEligibleForWithdrawal && (
+                  <div className="mt-2.5 pt-2 border-t border-indigo-200 dark:border-white/10 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsConditionsNotMetModalOpen(false);
+                        setIsReferralLockModalOpen(true);
+                      }}
+                      className="flex-1 py-1.5 px-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] active:scale-95 transition-all flex items-center justify-center gap-1 cursor-pointer"
+                    >
+                      <Users className="w-3 h-3" />
+                      <span>Invite Friends (+₦1k)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsConditionsNotMetModalOpen(false);
+                        setIsTierModalOpen(true);
+                      }}
+                      className="flex-1 py-1.5 px-2 rounded-xl bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-200 font-bold text-[10px] border border-slate-200 dark:border-white/10 active:scale-95 transition-all flex items-center justify-center gap-1 cursor-pointer"
+                    >
+                      <Crown className="w-3 h-3 text-amber-500" />
+                      <span>Upgrade Tier</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* 4. Minimum Cashout Floor (₦3,000) */}
+              <div className={`p-3 rounded-2xl border transition-all ${
+                withdrawableBalance >= 3000
+                  ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
+                  : 'bg-slate-50 dark:bg-zinc-800/60 border-slate-200 dark:border-white/10 text-slate-800 dark:text-zinc-200'
+              }`}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-start gap-2.5">
+                    <span className="text-base leading-none mt-0.5">{withdrawableBalance >= 3000 ? '✓' : '💰'}</span>
+                    <div>
+                      <h4 className="font-bold text-xs">4. Minimum Cashout Floor (₦3,000)</h4>
+                      <p className="text-[10px] opacity-80 mt-0.5 leading-snug">
+                        {withdrawableBalance >= 3000 
+                          ? `₦${withdrawableBalance.toLocaleString()} available · Floor met` 
+                          : `Current balance: ₦${withdrawableBalance.toLocaleString()} (Needs ₦3,000 minimum).`}
+                      </p>
+                    </div>
+                  </div>
+                  <span className="font-mono font-bold text-[10px] shrink-0">
+                    {withdrawableBalance >= 3000 ? 'Passed ✓' : 'Below ₦3k'}
+                  </span>
+                </div>
+                {withdrawableBalance < 3000 && (
+                  <div className="mt-2.5 pt-2 border-t border-slate-200 dark:border-white/10 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsConditionsNotMetModalOpen(false);
+                        setActiveTab('tasks');
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold text-[10px] active:scale-95 transition-all flex items-center gap-1 cursor-pointer"
+                    >
+                      <Sparkles className="w-3 h-3" />
+                      <span>Earn More via Daily Tasks →</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* 5. Tier Withdrawal Limit Allowance */}
+              <div className={`p-3 rounded-2xl border transition-all ${
+                remainingTierAllowance > 0
+                  ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
+                  : 'bg-rose-50/70 dark:bg-rose-950/30 border-rose-300 dark:border-rose-700/60 text-slate-800 dark:text-zinc-200'
+              }`}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-start gap-2.5">
+                    <span className="text-base leading-none mt-0.5">{remainingTierAllowance > 0 ? '✓' : '⚠️'}</span>
+                    <div>
+                      <h4 className="font-bold text-xs">5. Tier Withdrawal Allowance</h4>
+                      <p className="text-[10px] opacity-80 mt-0.5 leading-snug">
+                        {remainingTierAllowance > 0
+                          ? `₦${remainingTierAllowance.toLocaleString()} remaining allowance on ${currentTier.name}`
+                          : `Cap reached (₦${currentTier.withdrawalCap.toLocaleString()}). Remaining ₦${withdrawableBalance.toLocaleString()} stays safe until upgrade.`}
+                      </p>
+                    </div>
+                  </div>
+                  <span className="font-mono font-bold text-[10px] shrink-0">
+                    {remainingTierAllowance > 0 ? 'Passed ✓' : 'Cap Reached'}
+                  </span>
+                </div>
+                {remainingTierAllowance <= 0 && (
+                  <div className="mt-2.5 pt-2 border-t border-rose-200 dark:border-white/10 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsConditionsNotMetModalOpen(false);
+                        setIsTierModalOpen(true);
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-[10px] active:scale-95 transition-all flex items-center gap-1 cursor-pointer"
+                    >
+                      <ArrowUpCircle className="w-3 h-3" />
+                      <span>Upgrade Tier Now →</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* 6. Verified NUBAN Bank Account */}
+              <div className={`p-3 rounded-2xl border transition-all ${
+                savedBanks.length > 0
+                  ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
+                  : 'bg-slate-50 dark:bg-zinc-800/60 border-slate-200 dark:border-white/10 text-slate-800 dark:text-zinc-200'
+              }`}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-start gap-2.5">
+                    <span className="text-base leading-none mt-0.5">{savedBanks.length > 0 ? '✓' : '🏦'}</span>
+                    <div>
+                      <h4 className="font-bold text-xs">6. Linked Nigerian Bank Account</h4>
+                      <p className="text-[10px] opacity-80 mt-0.5 leading-snug">
+                        {savedBanks.length > 0
+                          ? `${savedBanks[0].bankName} (${savedBanks[0].accountNumber}) · Verified ✓`
+                          : 'No destination bank account linked yet. Link a verified 10-digit NUBAN.'}
+                      </p>
+                    </div>
+                  </div>
+                  <span className="font-mono font-bold text-[10px] shrink-0">
+                    {savedBanks.length > 0 ? 'Passed ✓' : 'Unlinked'}
+                  </span>
+                </div>
+                {savedBanks.length === 0 && (
+                  <div className="mt-2.5 pt-2 border-t border-slate-200 dark:border-white/10 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsConditionsNotMetModalOpen(false);
+                        setIsAddBankModalOpen(true);
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] active:scale-95 transition-all flex items-center gap-1 cursor-pointer"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>Link Bank Account Now →</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+
+            </div>
+
+            {/* MODAL FOOTER */}
+            <div className="pt-1">
+              <button
+                type="button"
+                onClick={() => setIsConditionsNotMetModalOpen(false)}
+                className="w-full h-11 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-200 font-bold text-xs transition-all cursor-pointer"
+              >
+                Close &amp; Keep Earning
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
       {/* MODAL: PAYSTACK ₦3,000 CHECKOUT MODAL                    */}
       {/* ======================================================== */}
       {isDepositModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white dark:bg-[#111218] border border-slate-200 dark:border-white/[0.08] rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl">
+          <div className="bg-white dark:bg-[#111218] border border-slate-200 dark:border-white/[0.08] rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl max-h-[88vh] overflow-y-auto no-scrollbar">
             
             <div className="flex items-center justify-between border-b pb-3 border-slate-100 dark:border-white/[0.06]">
               <div className="flex items-center gap-2">
@@ -3459,7 +3807,7 @@ export default function App() {
       {/* ======================================================== */}
       {isCashoutModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white dark:bg-[#111218] border border-slate-200 dark:border-white/[0.08] rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl">
+          <div className="bg-white dark:bg-[#111218] border border-slate-200 dark:border-white/[0.08] rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl max-h-[88vh] overflow-y-auto no-scrollbar">
             
             <div className="flex items-start justify-between">
               <div>
@@ -3528,6 +3876,16 @@ export default function App() {
                     </button>
                   </div>
                 </div>
+
+                {/* TIER CAP RETENTION NOTICE */}
+                {withdrawableBalance > remainingTierAllowance && (
+                  <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-[11px] text-amber-700 dark:text-amber-300 leading-snug space-y-0.5">
+                    <span className="font-bold block">⚡ Tier Withdrawal Limit</span>
+                    <span>
+                      You can cash out up to <strong>₦{remainingTierAllowance.toLocaleString()}</strong> on {currentTier.name}. The remaining <strong>₦{(withdrawableBalance - remainingTierAllowance).toLocaleString()}</strong> stays securely in your wallet until you upgrade your tier!
+                    </span>
+                  </div>
+                )}
 
                 {/* FEE & STREAK BREAKDOWN */}
                 <div className="p-3 rounded-2xl bg-slate-50 dark:bg-zinc-800/60 border border-slate-100 dark:border-white/[0.06] text-xs space-y-1.5 font-semibold">
@@ -3653,7 +4011,7 @@ export default function App() {
       {/* ======================================================== */}
       {isLedgerModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white dark:bg-[#111218] border border-slate-200 dark:border-white/[0.08] rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl">
+          <div className="bg-white dark:bg-[#111218] border border-slate-200 dark:border-white/[0.08] rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl max-h-[88vh] overflow-y-auto no-scrollbar">
             <div className="flex items-start justify-between">
               <div>
                 <span className="text-[10px] font-black text-cyan-500 uppercase tracking-wider">Immutable Audit Trail</span>
@@ -3714,7 +4072,7 @@ export default function App() {
       {/* ======================================================== */}
       {selectedReceipt && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white dark:bg-[#111218] border border-slate-200 dark:border-white/[0.08] rounded-3xl max-w-sm w-full p-6 space-y-4 shadow-2xl relative overflow-hidden">
+          <div className="bg-white dark:bg-[#111218] border border-slate-200 dark:border-white/[0.08] rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl relative max-h-[88vh] overflow-y-auto no-scrollbar">
             <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-cyan-400 via-sky-500 to-blue-600"></div>
 
             <div className="flex items-start justify-between">
@@ -3810,7 +4168,7 @@ export default function App() {
       {/* ======================================================== */}
       {isAddBankModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white dark:bg-[#111218] border border-slate-200 dark:border-white/[0.08] rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl">
+          <div className="bg-white dark:bg-[#111218] border border-slate-200 dark:border-white/[0.08] rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl max-h-[88vh] overflow-y-auto no-scrollbar">
             <div className="flex items-start justify-between">
               <div>
                 <span className="text-[10px] font-black text-cyan-500 uppercase tracking-wider">Instant Account Verification</span>
@@ -3889,7 +4247,7 @@ export default function App() {
       {/* ======================================================== */}
       {selectedTaskForModal && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white dark:bg-[#111218] border border-slate-200 dark:border-white/[0.08] rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl">
+          <div className="bg-white dark:bg-[#111218] border border-slate-200 dark:border-white/[0.08] rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl max-h-[88vh] overflow-y-auto no-scrollbar">
             <div className="flex items-start justify-between">
               <div>
                 <span className="text-[10px] font-black text-cyan-500 uppercase tracking-wider">{selectedTaskForModal.company}</span>
@@ -3943,7 +4301,7 @@ export default function App() {
       {/* ======================================================== */}
       {isStreakModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white dark:bg-[#111218] border border-slate-200 dark:border-white/[0.08] rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl text-center">
+          <div className="bg-white dark:bg-[#111218] border border-slate-200 dark:border-white/[0.08] rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl text-center max-h-[88vh] overflow-y-auto no-scrollbar">
             <div className="w-14 h-14 rounded-full bg-orange-100 dark:bg-orange-950/60 text-2xl flex items-center justify-center mx-auto text-orange-500 shadow-md">
               🔥
             </div>
@@ -4521,7 +4879,7 @@ export default function App() {
       {/* ======================================================== */}
       {isKycModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white dark:bg-[#10121a] border border-slate-200 dark:border-white/[0.1] rounded-3xl max-w-sm w-full p-6 space-y-4 shadow-2xl relative max-h-[92vh] overflow-y-auto">
+          <div className="bg-white dark:bg-[#10121a] border border-slate-200 dark:border-white/[0.1] rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl relative max-h-[90vh] overflow-y-auto no-scrollbar">
             
             {/* Header with Close */}
             <div className="flex items-start justify-between">
