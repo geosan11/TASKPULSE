@@ -11,7 +11,9 @@
     "lint": "tsc --noEmit",
     "reconcile": "tsx scripts/reconcile-pending.ts",
     "test:sql": "bash supabase/tests/run-local.sh",
-    "test:api": "tsx scripts/tests/api-local.test.ts"
+    "test:api": "tsx scripts/tests/api-local.test.ts",
+    "test:telegram": "tsx scripts/tests/telegram-webhook.test.ts",
+    "telegram:setup": "tsx scripts/telegram-setup.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

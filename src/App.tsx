@@ -59,6 +59,9 @@ export default function App() {
   const [termsOpen, setTermsOpen] = useState<null | 'terms' | 'privacy'>(null);
   const [pendingBusinessIntent, setPendingBusinessIntent] = useState(false);
   const [selectedTask, setSelectedTask] = useState<DbTask | null>(null);
+  // Deep links (e.g. from the Telegram bot): ?task=<id>, ?tab=tasks|wallet|profile
+  const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
+  const [pendingTab, setPendingTab] = useState<Tab | null>(null);
   const [businessModePref, setBusinessModePref] = useState<boolean | null>(() => {
     const v = localStorage.getItem('taskpulse_business_mode');
     return v === null ? null : v === '1';
@@ -190,6 +193,25 @@ export default function App() {
     );
   }, []);
 
+  useEffect(() => {
+    if (!user) return;
+    if (pendingTab) {
+      setActiveTab(pendingTab);
+      setPendingTab(null);
+    }
+    if (pendingTaskId && tasks.length > 0) {
+      const t = tasks.find(x => x.id === pendingTaskId);
+      if (t) {
+        setSelectedTask(t);
+        setActiveTab('tasks');
+      } else {
+        notify('Task no longer available', 'It may be full or finished. Here are the open ones.');
+        setActiveTab('tasks');
+      }
+      setPendingTaskId(null);
+    }
+  }, [user, tasks, pendingTaskId, pendingTab, notify]);
+
   const refreshAll = useCallback(async () => {
     await Promise.all([refreshUserData(), loadTasks()]);
   }, [refreshUserData, loadTasks]);
@@ -215,7 +237,13 @@ export default function App() {
       setReferralCode(clean);
     }
     const payRef = params.get('verify_payment') || params.get('verify_deposit') || params.get('reference') || params.get('trxref');
-    if (ref || payRef) window.history.replaceState({}, document.title, window.location.pathname);
+    const linkTask = params.get('task');
+    const linkTab = params.get('tab');
+    const forBusiness = params.get('for') === 'business';
+    if (linkTask && /^[A-Za-z0-9_-]{1,50}$/.test(linkTask)) setPendingTaskId(linkTask);
+    if (linkTab === 'tasks' || linkTab === 'wallet' || linkTab === 'profile') setPendingTab(linkTab);
+    if (ref || payRef || linkTask || linkTab || forBusiness || params.get('utm_source'))
+      window.history.replaceState({}, document.title, window.location.pathname);
 
     if (payRef) {
       notify('Confirming payment', 'Checking with Paystack…');
@@ -245,9 +273,10 @@ export default function App() {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session?.user) {
         await refreshUserData();
-      } else if (ref) {
+      } else if (ref || forBusiness) {
         setAuthMode('signup');
-        setAuthAccountType('worker');
+        setAuthAccountType(forBusiness ? 'business' : 'worker');
+        setPendingBusinessIntent(forBusiness);
         setAuthOpen(true);
       }
       setBooting(false);
