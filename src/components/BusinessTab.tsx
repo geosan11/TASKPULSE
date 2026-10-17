@@ -1,14 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowLeft, Briefcase, CheckCircle2, CreditCard, Image as ImageIcon, Inbox, Loader2, Pause, Play, Plus, XCircle } from 'lucide-react';
-import { Card, EmptyState, inputClass, Label, Modal, primaryButtonClass, secondaryButtonClass, StatusPill, textareaClass } from './ui';
-import {
-  computeCampaignCost,
-  formatNaira,
-  PROOF_TYPES,
-  TASK_CATEGORIES,
-  type MarketplaceSettings,
-  type ProofType,
-} from '../config/marketplace';
+import { ArrowLeft, Check, Image as ImageIcon, Loader2, Pause, Play, Plus, X } from 'lucide-react';
+import { EmptyState, ErrorText, inputClass, Label, Modal, primaryButtonClass, secondaryButtonClass, Segmented, StatusPill, textareaClass } from './ui';
+import { computeCampaignCost, formatNaira, PROOF_TYPES, TASK_CATEGORIES, type MarketplaceSettings, type ProofType } from '../config/marketplace';
 import {
   becomeBusinessRpc,
   createCampaignRpc,
@@ -67,45 +60,38 @@ export function BusinessTab({
     );
   }
 
+  const toReview = campaigns.reduce((n, c) => n + c.slotsPending, 0);
+
   return (
-    <div className="space-y-4 pb-6">
-      <div className="p-5 rounded-[30px] bg-gradient-to-br from-indigo-500 to-violet-700 text-white shadow-xl shadow-indigo-500/20 space-y-2">
-        <p className="text-[10px] font-black uppercase tracking-widest text-white/80">For businesses</p>
-        <h2 className="text-xl font-black leading-tight">{user.businessName || 'Your business'}</h2>
-        <p className="text-[11px] text-white/85 leading-snug">
-          Fund a campaign once via Paystack. Workers are paid from your campaign budget only when you approve their proof.
-        </p>
-        <div className="grid grid-cols-2 gap-2 pt-1">
-          <button type="button" onClick={() => setCreating(true)} className="h-10 rounded-full bg-white text-indigo-700 font-black text-[11px] uppercase tracking-wider cursor-pointer flex items-center justify-center gap-1">
-            <Plus className="w-3.5 h-3.5" /> Post tasks
-          </button>
-          <button
-            type="button"
-            onClick={() => setReviewing({ campaignId: null, title: user.role === 'admin' ? 'All pending submissions' : 'All my submissions' })}
-            className="h-10 rounded-full bg-slate-900/30 border border-white/40 font-black text-[11px] uppercase tracking-wider cursor-pointer flex items-center justify-center gap-1"
-          >
-            <Inbox className="w-3.5 h-3.5" /> Review queue
-          </button>
+    <div className="space-y-6 pb-8">
+      <div className="px-1 pt-1">
+        <p className="text-sm text-zinc-500">{user.businessName || 'Your business'}</p>
+        <h1 className="text-2xl font-extrabold text-ink dark:text-white">Campaigns</h1>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <button type="button" onClick={() => setCreating(true)} className={primaryButtonClass}>
+          <Plus className="w-5 h-5" /> Post a task
+        </button>
+        <button
+          type="button"
+          onClick={() => setReviewing({ campaignId: null, title: user.role === 'admin' ? 'All submissions' : 'To review' })}
+          className={secondaryButtonClass}
+        >
+          Review{toReview > 0 ? ` (${toReview})` : ''}
+        </button>
+      </div>
+
+      {loading && campaigns.length === 0 ? (
+        <div className="flex justify-center py-10">
+          <Loader2 className="w-6 h-6 animate-spin text-zinc-400" />
         </div>
-      </div>
-
-      <div className="flex items-center justify-between px-1">
-        <p className="text-xs font-black uppercase tracking-widest text-slate-500 dark:text-zinc-400">My campaigns</p>
-        {loading && <Loader2 className="w-4 h-4 animate-spin text-slate-400" />}
-      </div>
-
-      {campaigns.length === 0 && !loading ? (
-        <EmptyState icon={<Briefcase className="w-6 h-6" />} title="No campaigns yet" subtitle="Create your first campaign to get real people completing your tasks." />
+      ) : campaigns.length === 0 ? (
+        <EmptyState mascot="thinking" title="No campaigns yet." subtitle="Post a task and real people will start on it." />
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-3">
           {campaigns.map(c => (
-            <CampaignCard
-              key={c.id}
-              campaign={c}
-              onReview={() => setReviewing({ campaignId: c.id, title: c.title })}
-              onChanged={load}
-              notify={notify}
-            />
+            <CampaignCard key={c.id} campaign={c} onReview={() => setReviewing({ campaignId: c.id, title: c.title })} onChanged={load} notify={notify} />
           ))}
         </div>
       )}
@@ -129,37 +115,33 @@ function BecomeBusiness({ onDone, notify }: { onDone: () => Promise<void>; notif
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   return (
-    <div className="space-y-4 pb-6">
-      <Card>
-        <p className="text-[10px] font-black uppercase tracking-widest text-indigo-500">For businesses</p>
-        <h2 className="text-lg font-black text-slate-900 dark:text-white leading-tight">Get real people to test, review and promote your product</h2>
-        <p className="text-[11px] text-slate-500 dark:text-zinc-400 leading-snug">
-          Open a business account to post tasks. You set the reward and number of completions, pay once via Paystack, and only approved work is paid out.
-        </p>
+    <div className="space-y-5 pb-8 pt-4">
+      <EmptyState mascot="happy" title="Post tasks for your business" subtitle="Pay once. Only approved work gets paid." />
+      <div>
         <Label>Business name</Label>
-        <input className={inputClass} value={name} onChange={e => setName(e.target.value)} maxLength={100} placeholder="Acme Foods Ltd" />
-        {error && <p className="text-[11px] text-rose-500 font-semibold">{error}</p>}
-        <button
-          type="button"
-          className={primaryButtonClass}
-          disabled={busy || name.trim().length < 2}
-          onClick={async () => {
-            setBusy(true);
-            setError(null);
-            try {
-              await becomeBusinessRpc(name.trim());
-              notify('Business account ready', 'You can now post tasks.');
-              await onDone();
-            } catch (err: any) {
-              setError(err.message);
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          {busy && <Loader2 className="w-4 h-4 animate-spin" />} Open business account
-        </button>
-      </Card>
+        <input className={inputClass} value={name} onChange={e => setName(e.target.value)} maxLength={100} />
+      </div>
+      <ErrorText>{error}</ErrorText>
+      <button
+        type="button"
+        className={primaryButtonClass}
+        disabled={busy || name.trim().length < 2}
+        onClick={async () => {
+          setBusy(true);
+          setError(null);
+          try {
+            await becomeBusinessRpc(name.trim());
+            notify('Business mode on', 'You can now post tasks.');
+            await onDone();
+          } catch (err: any) {
+            setError(err.message);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        {busy && <Loader2 className="w-5 h-5 animate-spin" />} Turn on business mode
+      </button>
     </div>
   );
 }
@@ -194,7 +176,7 @@ function CampaignCard({
     setBusy(status);
     try {
       await setCampaignStatusRpc(c.id, status);
-      notify('Campaign updated', status === 'cancelled' ? 'Unused budget is marked for refund.' : `Campaign is now ${status}.`);
+      notify('Campaign updated', status === 'cancelled' ? 'Unused budget will be refunded.' : status === 'paused' ? 'Paused.' : 'Live again.');
       await onChanged();
     } catch (err: any) {
       notify('Update failed', err.message);
@@ -205,89 +187,86 @@ function CampaignCard({
   };
 
   return (
-    <Card>
+    <div className="p-5 rounded-3xl bg-white dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 space-y-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[10px] font-black uppercase tracking-widest text-indigo-500">{c.category}</p>
-          <p className="text-sm font-black text-slate-900 dark:text-white leading-tight">{c.title}</p>
-          <p className="text-[10px] text-slate-500 dark:text-zinc-400">
-            {formatNaira(c.rewardPerCompletion)} × {c.slots} slots · created {formatDateTime(c.createdAt)} WAT
+          <p className="text-[15px] font-bold text-ink dark:text-white leading-snug">{c.title}</p>
+          <p className="text-sm text-zinc-500 mt-0.5">
+            {formatNaira(c.rewardPerCompletion)} × {c.slots}
           </p>
         </div>
-        <StatusPill status={c.status} />
+        <StatusPill status={c.status} kind="campaign" />
       </div>
-
-      {c.status !== 'pending_payment' && (
-        <>
-          <div className="h-2 rounded-full bg-slate-100 dark:bg-zinc-800 overflow-hidden">
-            <div className="h-full bg-indigo-500" style={{ width: `${pct}%` }} />
-          </div>
-          <div className="grid grid-cols-3 gap-2 text-center text-[10px]">
-            <div>
-              <p className="font-black text-sm text-slate-900 dark:text-white">{c.slotsApproved}</p>
-              <p className="text-slate-500">approved</p>
-            </div>
-            <div>
-              <p className="font-black text-sm text-amber-600">{c.slotsPending}</p>
-              <p className="text-slate-500">to review</p>
-            </div>
-            <div>
-              <p className="font-black text-sm text-slate-900 dark:text-white">{formatNaira(c.escrowBalance)}</p>
-              <p className="text-slate-500">budget left</p>
-            </div>
-          </div>
-          {c.refundDue > 0 && <p className="text-[11px] text-slate-500">Refund due to you: {formatNaira(c.refundDue)} (processed by TaskPulse support).</p>}
-        </>
-      )}
 
       {c.status === 'pending_payment' ? (
         <>
-          <p className="text-[11px] text-slate-500 dark:text-zinc-400">
-            Total to pay: <strong>{formatNaira(c.totalCharge)}</strong> ({formatNaira(c.rewardBudget)} rewards + {formatNaira(c.platformFee)} platform fee)
-          </p>
-          <div className="grid grid-cols-[1fr_auto] gap-2">
-            <button type="button" className={primaryButtonClass} disabled={busy !== null} onClick={fund}>
-              {busy === 'fund' ? <Loader2 className="w-4 h-4 animate-spin" /> : <CreditCard className="w-4 h-4" />} Pay with Paystack
-            </button>
-            <button type="button" className="px-4 h-11 rounded-full text-[11px] font-black text-rose-500 cursor-pointer" disabled={busy !== null} onClick={() => setConfirmCancel(true)}>
-              Delete
-            </button>
+          <div className="flex items-baseline justify-between">
+            <span className="text-sm text-zinc-500">To pay</span>
+            <span className="text-xl font-extrabold text-ink dark:text-white">{formatNaira(c.totalCharge)}</span>
           </div>
+          <button type="button" className={primaryButtonClass} disabled={busy !== null} onClick={fund}>
+            {busy === 'fund' && <Loader2 className="w-5 h-5 animate-spin" />} Pay with Paystack
+          </button>
+          <button type="button" className="w-full text-sm font-semibold text-zinc-500 cursor-pointer" disabled={busy !== null} onClick={() => setConfirmCancel(true)}>
+            Delete draft
+          </button>
         </>
       ) : (
-        <div className="grid grid-cols-2 gap-2">
-          <button type="button" className={secondaryButtonClass} onClick={onReview}>
-            <Inbox className="w-4 h-4" /> Submissions
-          </button>
-          {c.status === 'active' && (
-            <button type="button" className={secondaryButtonClass} disabled={busy !== null} onClick={() => setStatus('paused')}>
-              {busy === 'paused' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Pause className="w-4 h-4" />} Pause
+        <>
+          <div className="space-y-2">
+            <div className="h-2 rounded-full bg-zinc-100 dark:bg-zinc-800 overflow-hidden">
+              <div className="h-full bg-pulse-500 rounded-full" style={{ width: `${pct}%` }} />
+            </div>
+            <div className="flex justify-between text-sm text-zinc-500">
+              <span>
+                <span className="font-bold text-ink dark:text-white">{c.slotsApproved}</span> / {c.slots} done
+              </span>
+              <span>{formatNaira(c.escrowBalance)} left</span>
+            </div>
+            {c.refundDue > 0 && <p className="text-sm text-zinc-500">Refund due: {formatNaira(c.refundDue)}</p>}
+          </div>
+          <div className="flex gap-2">
+            <button type="button" className={`${primaryButtonClass} flex-1`} onClick={onReview}>
+              Review{c.slotsPending > 0 ? ` (${c.slotsPending})` : ''}
             </button>
-          )}
-          {c.status === 'paused' && (
-            <button type="button" className={secondaryButtonClass} disabled={busy !== null} onClick={() => setStatus('active')}>
-              {busy === 'active' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />} Resume
-            </button>
-          )}
+            {c.status === 'active' && (
+              <button type="button" aria-label="Pause" className="tactile w-12 h-12 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center cursor-pointer shrink-0" disabled={busy !== null} onClick={() => setStatus('paused')}>
+                {busy === 'paused' ? <Loader2 className="w-5 h-5 animate-spin" /> : <Pause className="w-5 h-5 text-ink dark:text-white" />}
+              </button>
+            )}
+            {c.status === 'paused' && (
+              <button type="button" aria-label="Resume" className="tactile w-12 h-12 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center cursor-pointer shrink-0" disabled={busy !== null} onClick={() => setStatus('active')}>
+                {busy === 'active' ? <Loader2 className="w-5 h-5 animate-spin" /> : <Play className="w-5 h-5 text-ink dark:text-white" />}
+              </button>
+            )}
+          </div>
           {(c.status === 'active' || c.status === 'paused') && (
-            <button type="button" className="col-span-2 text-[11px] font-black text-rose-500 cursor-pointer" disabled={busy !== null} onClick={() => setConfirmCancel(true)}>
-              Cancel campaign
+            <button type="button" className="w-full text-sm font-semibold text-zinc-500 cursor-pointer" disabled={busy !== null} onClick={() => setConfirmCancel(true)}>
+              End campaign
             </button>
           )}
-        </div>
+        </>
       )}
 
-      <Modal open={confirmCancel} onClose={() => setConfirmCancel(false)} title="Cancel this campaign?" eyebrow={c.title}>
-        <p className="text-xs text-slate-600 dark:text-zinc-300">
+      <Modal open={confirmCancel} onClose={() => setConfirmCancel(false)} title={c.status === 'pending_payment' ? 'Delete this draft?' : 'End this campaign?'}>
+        <p className="text-[15px] text-zinc-600 dark:text-zinc-300">
           {c.status === 'pending_payment'
-            ? 'This campaign has not been paid for. It will be closed and nothing will be charged.'
-            : 'No new workers can start it. Submissions already waiting can still be reviewed and paid; the rest of the budget is marked as a refund due to you.'}
+            ? "It hasn't been paid for, so nothing is charged."
+            : 'No one new can start it. Work already sent can still be reviewed. The rest of your budget will be refunded.'}
         </p>
-        <button type="button" className={primaryButtonClass} disabled={busy !== null} onClick={() => setStatus('cancelled')}>
-          {busy === 'cancelled' && <Loader2 className="w-4 h-4 animate-spin" />} Yes, cancel
+        <button
+          type="button"
+          className="tactile w-full h-12 rounded-full bg-red-600 hover:bg-red-700 text-white font-bold text-[15px] flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40"
+          disabled={busy !== null}
+          onClick={() => setStatus('cancelled')}
+        >
+          {busy === 'cancelled' && <Loader2 className="w-5 h-5 animate-spin" />} {c.status === 'pending_payment' ? 'Delete' : 'End campaign'}
+        </button>
+        <button type="button" className={secondaryButtonClass} onClick={() => setConfirmCancel(false)}>
+          Keep it
         </button>
       </Modal>
-    </Card>
+    </div>
   );
 }
 
@@ -321,11 +300,11 @@ function CreateCampaignModal({
 
   const validate = () => {
     if (title.trim().length < 5) return 'Title must be at least 5 characters.';
-    if (instructions.trim().length < 20) return 'Instructions must be at least 20 characters so workers know exactly what to do.';
+    if (instructions.trim().length < 20) return 'Add clear steps (at least 20 characters).';
     if (!Number.isInteger(rewardNum) || rewardNum < settings.minRewardPerTask || rewardNum > settings.maxRewardPerTask)
-      return `Reward must be a whole amount between ${formatNaira(settings.minRewardPerTask)} and ${formatNaira(settings.maxRewardPerTask)}.`;
+      return `Reward must be ${formatNaira(settings.minRewardPerTask)} to ${formatNaira(settings.maxRewardPerTask)}.`;
     if (!Number.isInteger(slotsNum) || slotsNum < settings.minCampaignSlots || slotsNum > settings.maxCampaignSlots)
-      return `Slots must be between ${settings.minCampaignSlots} and ${settings.maxCampaignSlots.toLocaleString()}.`;
+      return `People needed must be ${settings.minCampaignSlots} to ${settings.maxCampaignSlots.toLocaleString()}.`;
     if (targetUrl.trim() && !/^https?:\/\//i.test(targetUrl.trim())) return 'Link must start with http:// or https://';
     return null;
   };
@@ -353,7 +332,7 @@ function CreateCampaignModal({
         window.location.href = pay.data.authorization_url;
         return;
       }
-      notify('Campaign saved', 'Pay for it from your campaign list to make it live.');
+      notify('Draft saved', 'Pay for it to go live.');
       setTitle('');
       setInstructions('');
       setReward('');
@@ -368,23 +347,30 @@ function CreateCampaignModal({
   };
 
   return (
-    <Modal open={open} onClose={onClose} title="Post a task" eyebrow="New campaign" wide>
+    <Modal open={open} onClose={onClose} title="Post a task" wide>
       <div>
         <Label>Title</Label>
-        <input className={inputClass} value={title} onChange={e => setTitle(e.target.value)} maxLength={120} placeholder="Install our app and create an account" />
+        <input className={inputClass} value={title} onChange={e => setTitle(e.target.value)} maxLength={120} placeholder="Install our app and sign up" />
       </div>
       <div>
-        <Label hint={`${instructions.length}/4000`}>Instructions</Label>
-        <textarea
-          className={textareaClass}
-          rows={5}
-          value={instructions}
-          onChange={e => setInstructions(e.target.value)}
-          maxLength={4000}
-          placeholder={'One step per line, e.g.\nDownload the app from the Play Store\nSign up with your phone number\nScreenshot your home screen'}
-        />
+        <Label hint="One step per line">Steps</Label>
+        <textarea className={textareaClass} rows={4} value={instructions} onChange={e => setInstructions(e.target.value)} maxLength={4000} placeholder={'Download the app\nSign up with your phone\nScreenshot your home screen'} />
       </div>
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label>Reward (₦)</Label>
+          <input className={inputClass} inputMode="numeric" value={reward} onChange={e => setReward(e.target.value.replace(/\D/g, ''))} placeholder="200" />
+        </div>
+        <div>
+          <Label>People needed</Label>
+          <input className={inputClass} inputMode="numeric" value={slots} onChange={e => setSlots(e.target.value.replace(/\D/g, ''))} placeholder="100" />
+        </div>
+      </div>
+      <div>
+        <Label>Proof</Label>
+        <Segmented value={proofType} onChange={setProofType} options={PROOF_TYPES.map(p => ({ id: p.id, label: p.label.replace(' answer', '') }))} />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
         <div>
           <Label>Category</Label>
           <select className={inputClass} value={category} onChange={e => setCategory(e.target.value)}>
@@ -396,53 +382,32 @@ function CreateCampaignModal({
           </select>
         </div>
         <div>
-          <Label>Proof type</Label>
-          <select className={inputClass} value={proofType} onChange={e => setProofType(e.target.value as ProofType)}>
-            {PROOF_TYPES.map(p => (
-              <option key={p.id} value={p.id}>
-                {p.label}
-              </option>
-            ))}
-          </select>
+          <Label hint="Optional">Link</Label>
+          <input className={inputClass} value={targetUrl} onChange={e => setTargetUrl(e.target.value)} placeholder="https://" inputMode="url" />
         </div>
-      </div>
-      <p className="text-[10px] text-slate-400 -mt-2">{PROOF_TYPES.find(p => p.id === proofType)?.hint}</p>
-      <div className="grid grid-cols-2 gap-2">
-        <div>
-          <Label>Reward per completion (₦)</Label>
-          <input className={inputClass} inputMode="numeric" value={reward} onChange={e => setReward(e.target.value.replace(/\D/g, ''))} placeholder={String(settings.minRewardPerTask * 2)} />
-        </div>
-        <div>
-          <Label>Slots</Label>
-          <input className={inputClass} inputMode="numeric" value={slots} onChange={e => setSlots(e.target.value.replace(/\D/g, ''))} placeholder="100" />
-        </div>
-      </div>
-      <div>
-        <Label hint="Optional">Link for workers</Label>
-        <input className={inputClass} value={targetUrl} onChange={e => setTargetUrl(e.target.value)} placeholder="https://play.google.com/store/apps/…" inputMode="url" />
       </div>
 
-      <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-zinc-800/80 border border-slate-200 dark:border-white/[0.08] space-y-1 text-[11px]">
-        <div className="flex justify-between text-slate-600 dark:text-zinc-300">
-          <span>Rewards ({formatNaira(rewardNum)} × {slotsNum})</span>
+      <div className="p-4 rounded-2xl bg-zinc-100 dark:bg-zinc-900 space-y-1.5 text-sm">
+        <div className="flex justify-between text-zinc-500">
+          <span>Rewards</span>
           <span>{formatNaira(cost.rewardBudget)}</span>
         </div>
-        <div className="flex justify-between text-slate-600 dark:text-zinc-300">
-          <span>Platform fee ({feePct}%)</span>
+        <div className="flex justify-between text-zinc-500">
+          <span>Fee ({feePct}%)</span>
           <span>{formatNaira(cost.platformFee)}</span>
         </div>
-        <div className="flex justify-between font-black text-slate-900 dark:text-white text-xs pt-1 border-t border-slate-200 dark:border-white/[0.08]">
-          <span>Total to pay</span>
+        <div className="flex justify-between font-extrabold text-ink dark:text-white text-base pt-1.5">
+          <span>Total</span>
           <span>{formatNaira(cost.total)}</span>
         </div>
       </div>
 
-      {error && <p className="text-[11px] text-rose-500 font-semibold">{error}</p>}
+      <ErrorText>{error}</ErrorText>
       <button type="button" className={primaryButtonClass} disabled={busy} onClick={() => submit(true)}>
-        {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <CreditCard className="w-4 h-4" />} Create & pay {cost.total > 0 ? formatNaira(cost.total) : ''}
+        {busy && <Loader2 className="w-5 h-5 animate-spin" />} Pay {cost.total > 0 ? formatNaira(cost.total) : ''} and go live
       </button>
       <button type="button" className={secondaryButtonClass} disabled={busy} onClick={() => submit(false)}>
-        Save, pay later
+        Save draft
       </button>
     </Modal>
   );
@@ -474,33 +439,28 @@ function ReviewPanel({
   }, [load]);
 
   return (
-    <div className="space-y-4 pb-6">
-      <button type="button" onClick={onBack} className="flex items-center gap-1.5 text-[11px] font-black text-slate-500 cursor-pointer">
-        <ArrowLeft className="w-4 h-4" /> Back to campaigns
+    <div className="space-y-5 pb-8">
+      <button type="button" onClick={onBack} className="tactile w-10 h-10 rounded-full bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center cursor-pointer" aria-label="Back">
+        <ArrowLeft className="w-5 h-5 text-ink dark:text-white" />
       </button>
-      <h2 className="text-lg font-black text-slate-900 dark:text-white leading-tight px-1">{title}</h2>
-      <div className="grid grid-cols-3 gap-1 p-1 rounded-full bg-slate-100 dark:bg-zinc-800">
-        {(['pending', 'approved', 'rejected'] as const).map(s => (
-          <button
-            key={s}
-            type="button"
-            onClick={() => setStatus(s)}
-            className={`h-8 rounded-full text-[11px] font-black capitalize cursor-pointer ${
-              status === s ? 'bg-white dark:bg-zinc-950 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500'
-            }`}
-          >
-            {s}
-          </button>
-        ))}
-      </div>
+      <h1 className="text-2xl font-extrabold text-ink dark:text-white leading-tight px-1">{title}</h1>
+      <Segmented
+        value={status}
+        onChange={setStatus}
+        options={[
+          { id: 'pending', label: 'To review' },
+          { id: 'approved', label: 'Approved' },
+          { id: 'rejected', label: 'Rejected' },
+        ]}
+      />
       {loading ? (
-        <div className="flex justify-center py-8">
-          <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
+        <div className="flex justify-center py-10">
+          <Loader2 className="w-6 h-6 animate-spin text-zinc-400" />
         </div>
       ) : items.length === 0 ? (
-        <EmptyState icon={<Inbox className="w-6 h-6" />} title={`No ${status} submissions`} subtitle="Submissions appear here as workers complete your task." />
+        <EmptyState mascot="thinking" title={status === 'pending' ? 'All caught up.' : 'Nothing here yet.'} subtitle={status === 'pending' ? 'New work shows up here.' : undefined} />
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-3">
           {items.map(s => (
             <SubmissionCard key={s.id} item={s} onReviewed={load} notify={notify} />
           ))}
@@ -527,13 +487,13 @@ function SubmissionCard({ item, onReviewed, notify }: { item: ReviewSubmission; 
 
   const review = async (approve: boolean) => {
     if (!approve && note.trim().length < 3) {
-      notify('Add a reason', 'Tell the worker why their proof was rejected.');
+      notify('Add a reason', 'Tell the worker why it was rejected.');
       return;
     }
     setBusy(approve ? 'approve' : 'reject');
     try {
       await reviewSubmissionRpc(item.id, approve, note.trim() || undefined);
-      notify(approve ? 'Approved and paid' : 'Submission rejected', approve ? `@${item.workerUsername} received ${formatNaira(item.rewardAmount)}.` : 'The worker has been notified.');
+      notify(approve ? 'Approved and paid' : 'Rejected', approve ? `@${item.workerUsername} got ${formatNaira(item.rewardAmount)}.` : 'The worker can see your note.');
       await onReviewed();
     } catch (err: any) {
       notify('Review failed', err.message);
@@ -545,61 +505,58 @@ function SubmissionCard({ item, onReviewed, notify }: { item: ReviewSubmission; 
   const isLink = item.proofText && /^https?:\/\//i.test(item.proofText.trim());
 
   return (
-    <Card>
+    <div className="p-5 rounded-3xl bg-white dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 space-y-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-xs font-black text-slate-900 dark:text-white">@{item.workerUsername}</p>
-          <p className="text-[10px] text-slate-500 dark:text-zinc-400">
-            {item.campaignTitle} · {formatDateTime(item.completedAt)} WAT
+          <p className="text-[15px] font-bold text-ink dark:text-white">@{item.workerUsername}</p>
+          <p className="text-xs text-zinc-500">
+            {item.campaignTitle} · {formatDateTime(item.completedAt)}
           </p>
         </div>
-        <div className="text-right shrink-0">
-          <p className="text-sm font-black text-slate-900 dark:text-white">{formatNaira(item.rewardAmount)}</p>
-          <StatusPill status={item.status} />
-        </div>
+        <span className="text-[15px] font-extrabold text-ink dark:text-white shrink-0">{formatNaira(item.rewardAmount)}</span>
       </div>
       {item.proofText &&
         (isLink ? (
-          <a href={item.proofText.trim()} target="_blank" rel="noopener noreferrer nofollow" className="block text-[11px] font-bold text-sky-600 dark:text-cyan-400 break-all">
+          <a href={item.proofText.trim()} target="_blank" rel="noopener noreferrer nofollow" className="block text-sm font-semibold text-pulse-700 dark:text-pulse-400 break-all">
             {item.proofText.trim()}
           </a>
         ) : (
-          <p className="text-[11px] text-slate-700 dark:text-zinc-200 whitespace-pre-line break-words p-2.5 rounded-xl bg-slate-50 dark:bg-zinc-800/80">{item.proofText}</p>
+          <p className="text-[15px] text-zinc-700 dark:text-zinc-200 whitespace-pre-line break-words p-3 rounded-2xl bg-zinc-100 dark:bg-zinc-800">{item.proofText}</p>
         ))}
       {item.proofScreenshotPath &&
         (imgUrl ? (
           <a href={imgUrl} target="_blank" rel="noopener noreferrer">
-            <img src={imgUrl} alt="Submitted proof" className="w-full max-h-72 object-contain rounded-xl bg-slate-100 dark:bg-zinc-800" />
+            <img src={imgUrl} alt="Submitted proof" className="w-full max-h-80 object-contain rounded-2xl bg-zinc-100 dark:bg-zinc-800" />
           </a>
         ) : (
           <button type="button" className={secondaryButtonClass} onClick={showImage} disabled={loadingImg}>
-            {loadingImg ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImageIcon className="w-4 h-4" />} View screenshot
+            {loadingImg ? <Loader2 className="w-5 h-5 animate-spin" /> : <ImageIcon className="w-5 h-5" />} View screenshot
           </button>
         ))}
-      {item.reviewNote && <p className="text-[11px] italic text-slate-500">Note: {item.reviewNote}</p>}
+      {item.status !== 'pending' && (
+        <div className="flex items-center justify-between gap-3">
+          <StatusPill status={item.status} kind="submission" />
+          {item.reviewNote && <p className="text-sm text-zinc-500 truncate">“{item.reviewNote}”</p>}
+        </div>
+      )}
       {item.status === 'pending' && (
         <>
-          <input className={inputClass} value={note} onChange={e => setNote(e.target.value)} maxLength={300} placeholder="Note to worker (required to reject)" />
-          <div className="grid grid-cols-2 gap-2">
+          <input className={inputClass} value={note} onChange={e => setNote(e.target.value)} maxLength={300} placeholder="Note (needed to reject)" />
+          <div className="grid grid-cols-2 gap-3">
             <button
               type="button"
               disabled={busy !== null}
               onClick={() => review(false)}
-              className="h-11 rounded-full border border-rose-500/40 text-rose-600 dark:text-rose-400 font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+              className="tactile h-12 rounded-full bg-zinc-100 dark:bg-zinc-800 text-ink dark:text-white font-bold text-[15px] flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40"
             >
-              {busy === 'reject' ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />} Reject
+              {busy === 'reject' ? <Loader2 className="w-5 h-5 animate-spin" /> : <X className="w-5 h-5" />} Reject
             </button>
-            <button
-              type="button"
-              disabled={busy !== null}
-              onClick={() => review(true)}
-              className="h-11 rounded-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-            >
-              {busy === 'approve' ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />} Approve & pay
+            <button type="button" disabled={busy !== null} onClick={() => review(true)} className={primaryButtonClass}>
+              {busy === 'approve' ? <Loader2 className="w-5 h-5 animate-spin" /> : <Check className="w-5 h-5" />} Approve
             </button>
           </div>
         </>
       )}
-    </Card>
+    </div>
   );
 }

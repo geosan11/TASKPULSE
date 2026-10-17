@@ -83,18 +83,18 @@ export function txTypeLabel(type: string) {
     case 'campaign_funding':
       return 'Campaign funding';
     case 'deposit':
-      return 'Legacy deposit';
+      return 'Deposit (old plan)';
     case 'streak_reward':
     case 'streakreward':
-      return 'Legacy login bonus';
+      return 'Daily bonus (old plan)';
     case 'deposit_match':
     case 'match':
-      return 'Legacy deposit match';
+      return 'Bonus (old plan)';
     case 'tier_upgrade':
     case 'tierupgrade':
-      return 'Legacy tier upgrade';
+      return 'Upgrade (old plan)';
     case 'payout':
-      return 'Legacy referral commission';
+      return 'Referral bonus (old plan)';
     default:
       return type;
   }

@@ -1,163 +1,136 @@
-import { useState } from 'react';
-import { Briefcase, Copy, Flame, Gift, Loader2, Share2, Wallet } from 'lucide-react';
-import { Card, primaryButtonClass, StatusPill } from './ui';
+import { ArrowRight, Flame, Gift, Plus } from 'lucide-react';
+import { Card, Mascot, primaryButtonClass } from './ui';
 import { formatNaira, type MarketplaceSettings } from '../config/marketplace';
-import type { ReferralItem, UserProfile } from '../types';
+import type { DbTask } from '../lib/supabaseClient';
+import type { UserProfile } from '../types';
+
+function greeting() {
+  const h = Number(new Date().toLocaleString('en-GB', { hour: '2-digit', hour12: false, timeZone: 'Africa/Lagos' }));
+  if (h < 12) return 'Good morning';
+  if (h < 17) return 'Good afternoon';
+  return 'Good evening';
+}
 
 export function HomeTab({
   user,
   settings,
-  referrals,
-  availableTaskCount,
+  tasks,
+  businessMode,
   onCheckIn,
+  onOpenTask,
   onGoto,
-  notify,
 }: {
   user: UserProfile;
   settings: MarketplaceSettings;
-  referrals: ReferralItem[];
-  availableTaskCount: number;
+  tasks: DbTask[];
+  businessMode: boolean;
   onCheckIn: () => Promise<void>;
-  onGoto: (tab: 'tasks' | 'wallet' | 'business') => void;
-  notify: (title: string, subtitle: string) => void;
+  onOpenTask: (task: DbTask | null) => void;
+  onGoto: (tab: 'tasks' | 'wallet' | 'profile') => void;
 }) {
-  const [checkingIn, setCheckingIn] = useState(false);
-  const shareUrl = `${window.location.origin}/?ref=${encodeURIComponent(user.referralCode)}`;
-  const paidReferrals = referrals.filter(r => r.bonusStatus === 'paid').length;
-  const isBusiness = user.role === 'business' || user.role === 'admin';
-
-  const copyLink = async () => {
-    try {
-      await navigator.clipboard.writeText(shareUrl);
-      notify('Link copied', 'Share it with friends who want to earn.');
-    } catch {
-      notify('Copy failed', shareUrl);
-    }
-  };
-
-  const shareWhatsApp = () => {
-    const text = `Join me on TaskPulse. It's free, no deposit. Get paid for real tasks: ${shareUrl}`;
-    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
-  };
+  const firstName = (user.fullName || user.username).split(' ')[0];
 
   return (
-    <div className="space-y-4 pb-6">
-      <div className="relative p-5 rounded-[30px] bg-gradient-to-br from-sky-500 via-cyan-500 to-blue-700 text-white overflow-hidden shadow-xl shadow-sky-500/20">
-        <div className="absolute -top-16 -right-10 w-48 h-48 rounded-full bg-white/10 blur-2xl" />
-        <p className="text-[10px] font-black uppercase tracking-widest text-white/80">Withdrawable balance</p>
-        <p className="text-3xl font-black mt-1 tracking-tight">{formatNaira(user.withdrawableBalance)}</p>
-        <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
-          <div className="p-2.5 rounded-2xl bg-white/10">
-            <p className="text-white/70 font-bold">Approved tasks</p>
-            <p className="font-black text-base">{user.approvedTaskCount}</p>
-          </div>
-          <div className="p-2.5 rounded-2xl bg-white/10">
-            <p className="text-white/70 font-bold">Withdrawn to date</p>
-            <p className="font-black text-base">{formatNaira(user.totalWithdrawnLifetime)}</p>
-          </div>
+    <div className="space-y-6 pb-8">
+      <div className="flex items-center gap-3 pt-1">
+        <Mascot pose="happy" className="w-14 h-14 shrink-0" />
+        <div className="min-w-0">
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">{greeting()},</p>
+          <h1 className="text-2xl font-extrabold text-ink dark:text-white truncate">{firstName}</h1>
         </div>
-        <div className="mt-4 grid grid-cols-2 gap-2">
-          <button type="button" onClick={() => onGoto('tasks')} className="h-10 rounded-full bg-white text-sky-700 font-black text-[11px] uppercase tracking-wider cursor-pointer">
-            Find tasks ({availableTaskCount})
-          </button>
-          <button type="button" onClick={() => onGoto('wallet')} className="h-10 rounded-full bg-slate-900/30 border border-white/40 font-black text-[11px] uppercase tracking-wider cursor-pointer flex items-center justify-center gap-1">
-            <Wallet className="w-3.5 h-3.5" /> Withdraw
+        <button
+          type="button"
+          onClick={user.checkedInToday ? undefined : onCheckIn}
+          disabled={user.checkedInToday}
+          title={user.checkedInToday ? 'Checked in today' : 'Check in to keep your streak'}
+          className={`tactile ml-auto flex items-center gap-1 h-9 px-3 rounded-full text-sm font-bold cursor-pointer disabled:cursor-default ${
+            user.checkedInToday ? 'bg-zinc-100 text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400' : 'bg-pulse-500/12 text-pulse-700 dark:text-pulse-400'
+          }`}
+        >
+          <Flame className="w-4 h-4" />
+          {user.streakDays}
+        </button>
+      </div>
+
+      <div className="rounded-[28px] bg-ink dark:bg-zinc-900 dark:border dark:border-zinc-800 text-white p-6 space-y-5">
+        <div>
+          <p className="text-sm text-zinc-400">Available to withdraw</p>
+          <p className="text-[40px] leading-none font-extrabold tracking-tight mt-2">{formatNaira(user.withdrawableBalance)}</p>
+        </div>
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-zinc-400">
+            Pending <span className="text-white font-semibold ml-1">{formatNaira(user.pendingBalance)}</span>
+          </span>
+          <button type="button" onClick={() => onGoto('wallet')} className="flex items-center gap-1 font-bold text-pulse-400 cursor-pointer">
+            Withdraw <ArrowRight className="w-4 h-4" />
           </button>
         </div>
       </div>
 
-      {isBusiness && (
-        <Card>
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-indigo-500/10 text-indigo-500 flex items-center justify-center">
-              <Briefcase className="w-5 h-5" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-black text-slate-900 dark:text-white">{user.businessName || 'Your business'}</p>
-              <p className="text-[11px] text-slate-500 dark:text-zinc-400">Create campaigns and review submissions.</p>
-            </div>
-            <button type="button" onClick={() => onGoto('business')} className="px-3 h-9 rounded-full bg-indigo-500 text-white text-[11px] font-black cursor-pointer">
-              Post tasks
-            </button>
-          </div>
-        </Card>
+      {businessMode ? (
+        <button type="button" className={primaryButtonClass} onClick={() => onGoto('tasks')}>
+          <Plus className="w-5 h-5" /> Post a task
+        </button>
+      ) : (
+        <button type="button" className={primaryButtonClass} onClick={() => onOpenTask(tasks[0] || null)}>
+          Start a task
+        </button>
       )}
 
-      <Card>
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-orange-500/10 text-orange-500 flex items-center justify-center">
-            <Flame className="w-5 h-5" />
+      {!businessMode && (
+        <section className="space-y-3">
+          <div className="flex items-center justify-between px-1">
+            <h2 className="text-base font-extrabold text-ink dark:text-white">Top tasks</h2>
+            {tasks.length > 0 && (
+              <button type="button" onClick={() => onGoto('tasks')} className="text-sm font-bold text-zinc-500 cursor-pointer">
+                See all
+              </button>
+            )}
           </div>
-          <div className="flex-1">
-            <p className="text-xs font-black text-slate-900 dark:text-white">{user.streakDays}-day streak</p>
-            <p className="text-[11px] text-slate-500 dark:text-zinc-400">Check in daily to keep your streak badge. Badges are for bragging rights, not cash.</p>
-          </div>
-        </div>
-        <button
-          type="button"
-          disabled={user.checkedInToday || checkingIn}
-          onClick={async () => {
-            setCheckingIn(true);
-            try {
-              await onCheckIn();
-            } finally {
-              setCheckingIn(false);
-            }
-          }}
-          className={primaryButtonClass}
-        >
-          {checkingIn && <Loader2 className="w-4 h-4 animate-spin" />}
-          {user.checkedInToday ? 'Checked in today ✓' : 'Check in'}
-        </button>
-      </Card>
-
-      {user.role !== 'business' && (
-        <Card>
-          <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center shrink-0">
-              <Gift className="w-5 h-5" />
+          {tasks.length === 0 ? (
+            <div className="flex items-center gap-3 p-4 rounded-3xl bg-zinc-100 dark:bg-zinc-900">
+              <Mascot pose="thinking" className="w-12 h-12 shrink-0" />
+              <p className="text-sm text-zinc-500 dark:text-zinc-400">No tasks right now. New ones appear as businesses post them.</p>
             </div>
-            <div>
-              <p className="text-xs font-black text-slate-900 dark:text-white">
-                Invite friends: {formatNaira(settings.referralBonusReferrer)} for you, {formatNaira(settings.referralBonusReferee)} for them
-              </p>
-              <p className="text-[11px] text-slate-500 dark:text-zinc-400 leading-snug">
-                Paid once your friend's first {settings.referralQualifyingTasks} tasks are approved. Nobody pays to join.
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 p-2.5 rounded-2xl bg-slate-50 dark:bg-zinc-800/80 border border-slate-200 dark:border-white/[0.08]">
-            <span className="flex-1 text-[11px] font-mono font-bold text-slate-700 dark:text-zinc-200 truncate">{user.referralCode}</span>
-            <button type="button" onClick={copyLink} className="w-8 h-8 rounded-xl bg-white dark:bg-zinc-900 flex items-center justify-center text-slate-500 cursor-pointer" aria-label="Copy referral link">
-              <Copy className="w-4 h-4" />
-            </button>
-            <button type="button" onClick={shareWhatsApp} className="w-8 h-8 rounded-xl bg-emerald-500 text-white flex items-center justify-center cursor-pointer" aria-label="Share on WhatsApp">
-              <Share2 className="w-4 h-4" />
-            </button>
-          </div>
-          {referrals.length > 0 && (
-            <div className="space-y-1.5">
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                Your referrals · {paidReferrals} bonus{paidReferrals === 1 ? '' : 'es'} paid
-              </p>
-              {referrals.slice(0, 5).map(r => (
-                <div key={r.id} className="flex items-center justify-between text-[11px]">
-                  <span className="font-bold text-slate-700 dark:text-zinc-200 truncate">@{r.username}</span>
-                  <StatusPill
-                    status={
-                      r.bonusStatus === 'paid'
-                        ? 'approved'
-                        : r.bonusStatus === 'pending'
-                        ? 'pending'
-                        : r.bonusStatus === 'skipped_legacy'
-                        ? 'legacy'
-                        : 'capped'
-                    }
-                  />
-                </div>
+          ) : (
+            <div className="rounded-3xl border border-zinc-200 dark:border-zinc-800 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
+              {tasks.slice(0, 3).map(t => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => onOpenTask(t)}
+                  className="w-full text-left flex items-center justify-between gap-3 px-5 py-4 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800/60 cursor-pointer"
+                >
+                  <div className="min-w-0">
+                    <p className="text-[15px] font-bold text-ink dark:text-white truncate">{t.title}</p>
+                    <p className="text-xs text-zinc-500">
+                      {t.time} · {t.spotsLeft} left
+                    </p>
+                  </div>
+                  <span className="text-[15px] font-extrabold text-pulse-700 dark:text-pulse-400 shrink-0">{formatNaira(t.reward)}</span>
+                </button>
               ))}
             </div>
           )}
+        </section>
+      )}
+
+      {user.role !== 'business' && !businessMode && (
+        <Card className="!p-4">
+          <button type="button" onClick={() => onGoto('profile')} className="w-full flex items-center gap-3 text-left cursor-pointer">
+            <div className="w-10 h-10 rounded-2xl bg-pulse-500/12 text-pulse-700 dark:text-pulse-400 flex items-center justify-center shrink-0">
+              <Gift className="w-5 h-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold text-ink dark:text-white">
+                {settings.referralBonusReferrer === settings.referralBonusReferee
+                  ? `Invite a friend, you both get ${formatNaira(settings.referralBonusReferrer)}`
+                  : `Invite a friend: ${formatNaira(settings.referralBonusReferrer)} for you, ${formatNaira(settings.referralBonusReferee)} for them`}
+              </p>
+              <p className="text-xs text-zinc-500">After their first {settings.referralQualifyingTasks} approved tasks</p>
+            </div>
+            <ArrowRight className="w-4 h-4 text-zinc-400 shrink-0" />
+          </button>
         </Card>
       )}
     </div>

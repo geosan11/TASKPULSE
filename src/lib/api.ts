@@ -206,7 +206,7 @@ export async function requestDisbursement(params: {
     if (!import.meta.env.PROD) {
       return {
         status: true,
-        message: 'Disbursement queued successfully via Paystack NIP rails (Dev Mode).',
+        message: 'Withdrawal queued (dev mode).',
         data: {
           reference: `trf_dev_${Date.now()}`,
           amount: params.amount,
