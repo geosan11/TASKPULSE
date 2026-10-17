@@ -20,7 +20,7 @@ import {
   type DbTask,
 } from './lib/supabaseClient';
 import { verifyPayment } from './lib/api';
-import { fetchMarketplaceSettings } from './lib/marketplace';
+import { fetchMarketplaceSettings, fetchMyCampaigns } from './lib/marketplace';
 import { DEFAULT_MARKETPLACE_SETTINGS, formatNaira, type MarketplaceSettings } from './config/marketplace';
 import type { MySubmission, ReferralItem, SavedBank, TxItem, UserProfile } from './types';
 import { Toast } from './components/ui';
@@ -90,6 +90,8 @@ export default function App() {
       window.removeEventListener('offline', off);
     };
   }, []);
+
+  const [pendingReviewCount, setPendingReviewCount] = useState(0);
 
   const loadTasks = useCallback(async () => {
     setTasks(await fetchActiveTasks());
@@ -290,14 +292,36 @@ export default function App() {
   // Business mode defaults to ON for business accounts until they switch it off.
   const businessMode = Boolean(isBusiness && (businessModePref ?? true));
 
+  useEffect(() => {
+    if (!user || !businessMode) {
+      setPendingReviewCount(0);
+      return;
+    }
+    let cancelled = false;
+    fetchMyCampaigns()
+      .then(cs => {
+        if (!cancelled) setPendingReviewCount(cs.reduce((n, c) => n + (c.slotsPending || 0), 0));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [user, businessMode, activeTab]);
+
   const goto = (tab: Tab) => {
     if (tab !== 'tasks') setSelectedTask(null);
     setActiveTab(tab);
   };
 
-  const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
+  // Nav badges: open tasks the worker hasn't submitted yet, or (business
+  // mode) proofs waiting for the business to review.
+  const submittedTaskIds = new Set(submissions.map(s => s.taskId));
+  const availableTaskCount = tasks.filter(t => !submittedTaskIds.has(t.id)).length;
+  const tasksBadge = businessMode ? pendingReviewCount : availableTaskCount;
+
+  const tabs: { id: Tab; label: string; icon: React.ReactNode; badge?: number }[] = [
     { id: 'home', label: 'Home', icon: <Home className="w-6 h-6" /> },
-    { id: 'tasks', label: businessMode ? 'Campaigns' : 'Tasks', icon: <CheckSquare className="w-6 h-6" /> },
+    { id: 'tasks', label: businessMode ? 'Campaigns' : 'Tasks', icon: <CheckSquare className="w-6 h-6" />, badge: tasksBadge },
     { id: 'wallet', label: 'Wallet', icon: <Wallet className="w-6 h-6" /> },
     { id: 'profile', label: 'Profile', icon: <User className="w-6 h-6" /> },
   ];
@@ -346,7 +370,11 @@ export default function App() {
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto no-scrollbar px-5 pt-2">
+        <main
+          className={`flex-1 overflow-y-auto no-scrollbar px-5 pt-2 ${
+            user ? 'pb-[calc(env(safe-area-inset-bottom)+108px)]' : ''
+          }`}
+        >
           {booting ? (
             <div className="h-full flex items-center justify-center text-sm text-zinc-400">Loading…</div>
           ) : !user ? (
@@ -399,24 +427,44 @@ export default function App() {
         </main>
 
         {user && (
-          <nav className="shrink-0 z-40 grid grid-cols-4 border-t border-zinc-200 dark:border-zinc-900 bg-white/95 dark:bg-ink/95 backdrop-blur pb-[env(safe-area-inset-bottom)]">
-            {tabs.map(t => {
-              const active = activeTab === t.id;
-              return (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => goto(t.id)}
-                  aria-current={active ? 'page' : undefined}
-                  className={`tactile flex flex-col items-center justify-center gap-1 h-16 cursor-pointer ${
-                    active ? 'text-ink dark:text-white' : 'text-zinc-400 dark:text-zinc-600'
-                  }`}
-                >
-                  <span className={`flex items-center justify-center w-14 h-8 rounded-full ${active ? 'bg-pulse-500/15 text-pulse-700 dark:text-pulse-400' : ''}`}>{t.icon}</span>
-                  <span className={`text-xs ${active ? 'font-bold' : 'font-medium'}`}>{t.label}</span>
-                </button>
-              );
-            })}
+          <nav
+            aria-label="Main"
+            className="absolute z-40 left-3 right-3 bottom-[calc(env(safe-area-inset-bottom)+12px)] rounded-full p-1.5 border border-zinc-200/80 dark:border-white/10 bg-white/75 dark:bg-zinc-900/70 backdrop-blur-xl backdrop-saturate-150 shadow-[0_8px_30px_rgba(0,0,0,0.12)] dark:shadow-[0_8px_30px_rgba(0,0,0,0.55)]"
+          >
+            <div className="relative grid grid-cols-4">
+              {/* Sliding active pill */}
+              <span
+                aria-hidden="true"
+                className="absolute inset-y-0 left-0 w-1/4 rounded-full bg-pulse-500/15 dark:bg-pulse-500/20 transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+                style={{ transform: `translateX(${Math.max(0, tabs.findIndex(t => t.id === activeTab)) * 100}%)` }}
+              />
+              {tabs.map(t => {
+                const active = activeTab === t.id;
+                const badge = t.badge && t.badge > 0 ? (t.badge > 99 ? '99+' : String(t.badge)) : null;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => goto(t.id)}
+                    aria-current={active ? 'page' : undefined}
+                    aria-label={badge ? `${t.label}, ${badge} new` : t.label}
+                    className={`tactile relative z-10 flex flex-col items-center justify-center gap-0.5 h-14 rounded-full cursor-pointer transition-colors duration-200 ${
+                      active ? 'text-pulse-500' : 'text-zinc-600 dark:text-white'
+                    }`}
+                  >
+                    <span className="relative">
+                      {t.icon}
+                      {badge && (
+                        <span className="absolute -top-1.5 left-[60%] min-w-[20px] h-5 px-1.5 rounded-full bg-pulse-500 text-white text-[11px] font-bold leading-5 text-center ring-2 ring-white dark:ring-zinc-900">
+                          {badge}
+                        </span>
+                      )}
+                    </span>
+                    <span className={`text-xs ${active ? 'font-bold' : 'font-semibold'}`}>{t.label}</span>
+                  </button>
+                );
+              })}
+            </div>
           </nav>
         )}
       </div>
