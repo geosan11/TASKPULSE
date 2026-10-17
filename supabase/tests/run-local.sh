@@ -18,4 +18,8 @@ echo "== tests/20_settle_deposit_pre008_bug.sql (expect updated_at error + amoun
 sudo -u postgres psql -q -d "$DB" -f tests/20_settle_deposit_pre008_bug.sql 2>&1 | grep -E 'ERROR|pending' || true
 run 008_free_marketplace.sql
 echo "== tests/30_settle_after_008.sql"
-sudo -u postgres psql -q -d "$DB" -f tests/30_settle_after_008.sql 2>&1 | grep -E 'PASS|ERROR|FAILED|assert' 
+sudo -u postgres psql -q -d "$DB" -f tests/30_settle_after_008.sql 2>&1 | grep -E 'PASS|ERROR|FAILED|assert' || true
+run 009_business_payments.sql
+run 009_business_payments.sql   # must be safe to re-run
+echo "== tests/40_business_flow.sql"
+sudo -u postgres psql -q -v ON_ERROR_STOP=1 -d "$DB" -f tests/40_business_flow.sql 2>&1 | grep -E 'PASS|ERROR|FAILED'

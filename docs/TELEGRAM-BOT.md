@@ -7,7 +7,7 @@ Webhook: `api/telegram-webhook.ts` (Vercel serverless, plain `fetch`, no deps).
   Start earning (`?ref=CODE&utm_source=telegram`), Latest tasks, How it works, Post tasks.
 - `/tasks` / "Latest tasks" — up to 5 open, funded tasks (active, spots left, campaign `active`),
   each with an Open button (`?task=<id>`). Honest empty state.
-- `/help`, `/business`, `/invite` (₦200 per friend after their first 3 approved tasks; link in Profile).
+- `/help`, `/business`, `/invite` (₦200 per friend once they have 3 tasks approved by businesses; link in Profile).
 - No account linking, no money actions. Group chats: only `/start` is answered.
   Best-effort in-memory rate limit (8 updates / 30 s per chat).
 - Every request must carry `X-Telegram-Bot-Api-Secret-Token` == `TELEGRAM_WEBHOOK_SECRET` (else 401).

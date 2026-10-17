@@ -3,7 +3,7 @@ import { Briefcase, ChevronRight, Copy, FileText, IdCard, Loader2, LogOut, Moon,
 import { Card, ErrorText, inputClass, Label, Modal, primaryButtonClass, secondaryButtonClass, StatusBadge } from './ui';
 import { submitKycRpc, updateProfileFullName } from '../lib/supabaseClient';
 import { becomeBusinessRpc } from '../lib/marketplace';
-import { formatNaira, type MarketplaceSettings } from '../config/marketplace';
+import { formatNaira, referralOffer, type MarketplaceSettings } from '../config/marketplace';
 import type { ReferralItem, UserProfile } from '../types';
 
 const KYC_TYPES = [
@@ -139,8 +139,7 @@ export function ProfileTab({
           <div>
             <p className="text-[15px] font-bold text-ink dark:text-white">Invite friends</p>
             <p className="text-sm text-zinc-500 mt-1">
-              {formatNaira(settings.referralBonusReferrer)} for you and {formatNaira(settings.referralBonusReferee)} for them after their first{' '}
-              {settings.referralQualifyingTasks} approved tasks.
+              {referralOffer(settings)} after they finish {settings.referralQualifyingTasks} approved tasks for businesses.
             </p>
           </div>
           <div className="flex items-center gap-2 h-12 pl-4 pr-1.5 rounded-2xl bg-zinc-100 dark:bg-zinc-800">

@@ -62,14 +62,22 @@ export function TermsModal({
               {settings.payoutCooldownHours} hours after your first approved task.
             </Section>
             <Section title="4. Referral bonus">
-              When someone joins with your code and their first {settings.referralQualifyingTasks} tasks are approved, you
-              receive {formatNaira(settings.referralBonusReferrer)} and they receive {formatNaira(settings.referralBonusReferee)}.
+              When someone joins with your code and gets at least {settings.referralQualifyingTasks} tasks approved by
+              businesses other than you, you receive {formatNaira(settings.referralBonusReferrer)}
+              {settings.referralBonusReferee > 0 ? <> and they receive {formatNaira(settings.referralBonusReferee)}</> : null}.
+              {settings.referralRequireFeeCover
+                ? ` The bonus is paid once the platform fees from their approved tasks reach the bonus amount (at ${formatNaira(
+                    Math.ceil((settings.referralBonusReferrer + settings.referralBonusReferee) / settings.referralQualifyingTasks / settings.platformFeeRate)
+                  )} or more per task, that is after ${settings.referralQualifyingTasks} tasks).`
+                : ''}{' '}
               Referral bonuses are capped per referrer and are withheld for self-referrals or duplicate accounts.
             </Section>
             <Section title="5. Businesses">
               Businesses pay the full campaign cost up front: reward per completion × number of slots, plus a {feePct}%
-              platform fee. Businesses must review submissions fairly and promptly. Unused budget on a cancelled campaign is
-              refunded on request. Tasks must be lawful and must not ask workers for passwords, payments or personal data.
+              platform fee. The worker receives the full reward; the fee is on top, not deducted. Businesses must review
+              submissions fairly and promptly. When a campaign is ended, the rewards for unused slots
+              {settings.refundFeeOnUnused ? ' and their share of the platform fee are' : ' are'} refunded to the card or account
+              used to pay. Tasks must be lawful and must not ask workers for passwords, payments or personal data.
             </Section>
             <Section title="6. Paystack">
               All card payments and bank payouts run on Paystack. TaskPulse never sees or stores card numbers, CVVs or online

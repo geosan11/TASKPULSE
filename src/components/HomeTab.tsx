@@ -1,6 +1,6 @@
 import { ArrowRight, Flame, Gift, Plus } from 'lucide-react';
 import { Card, Mascot, primaryButtonClass } from './ui';
-import { formatNaira, type MarketplaceSettings } from '../config/marketplace';
+import { formatNaira, referralOffer, type MarketplaceSettings } from '../config/marketplace';
 import type { DbTask } from '../lib/supabaseClient';
 import type { UserProfile } from '../types';
 
@@ -123,11 +123,9 @@ export function HomeTab({
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-sm font-bold text-ink dark:text-white">
-                {settings.referralBonusReferrer === settings.referralBonusReferee
-                  ? `Invite a friend, you both get ${formatNaira(settings.referralBonusReferrer)}`
-                  : `Invite a friend: ${formatNaira(settings.referralBonusReferrer)} for you, ${formatNaira(settings.referralBonusReferee)} for them`}
+                {referralOffer(settings)}
               </p>
-              <p className="text-xs text-zinc-500">After their first {settings.referralQualifyingTasks} approved tasks</p>
+              <p className="text-xs text-zinc-500">After they finish {settings.referralQualifyingTasks} approved tasks</p>
             </div>
             <ArrowRight className="w-4 h-4 text-zinc-400 shrink-0" />
           </button>
