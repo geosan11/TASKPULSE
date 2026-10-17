@@ -429,7 +429,7 @@ export default function App() {
         {user && (
           <nav
             aria-label="Main"
-            className="absolute z-40 left-3 right-3 bottom-[calc(env(safe-area-inset-bottom)+12px)] rounded-full p-1.5 border border-zinc-200/80 dark:border-white/10 bg-white/75 dark:bg-zinc-900/70 backdrop-blur-xl backdrop-saturate-150 shadow-[0_8px_30px_rgba(0,0,0,0.12)] dark:shadow-[0_8px_30px_rgba(0,0,0,0.55)]"
+            className="absolute z-40 left-3 right-3 bottom-[calc(env(safe-area-inset-bottom)+12px)] rounded-full p-1.5 border border-zinc-200/80 dark:border-white/10 bg-white/[0.92] dark:bg-zinc-900/70 backdrop-blur-xl backdrop-saturate-150 shadow-[0_8px_30px_rgba(0,0,0,0.12)] dark:shadow-[0_8px_30px_rgba(0,0,0,0.55)]"
           >
             <div className="relative grid grid-cols-4">
               {/* Sliding active pill */}
@@ -449,7 +449,7 @@ export default function App() {
                     aria-current={active ? 'page' : undefined}
                     aria-label={badge ? `${t.label}, ${badge} new` : t.label}
                     className={`tactile relative z-10 flex flex-col items-center justify-center gap-0.5 h-14 rounded-full cursor-pointer transition-colors duration-200 ${
-                      active ? 'text-pulse-500' : 'text-zinc-600 dark:text-white'
+                      active ? 'text-pulse-800 dark:text-pulse-500' : 'text-zinc-600 dark:text-white'
                     }`}
                   >
                     <span className="relative">
