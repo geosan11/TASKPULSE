@@ -25,7 +25,7 @@ import { DEFAULT_MARKETPLACE_SETTINGS, formatNaira, type MarketplaceSettings } f
 import type { MySubmission, ReferralItem, SavedBank, TxItem, UserProfile } from './types';
 import { Toast } from './components/ui';
 import { Landing } from './components/Landing';
-import { AuthModal, type AccountType, type AuthMode } from './components/AuthModal';
+import { AuthModal, lastAuthTab, type AccountType, type AuthMode } from './components/AuthModal';
 import { TermsModal } from './components/TermsModal';
 import { HomeTab } from './components/HomeTab';
 import { TasksTab } from './components/TasksTab';
@@ -255,6 +255,11 @@ export default function App() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        // Opened from the "reset your password" email: ask for a new one.
+        setAuthMode('reset');
+        setAuthOpen(true);
+      }
       if (event === 'SIGNED_IN' && session?.user) {
         refreshUserData();
       } else if (event === 'SIGNED_OUT') {
@@ -369,7 +374,7 @@ export default function App() {
                 {user.username.slice(0, 1).toUpperCase()}
               </button>
             ) : (
-              <button type="button" onClick={() => openAuth('signin')} className="tactile h-10 px-4 rounded-full bg-ink text-white dark:bg-white dark:text-ink text-sm font-bold cursor-pointer">
+              <button type="button" onClick={() => openAuth(lastAuthTab())} className="tactile h-10 px-4 rounded-full bg-ink text-white dark:bg-white dark:text-ink text-sm font-bold cursor-pointer">
                 Sign in
               </button>
             )}
@@ -481,11 +486,12 @@ export default function App() {
         initialAccountType={authAccountType}
         referralCode={referralCode}
         onClose={() => setAuthOpen(false)}
-        onSignedIn={async () => {
+        onSignedIn={async (type?: AccountType) => {
+          const business = pendingBusinessIntent || type === 'business';
           setAuthOpen(false);
           await refreshUserData();
-          if (pendingBusinessIntent) setBusinessMode(true);
-          goto(pendingBusinessIntent ? 'tasks' : 'home');
+          if (business) setBusinessMode(true);
+          goto(business ? 'tasks' : 'home');
           setPendingBusinessIntent(false);
         }}
         onOpenTerms={tab => setTermsOpen(tab)}

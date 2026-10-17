@@ -136,13 +136,16 @@ export function Toast({ show, title, subtitle, onClose }: { show: boolean; title
         show ? 'translate-y-0 opacity-100' : '-translate-y-6 opacity-0'
       }`}
       role="status"
+      aria-hidden={!show}
     >
-      <div className="bg-ink text-white dark:bg-white dark:text-ink rounded-2xl py-3 px-4 shadow-xl flex items-center gap-3 pointer-events-auto">
+      {/* Only catch clicks while visible: the hidden toast used to sit over the
+          header and swallow taps on "Sign in" and the theme toggle. */}
+      <div className={`bg-ink text-white dark:bg-white dark:text-ink rounded-2xl py-3 px-4 shadow-xl flex items-center gap-3 ${show ? 'pointer-events-auto' : 'pointer-events-none'}`}>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-bold leading-tight truncate">{title}</p>
           {subtitle && <p className="text-xs text-zinc-400 dark:text-zinc-500 leading-snug line-clamp-2 mt-0.5">{subtitle}</p>}
         </div>
-        <button type="button" onClick={onClose} aria-label="Dismiss" className="w-7 h-7 rounded-full flex items-center justify-center text-zinc-400 shrink-0 cursor-pointer">
+        <button type="button" onClick={onClose} aria-label="Dismiss" tabIndex={show ? 0 : -1} className="w-7 h-7 rounded-full flex items-center justify-center text-zinc-400 shrink-0 cursor-pointer">
           <X className="w-4 h-4" />
         </button>
       </div>
