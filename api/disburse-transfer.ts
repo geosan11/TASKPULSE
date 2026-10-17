@@ -19,40 +19,68 @@ function handleApiError(res: VercelResponse, err: any) {
   if (err instanceof HttpError) {
     return res.status(err.status).json({ status: false, message: err.message });
   }
-  const message = err?.message || 'Internal server error';
   console.error('[API Error: disburse-transfer]', err);
+  const raw = String(err?.message || '');
+  const message = raw.startsWith('Server misconfiguration') ? raw : 'Internal server error';
   return res.status(500).json({ status: false, message });
 }
 
-let _adminClient: SupabaseClient | null = null;
-function getSupabaseClient(userToken?: string): SupabaseClient {
-  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-  const serviceKey =
+// Server-side Supabase access ALWAYS uses the service-role key. Every money
+// RPC (settle_*, request_cashout, finalize_cashout, save_verified_bank_account,
+// create_campaign_payment) is granted to service_role only, so an anon-key
+// fallback can never work and only hides misconfiguration until a real
+// payment gets stuck. Prefer SUPABASE_SERVICE_ROLE_KEY: anything prefixed
+// VITE_ is a candidate for inlining into the public browser bundle.
+function readServiceRoleKey(): string | undefined {
+  return (
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
     process.env.SUPABASE_SERVICE_KEY ||
     process.env.SUPABASE_SECRET_KEY ||
     process.env.SERVICE_ROLE_KEY ||
-    process.env.VITE_SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_KEY;
+    legacyViteServiceKey()
+  );
+}
 
-  if (url && serviceKey) {
-    if (_adminClient && !userToken) return _adminClient;
-    const client = createClient(url, serviceKey, {
-      auth: { persistSession: false, autoRefreshToken: false }
-    });
-    if (!userToken) _adminClient = client;
-    return client;
+// Back-compat only: older setups stored the key as VITE_SUPABASE_SERVICE_ROLE_KEY.
+// It is not referenced by any browser code, so it is not in the bundle today,
+// but the name is a foot-gun. Rename it to SUPABASE_SERVICE_ROLE_KEY.
+function legacyViteServiceKey(): string | undefined {
+  const k = process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
+  if (k) console.warn('[config] Using VITE_SUPABASE_SERVICE_ROLE_KEY. Rename it to SUPABASE_SERVICE_ROLE_KEY.');
+  return k || undefined;
+}
+
+/** True when the key is a service-role/secret key (not an anon/publishable key). */
+function isServiceRoleKey(key: string): boolean {
+  if (key.startsWith('sb_secret_')) return true;
+  if (key.startsWith('sb_publishable_')) return false;
+  const parts = key.split('.');
+  if (parts.length === 3) {
+    try {
+      const payload = JSON.parse(Buffer.from(parts[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
+      return payload?.role === 'service_role';
+    } catch {
+      return false;
+    }
   }
+  return false;
+}
 
-  const anonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
-  if (!url || (!serviceKey && !anonKey)) {
-    throw new Error('Database server misconfiguration: SUPABASE_URL or Supabase API keys are missing. In Vercel Project Settings > Environment Variables, please add SUPABASE_SERVICE_ROLE_KEY.');
+let _adminClient: SupabaseClient | null = null;
+function getSupabaseClient(_userToken?: string): SupabaseClient {
+  if (_adminClient) return _adminClient;
+  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  const serviceKey = readServiceRoleKey();
+  if (!url || !serviceKey) {
+    throw new Error('Server misconfiguration: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in Vercel Project Settings > Environment Variables (Production), then redeploy.');
   }
-
-  return createClient(url, anonKey!, {
+  if (!isServiceRoleKey(serviceKey)) {
+    throw new Error('Server misconfiguration: SUPABASE_SERVICE_ROLE_KEY is not a service-role key (looks like an anon/publishable key). Copy the service_role secret from Supabase > Project Settings > API.');
+  }
+  _adminClient = createClient(url, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
-    global: userToken ? { headers: { Authorization: `Bearer ${userToken}` } } : undefined
   });
+  return _adminClient;
 }
 
 async function requireUser(req: VercelRequest): Promise<{ user: User; token: string }> {
@@ -89,6 +117,7 @@ async function paystackRequest<T = any>(
       ...options.headers,
     },
     body: options.body ? JSON.stringify(options.body) : undefined,
+    signal: AbortSignal.timeout(8000),
   });
   let data: any = null;
   try { data = await res.json(); } catch { data = null; }
@@ -171,83 +200,108 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     let recipientCode = rpcResult?.recipient_code;
-    if (!recipientCode) {
-      // Automatic fallback: Retrieve bank details and register recipient on Paystack immediately
-      const { data: bankRow } = await client
-        .from('bank_accounts')
-        .select('account_number, bank_code, account_name')
-        .eq('id', bankAccountId)
-        .maybeSingle();
+    // Balance is already reserved. Any failure before the transfer is sent
+    // (including a timeout here) must fall through to the refund below.
+    try {
+      if (!recipientCode) {
+        // Automatic fallback: Retrieve bank details and register recipient on Paystack immediately
+        const { data: bankRow } = await client
+          .from('bank_accounts')
+          .select('account_number, bank_code, account_name')
+          .eq('id', bankAccountId)
+          .eq('user_id', user.id)
+          .maybeSingle();
 
-      if (bankRow?.account_number && bankRow?.bank_code) {
-        const rcRes = await paystackRequest<{
-          status: boolean;
-          message: string;
-          data?: { recipient_code: string };
-        }>('/transferrecipient', {
-          method: 'POST',
-          body: {
-            type: 'nuban',
-            name: bankRow.account_name || 'TaskPulse User',
-            account_number: bankRow.account_number,
-            bank_code: bankRow.bank_code,
-            currency: 'NGN',
-            description: `Auto-linked recipient for user ${user.id}`,
-          },
-        });
+        if (bankRow?.account_number && bankRow?.bank_code) {
+          const rcRes = await paystackRequest<{
+            status: boolean;
+            message: string;
+            data?: { recipient_code: string };
+          }>('/transferrecipient', {
+            method: 'POST',
+            body: {
+              type: 'nuban',
+              name: bankRow.account_name || 'TaskPulse User',
+              account_number: bankRow.account_number,
+              bank_code: bankRow.bank_code,
+              currency: 'NGN',
+              description: `Auto-linked recipient for user ${user.id}`,
+            },
+          });
 
-        if (rcRes.ok && rcRes.data?.data?.recipient_code) {
-          recipientCode = rcRes.data.data.recipient_code;
-          await client
-            .from('bank_accounts')
-            .update({ recipient_code: recipientCode })
-            .eq('id', bankAccountId);
+          if (rcRes.ok && rcRes.data?.data?.recipient_code) {
+            recipientCode = rcRes.data.data.recipient_code;
+            await client
+              .from('bank_accounts')
+              .update({ recipient_code: recipientCode })
+              .eq('id', bankAccountId)
+              .eq('user_id', user.id);
+          }
         }
       }
+    } catch (rcErr) {
+      console.error('[Cashout recipient lookup failed]', txRef, rcErr);
+      recipientCode = undefined;
     }
 
     if (!recipientCode) {
       // Auto-refund in database if recipient cannot be established
-      await client.rpc('finalize_cashout', {
+      const { error: refundErr } = await client.rpc('finalize_cashout', {
         p_reference: txRef,
         p_outcome: 'failed',
       });
+      if (refundErr) console.error('[Cashout refund failed]', txRef, refundErr);
       throw new HttpError(500, 'Bank account could not be connected to Paystack recipient network. Please re-link your bank.');
     }
 
     // 2. Dispatch transfer via Paystack API
-    const paystackRes = await paystackRequest<{
+    type TransferResp = {
       status: boolean;
       message: string;
-      data?: {
-        reference: string;
-        status: string;
-        transfer_code: string;
-        amount: number;
-      };
-    }>('/transfer', {
-      method: 'POST',
-      body: {
-        source: 'balance',
-        amount: Math.round(numAmount * 100), // in kobo
-        recipient: recipientCode,
-        reason: `TaskPulse Cashout ${txRef}`,
-        reference: txRef,
-      },
-    });
+      data?: { reference: string; status: string; transfer_code: string; amount: number };
+    };
+    let paystackRes: { ok: boolean; status: number; data: TransferResp } | null = null;
+    try {
+      paystackRes = await paystackRequest<TransferResp>('/transfer', {
+        method: 'POST',
+        body: {
+          source: 'balance',
+          amount: Math.round(numAmount * 100), // in kobo
+          recipient: recipientCode,
+          reason: `TaskPulse Cashout ${txRef}`,
+          reference: txRef,
+        },
+      });
+    } catch (netErr) {
+      console.error('[Cashout Transfer network error]', txRef, netErr);
+      paystackRes = null;
+    }
 
-    // 3. Handle failure: Refund the user immediately if Paystack rejects the call
+    // 3a. Ambiguous outcome (timeout / network error / Paystack 5xx): the
+    //     transfer MAY have been created. Refunding now could pay the user
+    //     twice (refund + transfer). Keep it pending; the transfer.* webhook
+    //     or scripts/reconcile-pending.ts finalizes it from Paystack's record.
+    if (!paystackRes || paystackRes.status >= 500 || paystackRes.status === 0) {
+      return res.status(202).json({
+        status: true,
+        message: 'Withdrawal submitted and is processing. If it fails, the amount is returned to your wallet automatically.',
+        data: { reference: txRef, amount: numAmount, status: 'pending' },
+      });
+    }
+
+    // 3b. Definitive rejection (4xx, status:false): nothing was sent, so
+    //     refund the user immediately.
     if (!paystackRes.ok || !paystackRes.data?.status) {
-      console.error('[Cashout Transfer Error]', paystackRes.data);
-      // Auto-refund in database
-      await client.rpc('finalize_cashout', {
+      console.error('[Cashout Transfer Error]', paystackRes.status, paystackRes.data?.message);
+      const { error: refundErr } = await client.rpc('finalize_cashout', {
         p_reference: txRef,
         p_outcome: 'failed',
       });
+      if (refundErr) console.error('[Cashout refund failed]', txRef, refundErr);
 
       throw new HttpError(
         502,
-        `Payment gateway rejected transfer: ${paystackRes.data?.message || 'Check Paystack transfer balance or settings.'}`
+        'Payment gateway rejected the transfer. The amount has been returned to your wallet. Please try again later.'
       );
     }
 

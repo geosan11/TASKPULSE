@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Banknote, CheckCircle2, Circle, Info, Landmark, Loader2 } from 'lucide-react';
-import { Card, inputClass, Label, Modal, primaryButtonClass, secondaryButtonClass } from './ui';
+import { ArrowDownLeft, ArrowUpRight, ChevronRight, Landmark, Loader2, Lock } from 'lucide-react';
+import { EmptyState, ErrorText, inputClass, Label, Modal, primaryButtonClass, secondaryButtonClass, StatusPill } from './ui';
 import { formatNaira, type MarketplaceSettings } from '../config/marketplace';
 import { PAYSTACK_BANKS } from '../config/banks';
-import { linkBankAccount, requestDisbursement, resolveBankAccount } from '../lib/api';
-import { formatDateTime, type SavedBank, type TxItem, type UserProfile } from '../types';
+import { linkBankAccount, requestDisbursement, resolveBankAccount, verifyPayment } from '../lib/api';
+import { celebrate } from '../lib/celebrate';
+import { formatDateTime, isDebit, txTypeLabel, type SavedBank, type TxItem, type UserProfile } from '../types';
 
 function startOfLagosDay() {
   const lagosDate = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Lagos' });
@@ -28,11 +29,27 @@ export function WalletTab({
 }) {
   const bank = banks[0];
   const [bankModal, setBankModal] = useState(false);
-  const [amount, setAmount] = useState('');
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [idemKey, setIdemKey] = useState(() => crypto.randomUUID());
+  const [withdrawOpen, setWithdrawOpen] = useState(false);
+  const [receipt, setReceipt] = useState<TxItem | null>(null);
+  const [checking, setChecking] = useState(false);
+
+  // Older activation deposits can be stuck at "pending" if Paystack's redirect
+  // or webhook never reached us. Let the owner of the row re-check it; the
+  // server verifies with Paystack and credits it at most once.
+  const recheckPayment = async (t: TxItem) => {
+    if (!t.reference) return;
+    setChecking(true);
+    try {
+      const res = await verifyPayment(t.reference);
+      notify('Payment confirmed', res.message || 'Credited to your wallet.');
+      setReceipt(null);
+      await onChanged();
+    } catch (err: any) {
+      notify('Not confirmed', err?.message || 'Paystack has no completed payment for this reference.');
+    } finally {
+      setChecking(false);
+    }
+  };
   const [, forceTick] = useState(0);
 
   useEffect(() => {
@@ -52,45 +69,219 @@ export function WalletTab({
   const cooldownDone = eligibleFrom !== null && eligibleFrom <= Date.now();
   const hoursLeft = eligibleFrom !== null && !cooldownDone ? Math.ceil((eligibleFrom - Date.now()) / 3_600_000) : 0;
 
-  const checks = [
-    {
-      ok: eligibleFrom !== null,
-      label: user.isLegacyMember && eligibleFrom !== null ? 'Existing member balance carried over' : 'Complete your first approved task',
-    },
-    {
-      ok: cooldownDone,
-      label:
-        eligibleFrom === null
-          ? `${settings.payoutCooldownHours}h security cooldown starts after your first approved task`
-          : cooldownDone
-          ? 'Security cooldown complete'
-          : `Security cooldown: about ${hoursLeft}h left`,
-    },
-    { ok: Boolean(bank), label: bank ? `Bank verified: ${bank.bankName}` : 'Link one verified bank account' },
-    { ok: user.withdrawableBalance >= settings.minWithdrawal, label: `Minimum withdrawal ${formatNaira(settings.minWithdrawal)}` },
-  ];
-  const canWithdraw = checks.every(c => c.ok) && countLeft > 0 && remainingToday >= settings.minWithdrawal;
+  // Only show what is still blocking a withdrawal, in plain words.
+  const blockers: string[] = [];
+  if (eligibleFrom === null) blockers.push('Get your first task approved');
+  else if (!cooldownDone) blockers.push(`Withdrawals open in about ${hoursLeft}h`);
+  if (!bank) blockers.push('Add your bank account');
+  if (user.withdrawableBalance < settings.minWithdrawal) blockers.push(`Minimum withdrawal is ${formatNaira(settings.minWithdrawal)}`);
+  if (countLeft === 0 || remainingToday < settings.minWithdrawal) blockers.push("You've reached today's withdrawal limit");
+  const canWithdraw = blockers.length === 0;
 
+  return (
+    <div className="space-y-6 pb-8">
+      <h1 className="text-2xl font-extrabold text-ink dark:text-white px-1 pt-1">Wallet</h1>
+
+      <div className="rounded-[28px] bg-ink dark:bg-zinc-900 dark:border dark:border-zinc-800 text-white p-6 space-y-5">
+        <div>
+          <p className="text-sm text-zinc-400">Available to withdraw</p>
+          <p className="text-[40px] leading-none font-extrabold tracking-tight mt-2">{formatNaira(user.withdrawableBalance)}</p>
+          <p className="text-sm text-zinc-400 mt-3">
+            Pending <span className="text-white font-semibold ml-1">{formatNaira(user.pendingBalance)}</span>
+          </p>
+        </div>
+        <button
+          type="button"
+          disabled={!canWithdraw}
+          onClick={() => setWithdrawOpen(true)}
+          className={`${primaryButtonClass} disabled:!opacity-100 disabled:!bg-zinc-800 disabled:!text-zinc-500`}
+        >
+          {!canWithdraw && <Lock className="w-4 h-4" />} Withdraw
+        </button>
+        {!canWithdraw && (
+          <ul className="space-y-1">
+            {blockers.map(b => (
+              <li key={b} className="text-sm text-zinc-400">
+                • {b}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {user.isLegacyMember && user.withdrawableBalance > 0 && (
+        <p className="text-sm text-zinc-500 dark:text-zinc-400 px-1">Your earlier balance was carried over in full.</p>
+      )}
+
+      <button
+        type="button"
+        onClick={() => setBankModal(true)}
+        className="tactile w-full flex items-center gap-4 p-5 rounded-3xl bg-white dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 text-left cursor-pointer"
+      >
+        <div className="w-11 h-11 rounded-2xl bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center shrink-0">
+          <Landmark className="w-5 h-5 text-ink dark:text-white" />
+        </div>
+        <div className="min-w-0 flex-1">
+          {bank ? (
+            <>
+              <p className="text-[15px] font-bold text-ink dark:text-white truncate">{bank.bankName}</p>
+              <p className="text-sm text-zinc-500 truncate">
+                {bank.accountName} · {bank.accountNumber.slice(-4).padStart(bank.accountNumber.length > 4 ? 6 : 4, '•')}
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-[15px] font-bold text-ink dark:text-white">Add bank account</p>
+              <p className="text-sm text-zinc-500">Where your money goes</p>
+            </>
+          )}
+        </div>
+        <ChevronRight className="w-5 h-5 text-zinc-400" />
+      </button>
+
+      <section className="space-y-3">
+        <h2 className="text-base font-extrabold text-ink dark:text-white px-1">History</h2>
+        {transactions.length === 0 ? (
+          <EmptyState mascot={null} icon={<ArrowDownLeft className="w-6 h-6" />} title="No activity yet" subtitle="Earnings and withdrawals show up here." />
+        ) : (
+          <div className="rounded-3xl border border-zinc-200 dark:border-zinc-800 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
+            {transactions.slice(0, 30).map(t => {
+              const debit = isDebit(t.type);
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setReceipt(t)}
+                  className="w-full text-left flex items-center gap-3 px-5 py-4 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800/60 cursor-pointer"
+                >
+                  <div className="w-10 h-10 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center shrink-0 text-ink dark:text-white">
+                    {debit ? <ArrowUpRight className="w-4 h-4" /> : <ArrowDownLeft className="w-4 h-4 text-pulse-700 dark:text-pulse-400" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[15px] font-semibold text-ink dark:text-white truncate">{txTypeLabel(t.type)}</p>
+                    <p className="text-xs text-zinc-500">{formatDateTime(t.createdAt)}</p>
+                  </div>
+                  <div className="text-right shrink-0 space-y-1">
+                    <p className={`text-[15px] font-bold ${debit ? 'text-ink dark:text-white' : 'text-pulse-700 dark:text-pulse-400'}`}>
+                      {debit ? '−' : '+'}
+                      {formatNaira(Math.abs(t.amount))}
+                    </p>
+                    <StatusPill status={t.status} />
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      <WithdrawModal
+        open={withdrawOpen}
+        onClose={() => setWithdrawOpen(false)}
+        bank={bank}
+        balance={user.withdrawableBalance}
+        remainingToday={remainingToday}
+        settings={settings}
+        onDone={async () => {
+          setWithdrawOpen(false);
+          await onChanged();
+        }}
+      />
+
+      <Modal open={Boolean(receipt)} onClose={() => setReceipt(null)} title={receipt ? txTypeLabel(receipt.type) : ''}>
+        {receipt && (
+          <dl className="space-y-3 text-sm">
+            {[
+              ['Amount', formatNaira(Math.abs(receipt.amount))],
+              ['Status', <StatusPill key="s" status={receipt.status} />],
+              ['Date', `${formatDateTime(receipt.createdAt)} WAT`],
+              ['Details', receipt.title || receipt.description || '—'],
+              ...(receipt.destinationBank ? [['Bank', receipt.destinationBank]] : []),
+              ['Reference', receipt.reference || '—'],
+            ].map(([k, v]) => (
+              <div key={String(k)} className="flex justify-between gap-4 pb-3 border-b border-zinc-100 dark:border-zinc-800 last:border-0">
+                <dt className="text-zinc-500">{k}</dt>
+                <dd className="font-semibold text-ink dark:text-white text-right break-all">{v}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+        {receipt &&
+          receipt.type.toLowerCase() === 'deposit' &&
+          receipt.status.toLowerCase() === 'pending' &&
+          /^dep_/.test(receipt.reference || '') && (
+            <button
+              type="button"
+              className={`${secondaryButtonClass} mt-5`}
+              disabled={checking}
+              onClick={() => recheckPayment(receipt)}
+            >
+              {checking && <Loader2 className="w-5 h-5 animate-spin" />} Check payment with Paystack
+            </button>
+          )}
+      </Modal>
+
+      <BankModal
+        open={bankModal}
+        current={bank}
+        onClose={() => setBankModal(false)}
+        onLinked={async () => {
+          setBankModal(false);
+          notify('Bank saved', 'Your payout account is verified.');
+          await onChanged();
+        }}
+      />
+    </div>
+  );
+}
+
+function WithdrawModal({
+  open,
+  onClose,
+  bank,
+  balance,
+  remainingToday,
+  settings,
+  onDone,
+}: {
+  open: boolean;
+  onClose: () => void;
+  bank?: SavedBank;
+  balance: number;
+  remainingToday: number;
+  settings: MarketplaceSettings;
+  onDone: () => Promise<void>;
+}) {
+  const [amount, setAmount] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [idemKey, setIdemKey] = useState(() => crypto.randomUUID());
+  const max = Math.floor(Math.min(balance, remainingToday));
   const amountNum = Number(amount);
-  const validateAmount = () => {
-    if (!Number.isInteger(amountNum) || amountNum <= 0) return 'Enter a whole Naira amount.';
-    if (amountNum < settings.minWithdrawal) return `Minimum withdrawal is ${formatNaira(settings.minWithdrawal)}.`;
+
+  const validate = () => {
+    if (!Number.isInteger(amountNum) || amountNum <= 0) return 'Enter an amount.';
+    if (amountNum < settings.minWithdrawal) return `Minimum is ${formatNaira(settings.minWithdrawal)}.`;
     if (amountNum > remainingToday) return `You can withdraw up to ${formatNaira(remainingToday)} more today.`;
-    if (amountNum > user.withdrawableBalance) return 'Amount is more than your balance.';
+    if (amountNum > balance) return 'That is more than your balance.';
     return null;
   };
 
-  const doWithdraw = async () => {
+  const submit = async () => {
+    const v = validate();
+    if (v) {
+      setError(v);
+      return;
+    }
     if (!bank) return;
     setSubmitting(true);
     setError(null);
     try {
-      const res = await requestDisbursement({ amount: amountNum, bankAccountId: bank.id, idempotencyKey: idemKey });
-      notify('Withdrawal requested', res.message || `${formatNaira(amountNum)} is on its way to ${bank.bankName}.`);
-      setConfirmOpen(false);
+      await requestDisbursement({ amount: amountNum, bankAccountId: bank.id, idempotencyKey: idemKey });
+      celebrate('Money on the way!', `${formatNaira(amountNum)} to ${bank.bankName}.`);
       setAmount('');
       setIdemKey(crypto.randomUUID());
-      await onChanged();
+      await onDone();
     } catch (err: any) {
       setError(err.message || 'Withdrawal failed.');
     } finally {
@@ -99,138 +290,49 @@ export function WalletTab({
   };
 
   return (
-    <div className="space-y-4 pb-6">
-      <div className="p-5 rounded-[30px] bg-gradient-to-br from-emerald-500 to-teal-700 text-white shadow-xl shadow-emerald-500/20">
-        <p className="text-[10px] font-black uppercase tracking-widest text-white/80">Withdrawable balance</p>
-        <p className="text-3xl font-black mt-1">{formatNaira(user.withdrawableBalance)}</p>
-        <p className="text-[11px] text-white/80 mt-1">
-          Today: {formatNaira(remainingToday)} left of {formatNaira(settings.dailyWithdrawalLimit)} · {countLeft} withdrawal{countLeft === 1 ? '' : 's'} left
-        </p>
-      </div>
-
-      {user.isLegacyMember && user.withdrawableBalance > 0 && (
-        <div className="p-3.5 rounded-2xl bg-sky-500/10 border border-sky-500/30 flex gap-2.5 text-[11px] text-sky-800 dark:text-sky-200 leading-snug">
-          <Info className="w-4 h-4 shrink-0 mt-0.5" />
-          <span>
-            TaskPulse is now free to join. Your existing balance has been carried over in full and stays withdrawable under the
-            rules below. Tiers and deposits have been retired.
-          </span>
-        </div>
-      )}
-
-      <Card>
-        <p className="text-xs font-black text-slate-900 dark:text-white">Withdrawal checklist</p>
-        <ul className="space-y-1.5">
-          {checks.map(c => (
-            <li key={c.label} className="flex items-center gap-2 text-[11px] text-slate-600 dark:text-zinc-300">
-              {c.ok ? <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" /> : <Circle className="w-4 h-4 text-slate-300 shrink-0" />}
-              {c.label}
-            </li>
-          ))}
-        </ul>
-      </Card>
-
-      <Card>
-        <div className="flex items-center justify-between">
-          <p className="text-xs font-black text-slate-900 dark:text-white">Payout bank</p>
-          {bank && (
-            <button type="button" onClick={() => setBankModal(true)} className="text-[11px] font-black text-sky-600 dark:text-cyan-400 cursor-pointer">
-              Re-verify
-            </button>
-          )}
-        </div>
-        {bank ? (
-          <div className="flex items-center gap-3 p-3 rounded-2xl bg-slate-50 dark:bg-zinc-800/80">
-            <Landmark className="w-5 h-5 text-slate-500" />
-            <div className="min-w-0">
-              <p className="text-xs font-black text-slate-900 dark:text-white truncate">{bank.accountName}</p>
-              <p className="text-[11px] text-slate-500 dark:text-zinc-400">
-                {bank.bankName} · ****{bank.accountNumber.slice(-4)}
-              </p>
-            </div>
-          </div>
-        ) : (
-          <button type="button" className={secondaryButtonClass} onClick={() => setBankModal(true)}>
-            <Landmark className="w-4 h-4" /> Link bank account
-          </button>
-        )}
-        <p className="text-[10px] text-slate-400">One bank account per user. The name must match your Paystack-verified NUBAN.</p>
-      </Card>
-
-      <Card>
-        <Label hint={`Min ${formatNaira(settings.minWithdrawal)}`}>Amount (₦)</Label>
+    <Modal open={open} onClose={onClose} title="Withdraw">
+      <div className="text-center py-2">
         <input
-          className={inputClass}
+          autoFocus
           inputMode="numeric"
-          value={amount}
+          value={amount ? `₦${Number(amount).toLocaleString('en-NG')}` : ''}
           onChange={e => setAmount(e.target.value.replace(/\D/g, ''))}
-          placeholder={String(settings.minWithdrawal)}
-          disabled={!canWithdraw}
+          placeholder="₦0"
+          className="w-full bg-transparent text-center text-5xl font-extrabold text-ink dark:text-white placeholder:text-zinc-300 dark:placeholder:text-zinc-700 focus:outline-none"
+          aria-label="Amount"
         />
-        {error && <p className="text-[11px] text-rose-500 font-semibold">{error}</p>}
-        <button
-          type="button"
-          className={primaryButtonClass}
-          disabled={!canWithdraw || !amount}
-          onClick={() => {
-            const v = validateAmount();
-            if (v) {
-              setError(v);
-              return;
-            }
-            setError(null);
-            setConfirmOpen(true);
-          }}
-        >
-          <Banknote className="w-4 h-4" /> Withdraw
+        <button type="button" onClick={() => setAmount(String(max))} className="mt-3 text-sm font-bold text-pulse-700 dark:text-pulse-400 cursor-pointer">
+          Max {formatNaira(max)}
         </button>
-      </Card>
-
-      <Card>
-        <p className="text-xs font-black text-slate-900 dark:text-white">Recent withdrawals</p>
-        {transactions.filter(t => t.type.toLowerCase() === 'cashout').length === 0 ? (
-          <p className="text-[11px] text-slate-500 dark:text-zinc-400">No withdrawals yet.</p>
-        ) : (
-          transactions
-            .filter(t => t.type.toLowerCase() === 'cashout')
-            .slice(0, 5)
-            .map(t => (
-              <div key={t.id} className="flex items-center justify-between text-[11px]">
-                <span className="text-slate-600 dark:text-zinc-300">{formatDateTime(t.createdAt)} WAT</span>
-                <span className="font-black text-slate-900 dark:text-white">
-                  {formatNaira(t.amount)} · {t.status}
-                </span>
-              </div>
-            ))
-        )}
-      </Card>
-
-      <Modal open={confirmOpen} onClose={() => setConfirmOpen(false)} title="Confirm withdrawal" eyebrow="Paystack transfer">
-        <p className="text-xs text-slate-600 dark:text-zinc-300">
-          Send <strong>{formatNaira(amountNum)}</strong> to <strong>{bank?.accountName}</strong> ({bank?.bankName}, ****
-          {bank?.accountNumber.slice(-4)})?
+      </div>
+      {bank && (
+        <p className="text-sm text-zinc-500 text-center">
+          To {bank.accountName} · {bank.bankName}
         </p>
-        {error && <p className="text-[11px] text-rose-500 font-semibold">{error}</p>}
-        <button type="button" className={primaryButtonClass} disabled={submitting} onClick={doWithdraw}>
-          {submitting && <Loader2 className="w-4 h-4 animate-spin" />} Confirm
-        </button>
-      </Modal>
-
-      <BankModal
-        open={bankModal}
-        onClose={() => setBankModal(false)}
-        onLinked={async () => {
-          setBankModal(false);
-          notify('Bank linked', 'Your payout account is verified.');
-          await onChanged();
-        }}
-      />
-    </div>
+      )}
+      <ErrorText>{error}</ErrorText>
+      <button type="button" className={primaryButtonClass} disabled={submitting || !amount} onClick={submit}>
+        {submitting && <Loader2 className="w-5 h-5 animate-spin" />} Withdraw {amount ? formatNaira(amountNum) : ''}
+      </button>
+      <p className="text-xs text-zinc-400 text-center">
+        Min {formatNaira(settings.minWithdrawal)} · up to {formatNaira(settings.dailyWithdrawalLimit)} a day
+      </p>
+    </Modal>
   );
 }
 
-function BankModal({ open, onClose, onLinked }: { open: boolean; onClose: () => void; onLinked: () => Promise<void> }) {
-  const [bankCode, setBankCode] = useState<string>(PAYSTACK_BANKS[0].code);
+function BankModal({
+  open,
+  current,
+  onClose,
+  onLinked,
+}: {
+  open: boolean;
+  current?: SavedBank;
+  onClose: () => void;
+  onLinked: () => Promise<void>;
+}) {
+  const [bankCode, setBankCode] = useState<string>(current?.bankCode || PAYSTACK_BANKS[0].code);
   const [accountNumber, setAccountNumber] = useState('');
   const [accountName, setAccountName] = useState<string | null>(null);
   const [resolving, setResolving] = useState(false);
@@ -266,14 +368,19 @@ function BankModal({ open, onClose, onLinked }: { open: boolean; onClose: () => 
       await linkBankAccount({ accountNumber, bankCode, bankName });
       await onLinked();
     } catch (err: any) {
-      setError(err.message || 'Could not link this account.');
+      setError(err.message || 'Could not save this account.');
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <Modal open={open} onClose={onClose} title="Link your bank" eyebrow="NUBAN verification">
+    <Modal open={open} onClose={onClose} title={current ? 'Bank account' : 'Add bank account'}>
+      {current && (
+        <p className="text-sm text-zinc-500">
+          You can have one bank account. Current: {current.bankName} ••{current.accountNumber.slice(-4)}
+        </p>
+      )}
       <div>
         <Label>Bank</Label>
         <select className={inputClass} value={bankCode} onChange={e => setBankCode(e.target.value)}>
@@ -292,20 +399,23 @@ function BankModal({ open, onClose, onLinked }: { open: boolean; onClose: () => 
           maxLength={10}
           value={accountNumber}
           onChange={e => setAccountNumber(e.target.value.replace(/\D/g, '').slice(0, 10))}
-          placeholder="0123456789"
+          placeholder="10 digits"
         />
       </div>
-      <div className="min-h-[20px] text-[11px]">
+      <div className="min-h-[24px] px-1 text-sm">
         {resolving && (
-          <span className="flex items-center gap-1.5 text-slate-500">
-            <Loader2 className="w-3.5 h-3.5 animate-spin" /> Verifying with Paystack…
+          <span className="flex items-center gap-2 text-zinc-500">
+            <Loader2 className="w-4 h-4 animate-spin" /> Checking account…
           </span>
         )}
-        {accountName && <span className="font-black text-emerald-600 dark:text-emerald-400">✓ {accountName}</span>}
-        {error && <span className="text-rose-500 font-semibold">{error}</span>}
+        {accountName && <span className="font-bold text-pulse-700 dark:text-pulse-400">✓ {accountName}</span>}
       </div>
+      <ErrorText>{error}</ErrorText>
       <button type="button" className={primaryButtonClass} disabled={!accountName || saving} onClick={save}>
-        {saving && <Loader2 className="w-4 h-4 animate-spin" />} Save bank account
+        {saving && <Loader2 className="w-5 h-5 animate-spin" />} Save
+      </button>
+      <button type="button" className={secondaryButtonClass} onClick={onClose}>
+        Cancel
       </button>
     </Modal>
   );

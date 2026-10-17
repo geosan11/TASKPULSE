@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Briefcase, Loader2, Mail, User } from 'lucide-react';
-import { Modal, inputClass, primaryButtonClass, Label } from './ui';
+import { Briefcase, Loader2, User } from 'lucide-react';
+import { Modal, inputClass, primaryButtonClass, Label, ErrorText, Mascot } from './ui';
 import { HEARD_ABOUT_US_OPTIONS } from '../config/marketplace';
 import {
   checkDuplicateUser,
@@ -9,6 +9,7 @@ import {
   signUpUser,
   supabase,
 } from '../lib/supabaseClient';
+import { celebrate } from '../lib/celebrate';
 
 export type AuthMode = 'signin' | 'signup' | 'verify_email';
 export type AccountType = 'worker' | 'business';
@@ -131,7 +132,7 @@ export function AuthModal({
       notify('Check your inbox ✉️', `We sent a confirmation link to ${email.trim()}`);
       return;
     }
-    notify(`Welcome, @${username.trim().toLowerCase()}!`, accountType === 'business' ? 'Post your first task from the Business tab.' : 'Pick a task and start earning.');
+    celebrate(`Welcome, ${fullName.trim().split(' ')[0] || username.trim()}!`, accountType === 'business' ? 'Post your first task to get started.' : 'Pick a task and start earning.');
     onSignedIn();
   };
 
@@ -174,13 +175,11 @@ export function AuthModal({
     return (
       <Modal open={open} onClose={onClose} title="Confirm your email" eyebrow="Almost there">
         <div className="text-center space-y-3">
-          <div className="mx-auto w-14 h-14 rounded-2xl bg-sky-500/10 text-sky-500 flex items-center justify-center">
-            <Mail className="w-7 h-7" />
-          </div>
-          <p className="text-xs text-slate-600 dark:text-zinc-300">
+          <Mascot pose="happy" className="w-24 h-24 mx-auto" />
+          <p className="text-xs text-zinc-600 dark:text-zinc-300">
             We sent a confirmation link to <strong>{email || 'your email'}</strong>. Open it, then come back and sign in.
           </p>
-          {error && <p className="text-[11px] text-rose-500 font-semibold">{error}</p>}
+          {error && <ErrorText>{error}</ErrorText>}
           <button type="button" className={primaryButtonClass} onClick={() => setMode('signin')}>
             I've confirmed, sign in
           </button>
@@ -188,7 +187,7 @@ export function AuthModal({
             type="button"
             onClick={handleResend}
             disabled={resendCooldown > 0 || !email}
-            className="text-[11px] font-bold text-sky-600 dark:text-cyan-400 disabled:opacity-50 cursor-pointer"
+            className="text-sm font-bold text-pulse-700 dark:text-pulse-400 disabled:opacity-50 cursor-pointer"
           >
             {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend confirmation email'}
           </button>
@@ -206,7 +205,7 @@ export function AuthModal({
       title={isSignup ? (accountType === 'business' ? 'Create a business account' : 'Join TaskPulse free') : 'Sign in'}
       eyebrow={isSignup ? 'No deposit, ever' : 'Welcome back'}
     >
-      <div className="grid grid-cols-2 gap-1 p-1 rounded-full bg-slate-100 dark:bg-zinc-800">
+      <div className="grid grid-cols-2 gap-1 p-1 rounded-full bg-zinc-100 dark:bg-zinc-900">
         {(['signin', 'signup'] as const).map(m => (
           <button
             key={m}
@@ -215,8 +214,8 @@ export function AuthModal({
               setMode(m);
               setError(null);
             }}
-            className={`h-8 rounded-full text-[11px] font-black cursor-pointer transition-all ${
-              mode === m ? 'bg-white dark:bg-zinc-950 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500'
+            className={`h-10 rounded-full text-sm font-bold cursor-pointer transition-all ${
+              mode === m ? 'bg-white dark:bg-zinc-800 text-ink dark:text-white shadow-sm' : 'text-zinc-500'
             }`}
           >
             {m === 'signin' ? 'Sign in' : 'Sign up'}
@@ -224,7 +223,7 @@ export function AuthModal({
         ))}
       </div>
 
-      <form onSubmit={isSignup ? handleSignUp : handleSignIn} className="space-y-3">
+      <form onSubmit={isSignup ? handleSignUp : handleSignIn} className="space-y-4">
         {isSignup && (
           <div className="grid grid-cols-2 gap-2">
             {([
@@ -235,14 +234,14 @@ export function AuthModal({
                 key={opt.id}
                 type="button"
                 onClick={() => setAccountType(opt.id)}
-                className={`p-3 rounded-2xl border text-left cursor-pointer transition-all ${
+                className={`p-4 rounded-2xl border-2 text-left cursor-pointer transition-all ${
                   accountType === opt.id
-                    ? 'border-sky-500 bg-sky-500/10 text-sky-700 dark:text-cyan-300'
-                    : 'border-slate-200 dark:border-white/[0.08] text-slate-600 dark:text-zinc-400'
+                    ? 'border-pulse-500 bg-pulse-500/10 text-ink dark:text-white'
+                    : 'border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400'
                 }`}
               >
                 {opt.icon}
-                <span className="block text-[11px] font-black mt-1">{opt.label}</span>
+                <span className="block text-sm font-extrabold mt-1">{opt.label}</span>
               </button>
             ))}
           </div>
@@ -299,15 +298,15 @@ export function AuthModal({
                 <input className={inputClass} value={refCode} onChange={e => setRefCode(e.target.value.toUpperCase())} placeholder="TP-FRIEND" />
               </div>
             )}
-            <label className="flex items-start gap-2 text-[11px] text-slate-600 dark:text-zinc-400 leading-snug cursor-pointer">
-              <input type="checkbox" checked={acceptTerms} onChange={e => setAcceptTerms(e.target.checked)} className="mt-0.5 accent-sky-500" />
+            <label className="flex items-start gap-2 text-sm text-zinc-600 dark:text-zinc-400 leading-snug cursor-pointer">
+              <input type="checkbox" checked={acceptTerms} onChange={e => setAcceptTerms(e.target.checked)} className="mt-0.5 accent-pulse-500" />
               <span>
                 I agree to the{' '}
-                <button type="button" className="font-bold text-sky-600 dark:text-cyan-400 underline" onClick={() => onOpenTerms('terms')}>
+                <button type="button" className="font-bold text-pulse-700 dark:text-pulse-400 underline" onClick={() => onOpenTerms('terms')}>
                   Terms of Service
                 </button>{' '}
                 and{' '}
-                <button type="button" className="font-bold text-sky-600 dark:text-cyan-400 underline" onClick={() => onOpenTerms('privacy')}>
+                <button type="button" className="font-bold text-pulse-700 dark:text-pulse-400 underline" onClick={() => onOpenTerms('privacy')}>
                   Privacy Policy
                 </button>
                 .
@@ -316,7 +315,7 @@ export function AuthModal({
           </>
         )}
 
-        {error && <p className="text-[11px] text-rose-500 font-semibold">{error}</p>}
+        {error && <ErrorText>{error}</ErrorText>}
 
         <button type="submit" className={primaryButtonClass} disabled={submitting || (isSignup && !acceptTerms)}>
           {submitting && <Loader2 className="w-4 h-4 animate-spin" />}

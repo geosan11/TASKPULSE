@@ -5,7 +5,7 @@ import { formatNaira, type MarketplaceSettings } from '../config/marketplace';
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1">
-      <h4 className="font-black text-slate-900 dark:text-white text-xs">{title}</h4>
+      <h4 className="font-bold text-ink dark:text-white text-sm">{title}</h4>
       <p>{children}</p>
     </div>
   );
@@ -27,14 +27,14 @@ export function TermsModal({
 
   return (
     <Modal open={open} onClose={onClose} title="Terms & Privacy" eyebrow="Legal" wide>
-      <div className="grid grid-cols-2 gap-1 p-1 rounded-full bg-slate-100 dark:bg-zinc-800">
+      <div className="grid grid-cols-2 gap-1 p-1 rounded-full bg-zinc-100 dark:bg-zinc-900">
         {(['terms', 'privacy'] as const).map(t => (
           <button
             key={t}
             type="button"
             onClick={() => setTab(t)}
-            className={`h-8 rounded-full text-[11px] font-black cursor-pointer transition-all ${
-              tab === t ? 'bg-white dark:bg-zinc-950 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500'
+            className={`h-10 rounded-full text-sm font-bold cursor-pointer transition-all ${
+              tab === t ? 'bg-white dark:bg-zinc-800 text-ink dark:text-white shadow-sm' : 'text-zinc-500'
             }`}
           >
             {t === 'terms' ? 'Terms of Service' : 'Privacy Policy (NDPR)'}
@@ -42,7 +42,7 @@ export function TermsModal({
         ))}
       </div>
 
-      <div className="max-h-[50vh] overflow-y-auto pr-1 space-y-3.5 text-xs text-slate-600 dark:text-zinc-300 leading-relaxed no-scrollbar border-y border-slate-100 dark:border-white/[0.06] py-3">
+      <div className="max-h-[50vh] overflow-y-auto pr-1 space-y-3.5 text-sm text-zinc-600 dark:text-zinc-300 leading-relaxed no-scrollbar border-y border-zinc-100 dark:border-zinc-800 py-3">
         {tab === 'terms' ? (
           <>
             <Section title="1. Free to join, one account per person">
@@ -99,7 +99,7 @@ export function TermsModal({
       <button
         type="button"
         onClick={onClose}
-        className="w-full h-11 rounded-full bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold text-xs uppercase tracking-wider transition-all hover:opacity-95 cursor-pointer"
+        className="w-full h-12 rounded-full bg-ink dark:bg-white text-white dark:text-ink font-bold text-[15px] transition-all hover:opacity-95 cursor-pointer"
       >
         I understand
       </button>

@@ -33,7 +33,7 @@ export function triggerConfetti() {
     opacity: number;
   }> = [];
 
-  const colors = ['#0ea5e9', '#38bdf8', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6'];
+  const colors = ['#00C853', '#00C853', '#1FCE69', '#0A0A0A', '#FFFFFF'];
 
   for (let i = 0; i < 70; i++) {
     particles.push({
