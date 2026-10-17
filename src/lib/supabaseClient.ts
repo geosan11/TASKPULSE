@@ -39,6 +39,11 @@ export interface AuthUserSignup {
   fullName: string;
   phone: string;
   referralCode?: string;
+  /** Optional "How did you hear about us?" answer, stored on profiles.heard_about_us */
+  heardAboutUs?: string;
+  /** 'worker' (default) earns from tasks; 'business' posts and funds tasks */
+  accountType?: 'worker' | 'business';
+  businessName?: string;
 }
 
 export interface UserDuplicateCheck {
@@ -122,7 +127,7 @@ export async function checkDuplicateUser(
  * Sign Up a new user with duplicate verification and profile creation.
  */
 export async function signUpUser(params: AuthUserSignup) {
-  const { email, password, username, fullName, phone, referralCode } = params;
+  const { email, password, username, fullName, phone, referralCode, heardAboutUs, accountType, businessName } = params;
 
   if (!password || password.length < 8) {
     return {
@@ -152,7 +157,10 @@ export async function signUpUser(params: AuthUserSignup) {
             username: username.trim().toLowerCase(),
             full_name: fullName.trim(),
             phone: phone.trim(),
-            referred_by_code: referralCode ? referralCode.trim() : null
+            referred_by_code: referralCode ? referralCode.trim() : null,
+            heard_about_us: heardAboutUs ? heardAboutUs.trim().slice(0, 120) : null,
+            account_type: accountType === 'business' ? 'business' : 'worker',
+            business_name: accountType === 'business' && businessName ? businessName.trim().slice(0, 100) : null
           }
         }
       });
@@ -301,7 +309,7 @@ export async function getCurrentUserProfile() {
 
     const { data: profile, error } = await supabase
       .from('profiles')
-      .select('id, email, username, full_name, phone, tier_id, is_activated, activation_timestamp, withdrawable_balance, pending_balance, total_withdrawn_lifetime, streak_days, streak_last_claimed_date, referral_code, has_received_double_credit, has_upgraded_after_limit, kyc_status, kyc_id_type, kyc_id_last4, kyc_submitted_at')
+      .select('id, email, username, full_name, phone, role, business_name, heard_about_us, withdrawable_balance, pending_balance, total_withdrawn_lifetime, streak_days, streak_last_claimed_date, referral_code, approved_task_count, first_task_approved_at, payout_eligible_from, is_legacy_member, kyc_status, kyc_id_type, kyc_id_last4, kyc_submitted_at, created_at')
       .eq('id', user.id)
       .single();
 
@@ -330,63 +338,15 @@ export async function fetchBankAccounts(userId: string) {
 }
 
 /**
- * Call the claim_daily_reward database RPC.
+ * Daily check-in. Purely a streak badge: it never credits money
+ * (the old ₦450 daily login bonus was unfunded and has been removed).
  */
-export async function claimDailyRewardRpc() {
-  if (!supabase) {
-    const lastClaimed = localStorage.getItem('taskpulse_streak_last_claimed');
-    const today = new Date().toISOString().slice(0, 10);
-    if (lastClaimed === today) {
-      throw new Error('You have already claimed today’s reward. Check back tomorrow!');
-    }
-    const currentStreak = Number(localStorage.getItem('taskpulse_streak_days') || '0') + 1;
-    localStorage.setItem('taskpulse_streak_last_claimed', today);
-    localStorage.setItem('taskpulse_streak_days', String(currentStreak));
-    return { streak_days: currentStreak, reward_amount: 450, claimed: true };
-  }
+export async function checkInStreakRpc(): Promise<{ streak_days: number }> {
+  if (!supabase) throw new Error('Database is not connected.');
   const { data, error } = await supabase.rpc('claim_daily_reward');
   if (error) {
     if (error.message.includes('already_claimed')) {
-      throw new Error('You have already claimed today’s reward. Check back tomorrow!');
-    }
-    if (error.message.includes('not_activated')) {
-      throw new Error('Your account must be activated to claim daily login rewards.');
-    }
-    throw new Error(error.message);
-  }
-  return data;
-}
-
-/**
- * Call the upgrade_tier_from_wallet database RPC.
- */
-export async function upgradeTierRpc(targetTierId: string) {
-  if (!supabase) {
-    const tierStakes: Record<string, number> = {
-      silver: 10000,
-      gold: 25000,
-      platinum: 50000,
-      diamond: 100000,
-      black_crown_vip: 250000,
-    };
-    const reqStake = tierStakes[targetTierId] || 10000;
-    const curBal = Number(localStorage.getItem('taskpulse_balance') || '0');
-    if (curBal < reqStake) {
-      throw new Error('Insufficient wallet balance to upgrade to this tier.');
-    }
-    localStorage.setItem('taskpulse_balance', String(curBal - reqStake));
-    localStorage.setItem('taskpulse_tier', targetTierId);
-    return { success: true, tier_id: targetTierId, stake_deducted: reqStake };
-  }
-  const { data, error } = await supabase.rpc('upgrade_tier_from_wallet', {
-    p_tier_id: targetTierId,
-  });
-  if (error) {
-    if (error.message.includes('insufficient_balance')) {
-      throw new Error('Insufficient wallet balance to upgrade to this tier.');
-    }
-    if (error.message.includes('cannot_downgrade') || error.message.includes('already_at_or_above_tier')) {
-      throw new Error('You can only upgrade to a higher tier.');
+      throw new Error('You have already checked in today. Come back tomorrow!');
     }
     throw new Error(error.message);
   }
@@ -417,57 +377,35 @@ export async function submitKycRpc(idType: string, idNumber: string) {
   return data;
 }
 
+const SUBMIT_ERRORS: Record<string, string> = {
+  already_submitted: 'You have already submitted proof for this task.',
+  task_not_available: 'This task is no longer available.',
+  no_slots_left: 'All slots for this task are taken.',
+  own_campaign: 'You cannot complete tasks from your own campaign.',
+  proof_required: 'Please provide your proof.',
+  screenshot_required: 'This task needs a screenshot as proof.',
+  link_required: 'This task needs a link (starting with https://) as proof.',
+  invalid_proof_path: 'Screenshot upload failed. Please upload it again.',
+};
+
 /**
- * Submit a task completion proof for admin review.
+ * Submit proof for a task. The reward is taken from the task row on the
+ * server (submit_task RPC); the client never sends an amount.
  */
 export async function submitTaskProofRpc(params: {
   taskId: string;
-  taskTitle: string;
-  company: string;
-  rewardAmount: number;
-  category: string;
-  proofScreenshotUrl?: string;
+  proofText?: string;
+  proofScreenshotPath?: string;
 }) {
-  if (!supabase) {
-    const completions = JSON.parse(localStorage.getItem('taskpulse_task_completions') || '[]');
-    if (completions.some((c: any) => c.task_id === params.taskId)) {
-      throw new Error('You have already submitted proof for this task.');
-    }
-    const newRecord = {
-      id: `tc_${Date.now()}`,
-      task_id: params.taskId,
-      task_title: params.taskTitle,
-      reward_amount: params.rewardAmount,
-      status: 'pending',
-      submitted_at: new Date().toISOString(),
-    };
-    completions.push(newRecord);
-    localStorage.setItem('taskpulse_task_completions', JSON.stringify(completions));
-    return newRecord;
-  }
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error('You must be signed in.');
-
-  const { data, error } = await supabase
-    .from('task_completions')
-    .insert({
-      user_id: user.id,
-      task_id: params.taskId,
-      task_title: params.taskTitle,
-      company: params.company,
-      reward_amount: params.rewardAmount,
-      category: params.category,
-      status: 'pending',
-      proof_screenshot_url: params.proofScreenshotUrl || null,
-    })
-    .select()
-    .single();
-
+  if (!supabase) throw new Error('Database is not connected.');
+  const { data, error } = await supabase.rpc('submit_task', {
+    p_task_id: params.taskId,
+    p_proof_text: params.proofText || null,
+    p_proof_url: params.proofScreenshotPath || null,
+  });
   if (error) {
-    if (error.code === '23505') {
-      throw new Error('You have already submitted proof for this task.');
-    }
-    throw new Error(error.message);
+    const key = Object.keys(SUBMIT_ERRORS).find(k => error.message.includes(k));
+    throw new Error(key ? SUBMIT_ERRORS[key] : error.message);
   }
   return data;
 }
@@ -551,7 +489,7 @@ export async function fetchTaskCompletionsHistory(userId: string, limit: number 
 
   return await supabase
     .from('task_completions')
-    .select('id, task_id, task_title, company, reward_amount, category, status, sla_time, completed_at, proof_screenshot_url')
+    .select('id, task_id, task_title, company, reward_amount, paid_amount, category, status, sla_time, completed_at, review_note, campaign_id')
     .eq('user_id', userId)
     .order('completed_at', { ascending: false })
     .limit(limit);
@@ -565,7 +503,7 @@ export async function fetchReferralsHistory(userId: string, limit: number = 20) 
 
   return await supabase
     .from('referrals')
-    .select('id, referee_name, referee_username, deposited_amount, is_qualified, joined_time, created_at')
+    .select('id, referee_name, referee_username, bonus_status, bonus_referrer_amount, joined_time, created_at')
     .eq('referrer_id', userId)
     .order('created_at', { ascending: false })
     .limit(limit);
@@ -579,7 +517,7 @@ export interface DbTask {
   title: string;
   company: string;
   reward: number;
-  category: 'Social' | 'App Tests' | 'Surveys' | 'Field Audits' | 'Referral';
+  category: string;
   time: string;
   SLA: string;
   spotsLeft: number;
@@ -587,10 +525,13 @@ export interface DbTask {
   description: string;
   steps: string[];
   platformIcon?: string;
+  proofType: 'screenshot' | 'text' | 'link';
+  campaignId: string | null;
+  targetUrl: string | null;
 }
 
 /**
- * Fetch active tasks from public.tasks table
+ * Fetch active, business-funded tasks from public.tasks
  */
 export async function fetchActiveTasks(): Promise<DbTask[]> {
   if (!supabase) return [];
@@ -598,32 +539,37 @@ export async function fetchActiveTasks(): Promise<DbTask[]> {
   try {
     const { data, error } = await supabase
       .from('tasks')
-      .select('id, title, company, reward, category, time_estimate, sla, spots_left, spots_total, description, steps, platform_icon')
+      .select('id, title, company, reward, category, time_estimate, sla, spots_left, spots_total, description, steps, platform_icon, proof_type, campaign_id, target_url')
       .eq('is_active', true)
-      .order('created_at', { ascending: true });
+      .gt('spots_left', 0)
+      .order('created_at', { ascending: false });
 
     if (error || !data) {
       console.warn('Could not fetch tasks from DB:', error?.message);
       return [];
     }
 
-    return data.map((t: any) => ({
-      id: t.id,
-      title: t.title,
-      company: t.company,
-      reward: Number(t.reward),
-      category: t.category,
-      time: t.time_estimate || '2m',
-      SLA: t.sla || 'Instant SLA Approval',
-      spotsLeft: t.spots_left,
-      spotsTotal: t.spots_total,
-      description: t.description,
-      steps: Array.isArray(t.steps) ? t.steps : (typeof t.steps === 'string' ? JSON.parse(t.steps) : []),
-      platformIcon: t.platform_icon || '🎵'
-    }));
+    return data
+      .filter((t: any) => t.category !== 'Referral')
+      .map((t: any) => ({
+        id: t.id,
+        title: t.title,
+        company: t.company,
+        reward: Number(t.reward),
+        category: t.category,
+        time: t.time_estimate || '5m',
+        SLA: t.sla || 'Reviewed by business',
+        spotsLeft: t.spots_left,
+        spotsTotal: t.spots_total,
+        description: t.description,
+        steps: Array.isArray(t.steps) ? t.steps : (typeof t.steps === 'string' ? JSON.parse(t.steps) : []),
+        platformIcon: t.platform_icon || '✅',
+        proofType: (t.proof_type || 'screenshot') as DbTask['proofType'],
+        campaignId: t.campaign_id || null,
+        targetUrl: t.target_url || null,
+      }));
   } catch (e) {
     console.warn('Failed to query tasks:', e);
     return [];
   }
 }
-

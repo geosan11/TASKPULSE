@@ -19,42 +19,68 @@ function handleApiError(res: VercelResponse, err: any) {
   if (err instanceof HttpError) {
     return res.status(err.status).json({ status: false, message: err.message });
   }
-  const message = err?.message || 'Internal server error';
   console.error('[API Error: initialize-deposit]', err);
+  const raw = String(err?.message || '');
+  const message = raw.startsWith('Server misconfiguration') ? raw : 'Internal server error';
   return res.status(500).json({ status: false, message });
 }
 
-let _adminClient: SupabaseClient | null = null;
-function getSupabaseClient(userToken?: string): SupabaseClient {
-  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-  const serviceKey =
+// Server-side Supabase access ALWAYS uses the service-role key. Every money
+// RPC (settle_*, request_cashout, finalize_cashout, save_verified_bank_account,
+// create_campaign_payment) is granted to service_role only, so an anon-key
+// fallback can never work and only hides misconfiguration until a real
+// payment gets stuck. Prefer SUPABASE_SERVICE_ROLE_KEY: anything prefixed
+// VITE_ is a candidate for inlining into the public browser bundle.
+function readServiceRoleKey(): string | undefined {
+  return (
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
     process.env.SUPABASE_SERVICE_KEY ||
     process.env.SUPABASE_SECRET_KEY ||
     process.env.SERVICE_ROLE_KEY ||
-    process.env.VITE_SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_KEY;
+    legacyViteServiceKey()
+  );
+}
 
-  if (url && serviceKey) {
-    if (_adminClient && !userToken) return _adminClient;
-    const client = createClient(url, serviceKey, {
-      auth: { persistSession: false, autoRefreshToken: false }
-    });
-    if (!userToken) _adminClient = client;
-    return client;
+// Back-compat only: older setups stored the key as VITE_SUPABASE_SERVICE_ROLE_KEY.
+// It is not referenced by any browser code, so it is not in the bundle today,
+// but the name is a foot-gun. Rename it to SUPABASE_SERVICE_ROLE_KEY.
+function legacyViteServiceKey(): string | undefined {
+  const k = process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
+  if (k) console.warn('[config] Using VITE_SUPABASE_SERVICE_ROLE_KEY. Rename it to SUPABASE_SERVICE_ROLE_KEY.');
+  return k || undefined;
+}
+
+/** True when the key is a service-role/secret key (not an anon/publishable key). */
+function isServiceRoleKey(key: string): boolean {
+  if (key.startsWith('sb_secret_')) return true;
+  if (key.startsWith('sb_publishable_')) return false;
+  const parts = key.split('.');
+  if (parts.length === 3) {
+    try {
+      const payload = JSON.parse(Buffer.from(parts[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
+      return payload?.role === 'service_role';
+    } catch {
+      return false;
+    }
   }
+  return false;
+}
 
-  // Fallback: If service_role key has not yet been added to Vercel,
-  // authenticate using anon key + user bearer token
-  const anonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
-  if (!url || (!serviceKey && !anonKey)) {
-    throw new Error('Database server misconfiguration: SUPABASE_URL or Supabase API keys are missing. In Vercel Project Settings > Environment Variables, please add SUPABASE_SERVICE_ROLE_KEY.');
+let _adminClient: SupabaseClient | null = null;
+function getSupabaseClient(_userToken?: string): SupabaseClient {
+  if (_adminClient) return _adminClient;
+  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  const serviceKey = readServiceRoleKey();
+  if (!url || !serviceKey) {
+    throw new Error('Server misconfiguration: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in Vercel Project Settings > Environment Variables (Production), then redeploy.');
   }
-
-  return createClient(url, anonKey!, {
+  if (!isServiceRoleKey(serviceKey)) {
+    throw new Error('Server misconfiguration: SUPABASE_SERVICE_ROLE_KEY is not a service-role key (looks like an anon/publishable key). Copy the service_role secret from Supabase > Project Settings > API.');
+  }
+  _adminClient = createClient(url, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
-    global: userToken ? { headers: { Authorization: `Bearer ${userToken}` } } : undefined
   });
+  return _adminClient;
 }
 
 async function requireUser(req: VercelRequest): Promise<{ user: User; token: string }> {
@@ -91,6 +117,7 @@ async function paystackRequest<T = any>(
       ...options.headers,
     },
     body: options.body ? JSON.stringify(options.body) : undefined,
+    signal: AbortSignal.timeout(8000),
   });
   let data: any = null;
   try { data = await res.json(); } catch { data = null; }
@@ -98,8 +125,15 @@ async function paystackRequest<T = any>(
 }
 
 // =========================================================================
-// HANDLER: INITIALIZE DEPOSIT
+// HANDLER: INITIALIZE CAMPAIGN FUNDING (BUSINESS CHECKOUT)
 // =========================================================================
+// TaskPulse is free to join: users no longer deposit. This endpoint now only
+// starts a Paystack checkout for a BUSINESS funding one of its own task
+// campaigns. The amount is never taken from the request: it is the
+// campaign's total_charge, computed in the database by create_campaign()
+// (reward x slots x (1 + platform fee)).
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
@@ -113,50 +147,42 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       throw new HttpError(400, 'Your user profile does not have an email address associated.');
     }
 
+    const campaignId = req.body?.campaignId;
+    if (!campaignId || typeof campaignId !== 'string' || !UUID_RE.test(campaignId)) {
+      // Old clients still POST { amount } for activation/top-up deposits.
+      throw new HttpError(
+        410,
+        'Deposits are no longer required. TaskPulse is free to join. Businesses fund task campaigns from the "For Businesses" tab.'
+      );
+    }
+
     const client = getSupabaseClient(token);
 
-    // Check user profile activation status
-    const { data: profile, error: profileErr } = await client
-      .from('profiles')
-      .select('is_activated, withdrawable_balance')
-      .eq('id', user.id)
-      .single();
+    // Unique checkout reference. The 'camp_' prefix routes verification and
+    // webhooks to settle_campaign_funding().
+    const reference = `camp_${crypto.randomUUID().replace(/-/g, '')}`;
 
-    if (profileErr || !profile) {
-      throw new HttpError(404, 'User profile not found in database.');
-    }
-
-    const rawAmount = req.body?.amount !== undefined ? Number(req.body.amount) : 3000;
-    if (isNaN(rawAmount) || rawAmount !== Math.floor(rawAmount)) {
-      throw new HttpError(400, 'Deposit amount must be a whole Naira number.');
-    }
-
-    let enforcedAmount: number;
-    if (!profile.is_activated) {
-      // Must be exactly ₦3,000 for activation
-      enforcedAmount = 3000;
-    } else {
-      if (rawAmount < 1000 || rawAmount > 500000) {
-        throw new HttpError(400, 'Top-up deposit must be between ₦1,000 and ₦500,000.');
-      }
-      enforcedAmount = rawAmount;
-    }
-
-    // Generate unique deposit reference
-    const depositRef = `dep_${crypto.randomUUID().replace(/-/g, '')}`;
-
-    // Record pending transaction in Supabase with row-level locks
-    const { error: rpcErr } = await client.rpc('create_pending_deposit', {
+    // Ownership + status are checked inside the RPC under a row lock; it also
+    // returns the authoritative amount to charge.
+    const { data: payment, error: rpcErr } = await client.rpc('create_campaign_payment', {
       p_user_id: user.id,
-      p_reference: depositRef,
-      p_amount: enforcedAmount,
+      p_campaign_id: campaignId,
+      p_reference: reference,
     });
 
     if (rpcErr) {
-      throw new HttpError(400, `Could not initiate deposit: ${rpcErr.message}`);
+      const msg = rpcErr.message || '';
+      if (msg.includes('campaign_not_found')) throw new HttpError(404, 'Campaign not found.');
+      if (msg.includes('not_campaign_owner')) throw new HttpError(403, 'You can only fund your own campaigns.');
+      if (msg.includes('campaign_already_funded')) throw new HttpError(409, 'This campaign is already funded.');
+      throw new HttpError(400, `Could not start campaign payment: ${msg}`);
     }
 
-    // Determine return / callback URL
+    const amountNaira = Number(payment?.amount);
+    if (!amountNaira || amountNaira <= 0 || amountNaira !== Math.floor(amountNaira)) {
+      throw new HttpError(500, 'Campaign amount is invalid. Please contact support.');
+    }
+
     const origin =
       process.env.APP_URL ||
       (req.headers['x-forwarded-proto'] && req.headers.host
@@ -164,30 +190,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         : req.headers.host
         ? `https://${req.headers.host}`
         : 'http://localhost:3000');
-    const callbackUrl = `${origin.replace(/\/$/, '')}/?verify_deposit=${encodeURIComponent(depositRef)}`;
+    const callbackUrl = `${origin.replace(/\/$/, '')}/?verify_payment=${encodeURIComponent(reference)}`;
 
-    // Call Paystack Initialize
     const paystackRes = await paystackRequest<{
       status: boolean;
       message: string;
-      data?: {
-        authorization_url: string;
-        access_code: string;
-        reference: string;
-      };
+      data?: { authorization_url: string; access_code: string; reference: string };
     }>('/transaction/initialize', {
       method: 'POST',
       body: {
         email,
-        amount: Math.round(enforcedAmount * 100), // in kobo
-        reference: depositRef,
+        amount: Math.round(amountNaira * 100), // kobo
+        reference,
         currency: 'NGN',
         callback_url: callbackUrl,
         metadata: {
           app: 'TaskPulse',
           user_id: user.id,
-          type: profile.is_activated ? 'wallet_topup' : 'activation_deposit',
-          amount_naira: enforcedAmount,
+          type: 'campaign_funding',
+          campaign_id: campaignId,
+          amount_naira: amountNaira,
         },
       },
     });
@@ -201,12 +223,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     return res.status(200).json({
       status: true,
-      message: 'Deposit initialized successfully.',
+      message: 'Campaign checkout initialized.',
       data: {
         authorization_url: paystackRes.data.data.authorization_url,
         access_code: paystackRes.data.data.access_code,
-        reference: depositRef,
-        amount: enforcedAmount,
+        reference,
+        amount: amountNaira,
+        campaign_id: campaignId,
       },
     });
   } catch (err: any) {

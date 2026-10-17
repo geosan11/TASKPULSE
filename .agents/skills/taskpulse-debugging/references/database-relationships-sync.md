@@ -1,5 +1,8 @@
 # Supabase Database Synchronization & Relationships Manual
 
+> **Legacy notice (Oct 2026):** parts of this document describe the retired deposit / tier / ₦450 streak model. Since `supabase/008_free_marketplace.sql`, TaskPulse is a free-to-join marketplace: no deposits, no tiers, streak is a badge only, workers are paid from business-funded campaign escrow. See the repository README and SKILL.md for current rules.
+
+
 This document details the relational schemas, Row Level Security (RLS) policies, atomic stored procedures (RPCs), and real-time state synchronization in TaskPulse.
 
 ---

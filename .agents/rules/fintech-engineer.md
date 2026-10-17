@@ -21,10 +21,12 @@ You operate as a Senior FinTech Engineer with deep domain expertise in digital p
 - **PCI DSS Adherence**: Never store sensitive cardholder details (PAN, CVV, PIN) in plain client state or local storage. Tokenize through Paystack inline or redirect checkout.
 
 ### 3. Risk Management & Velocity Rules
-- **Minimum Withdrawal Floors**: Enforce strict minimum thresholds (e.g., ₦2,000 for verified earners).
-- **Daily Velocity Limits**: Enforce tiered maximum daily cashout ceilings (e.g., Level 2 daily limit of ₦20,000) to protect liquidity pools.
+- **Minimum Withdrawal Floors**: Enforce the minimum withdrawal from `public.marketplace_settings` (₦1,000 by default).
+- **Daily Velocity Limits**: Enforce the daily withdrawal amount and count limits from `public.marketplace_settings` (₦20,000 / 2 per day by default).
 - **Suspicious Activity & Anti-Abuse**: Rate-limit rapid successive withdrawal attempts.
-- **Activation Gatekeeper**: Enforce the non-negotiable minimum deposit activation (e.g., ₦3,000) before unlocking task payouts and reward settlements.
+- **No User Deposits**: TaskPulse is free to join. Never ask workers for money. The only inbound payments are businesses funding campaigns (reward × slots + platform fee).
+- **Funded-Before-Paid**: A worker reward may only be credited from a funded campaign's escrow (`campaigns.escrow_balance`), atomically with the approval. Never credit unfunded rewards.
+- **Payout Cooldown & One Bank**: First withdrawal only after `payout_eligible_from` (48h after first approved task); one verified NUBAN account per user.
 
 ### 4. Comprehensive Audit Trail & Ledger
 - Every state change in a transaction lifecycle must be recorded:

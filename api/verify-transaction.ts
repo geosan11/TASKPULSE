@@ -18,40 +18,68 @@ function handleApiError(res: VercelResponse, err: any) {
   if (err instanceof HttpError) {
     return res.status(err.status).json({ status: false, message: err.message });
   }
-  const message = err?.message || 'Internal server error';
   console.error('[API Error: verify-transaction]', err);
+  const raw = String(err?.message || '');
+  const message = raw.startsWith('Server misconfiguration') ? raw : 'Internal server error';
   return res.status(500).json({ status: false, message });
 }
 
-let _adminClient: SupabaseClient | null = null;
-function getSupabaseClient(userToken?: string): SupabaseClient {
-  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-  const serviceKey =
+// Server-side Supabase access ALWAYS uses the service-role key. Every money
+// RPC (settle_*, request_cashout, finalize_cashout, save_verified_bank_account,
+// create_campaign_payment) is granted to service_role only, so an anon-key
+// fallback can never work and only hides misconfiguration until a real
+// payment gets stuck. Prefer SUPABASE_SERVICE_ROLE_KEY: anything prefixed
+// VITE_ is a candidate for inlining into the public browser bundle.
+function readServiceRoleKey(): string | undefined {
+  return (
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
     process.env.SUPABASE_SERVICE_KEY ||
     process.env.SUPABASE_SECRET_KEY ||
     process.env.SERVICE_ROLE_KEY ||
-    process.env.VITE_SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_KEY;
+    legacyViteServiceKey()
+  );
+}
 
-  if (url && serviceKey) {
-    if (_adminClient && !userToken) return _adminClient;
-    const client = createClient(url, serviceKey, {
-      auth: { persistSession: false, autoRefreshToken: false }
-    });
-    if (!userToken) _adminClient = client;
-    return client;
+// Back-compat only: older setups stored the key as VITE_SUPABASE_SERVICE_ROLE_KEY.
+// It is not referenced by any browser code, so it is not in the bundle today,
+// but the name is a foot-gun. Rename it to SUPABASE_SERVICE_ROLE_KEY.
+function legacyViteServiceKey(): string | undefined {
+  const k = process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
+  if (k) console.warn('[config] Using VITE_SUPABASE_SERVICE_ROLE_KEY. Rename it to SUPABASE_SERVICE_ROLE_KEY.');
+  return k || undefined;
+}
+
+/** True when the key is a service-role/secret key (not an anon/publishable key). */
+function isServiceRoleKey(key: string): boolean {
+  if (key.startsWith('sb_secret_')) return true;
+  if (key.startsWith('sb_publishable_')) return false;
+  const parts = key.split('.');
+  if (parts.length === 3) {
+    try {
+      const payload = JSON.parse(Buffer.from(parts[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
+      return payload?.role === 'service_role';
+    } catch {
+      return false;
+    }
   }
+  return false;
+}
 
-  const anonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
-  if (!url || (!serviceKey && !anonKey)) {
-    throw new Error('Database server misconfiguration: SUPABASE_URL or Supabase API keys are missing. In Vercel Project Settings > Environment Variables, please add SUPABASE_SERVICE_ROLE_KEY.');
+let _adminClient: SupabaseClient | null = null;
+function getSupabaseClient(_userToken?: string): SupabaseClient {
+  if (_adminClient) return _adminClient;
+  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  const serviceKey = readServiceRoleKey();
+  if (!url || !serviceKey) {
+    throw new Error('Server misconfiguration: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in Vercel Project Settings > Environment Variables (Production), then redeploy.');
   }
-
-  return createClient(url, anonKey!, {
+  if (!isServiceRoleKey(serviceKey)) {
+    throw new Error('Server misconfiguration: SUPABASE_SERVICE_ROLE_KEY is not a service-role key (looks like an anon/publishable key). Copy the service_role secret from Supabase > Project Settings > API.');
+  }
+  _adminClient = createClient(url, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
-    global: userToken ? { headers: { Authorization: `Bearer ${userToken}` } } : undefined
   });
+  return _adminClient;
 }
 
 async function getOptionalUser(req: VercelRequest): Promise<{ user: User | null; token?: string }> {
@@ -91,6 +119,7 @@ async function paystackRequest<T = any>(
       ...options.headers,
     },
     body: options.body ? JSON.stringify(options.body) : undefined,
+    signal: AbortSignal.timeout(8000),
   });
   let data: any = null;
   try { data = await res.json(); } catch { data = null; }
@@ -113,6 +142,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!reference || typeof reference !== 'string') {
       throw new HttpError(400, 'Transaction reference is required.');
     }
+    // Only our own checkout references can be settled here.
+    if (!/^(dep|camp)_[A-Za-z0-9_-]{6,80}$/.test(reference)) {
+      throw new HttpError(400, 'Unknown transaction reference.');
+    }
 
     const client = getSupabaseClient(userToken);
 
@@ -125,6 +158,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         amount: number; // kobo
         currency: string;
         reference: string;
+        requested_amount?: number; // kobo, before customer-borne fees
         customer?: { email: string };
       };
     }>(`/transaction/verify/${encodeURIComponent(reference)}`);
@@ -145,32 +179,73 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       throw new HttpError(400, 'Invalid currency: only NGN transactions are accepted.');
     }
 
-    const actualAmountNaira = Math.floor(txData.amount / 100);
-
-    // 2. Call the database settle_deposit RPC with row locks and idempotency
-    const { data: settleResult, error: settleErr } = await client.rpc('settle_deposit', {
-      p_reference: reference,
-      p_paid_amount: actualAmountNaira,
-    });
-
-    if (settleErr) {
-      throw new HttpError(400, `Failed to settle deposit in database: ${settleErr.message}`);
+    // Paystack echoes the reference; refuse anything that does not match the
+    // one we asked about (defence in depth against a proxy/cache mix-up).
+    if (txData.reference && txData.reference !== reference) {
+      throw new HttpError(400, 'Payment reference mismatch.');
     }
 
-    // 3. Resolve target user ID from transaction record or auth session
+    // Amount is in kobo. When fees are passed to the customer, `amount`
+    // includes the fee (e.g. 314721 for a N3,000 charge) and the database
+    // accepts paid >= due, crediting only the amount due.
+    const actualAmountNaira = Math.floor(Number(txData.amount) / 100);
+
+    // 2. Route by reference prefix:
+    //    camp_*  -> business campaign funding (escrow + publish task)
+    //    dep_*   -> legacy user deposit started before the free-marketplace
+    //               pivot (still honoured, credited once)
+    const isCampaign = reference.startsWith('camp_');
+    const { data: settleResult, error: settleErr } = await client.rpc(
+      isCampaign ? 'settle_campaign_funding' : 'settle_deposit',
+      { p_reference: reference, p_paid_amount: actualAmountNaira }
+    );
+
+    if (settleErr) {
+      console.error('[verify-transaction] settle RPC error', reference, settleErr);
+      throw new HttpError(500, 'We received your payment but could not apply it yet. It will be retried automatically; contact support with your reference if it stays pending.');
+    }
+    if (settleResult && settleResult.success === false) {
+      const code = settleResult.error || 'settlement_failed';
+      if (code === 'underpaid') {
+        throw new HttpError(400, 'The amount paid is less than the amount due. Please contact support.');
+      }
+      throw new HttpError(400, `Payment could not be applied (${code}).`);
+    }
+
+    if (isCampaign) {
+      return res.status(200).json({
+        status: true,
+        message: settleResult?.status === 'duplicate_needs_refund'
+          ? 'This campaign was already funded. The extra payment is flagged for a refund.'
+          : 'Campaign funded. Your task is now live for workers.',
+        data: {
+          kind: 'campaign',
+          reference,
+          amount: actualAmountNaira,
+          campaign_id: settleResult?.campaign_id,
+          settleResult,
+        },
+      });
+    }
+
+    // 3. Legacy deposit: return the refreshed wallet balance
     const { data: txRecord } = await client
       .from('transactions')
       .select('user_id')
       .eq('reference', reference)
       .maybeSingle();
 
-    const targetUserId = txRecord?.user_id || optionalUser?.id;
+    // Only return a balance to the signed-in owner of this deposit; the
+    // endpoint is callable without auth (Paystack redirect), so never leak
+    // another user's balance to whoever holds the reference.
+    const targetUserId =
+      optionalUser?.id && txRecord?.user_id === optionalUser.id ? optionalUser.id : null;
 
     let updatedProfile = null;
     if (targetUserId) {
       const { data: prof } = await client
         .from('profiles')
-        .select('is_activated, withdrawable_balance, tier_id')
+        .select('withdrawable_balance')
         .eq('id', targetUserId)
         .maybeSingle();
       updatedProfile = prof;
@@ -178,8 +253,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     return res.status(200).json({
       status: true,
-      message: 'Deposit verified and credited successfully.',
+      message: 'Legacy deposit verified and credited to your wallet.',
       data: {
+        kind: 'legacy_deposit',
         reference,
         amount: actualAmountNaira,
         settleResult,
