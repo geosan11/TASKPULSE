@@ -36,9 +36,13 @@ Withdrawal rules (anti-fraud):
 
 ### Referral bonus
 
-Invite a friend with your link. When their **first 3 tasks are approved**, you
-get **₦200** and they get **₦200**. Bonuses are capped per referrer
-(50 by default). Nobody pays to join, so referrals never involve deposits.
+Invite a friend with your link. When they have **3 tasks approved by
+businesses other than you**, you get **₦200** (the friend's own bonus is ₦0 by
+default; `referral_bonus_referee`). To stop bonus farming, the bonus is only
+paid once the platform fee earned from the friend's approved tasks covers it
+(`referral_require_fee_cover`): at ₦267+ per task that is exactly 3 tasks; on
+cheaper tasks it takes more. Bonuses are capped per referrer (50 by default).
+Nobody pays to join, so referrals never involve deposits.
 
 ### Daily check-in
 
@@ -48,10 +52,10 @@ Checking in daily builds your streak badge. It does not pay cash.
 
 1. Sign up as a business (or switch from Profile → "Open business account").
 2. Create a campaign: title, instructions, category, reward per completion, number of slots, proof type (screenshot / text / link) and an optional link.
-3. Pay through Paystack. **Total = reward × slots × 1.25** (reward budget plus a 25% platform fee), rounded up to the nearest Naira.
+3. Pay through Paystack. **Total = reward × slots × 1.25** (reward budget plus a 25% platform fee **on top**), fee rounded up to the nearest Naira. The worker always receives the full reward. Example: 100 responses × ₦300 = ₦30,000 + ₦7,500 fee = **₦37,500** (₦375 per approved response).
 4. Your task goes live as soon as the payment is verified.
 5. Review submissions in the Business tab. **Approve** pays the worker from your campaign escrow. **Reject** (with a note) frees the slot for someone else.
-6. Pause, resume or cancel at any time. Cancelling marks the unused budget as a refund due to you (refunds are processed by TaskPulse support).
+6. Pause, resume or cancel at any time. Cancelling records a refund for the unused slots: their rewards **and their share of the 25% fee** (`refund_fee_on_unused`). Submissions still awaiting review keep their reward reserved; rejecting them after cancelling adds to the refund. Payments that arrive for an already-funded or deleted campaign, and underpayments, are listed for a full refund. Refunds are issued by the owner from the Paystack dashboard and recorded with `record_campaign_refund()` / `record_payment_refund()`; `admin_refunds_owed()` lists everything owed.
 
 Admins (`profiles.role = 'admin'`) can review any submission.
 
@@ -68,7 +72,9 @@ enforced inside Postgres functions, so the browser can't bypass it:
 | `daily_withdrawal_limit` | 20000 |
 | `max_withdrawals_per_day` | 2 |
 | `payout_cooldown_hours` | 48 |
-| `referral_bonus_referrer` / `referral_bonus_referee` | 200 / 200 |
+| `referral_bonus_referrer` / `referral_bonus_referee` | 200 / 0 (009) |
+| `referral_require_fee_cover` | true (009) |
+| `refund_fee_on_unused` | true (009) |
 | `referral_qualifying_tasks` | 3 |
 | `referral_max_bonuses_per_referrer` | 50 |
 | `platform_fee_rate` | 0.25 |

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowLeft, Check, Image as ImageIcon, Loader2, Pause, Play, Plus, X } from 'lucide-react';
 import { EmptyState, ErrorText, inputClass, Label, Modal, primaryButtonClass, secondaryButtonClass, Segmented, StatusPill, textareaClass } from './ui';
-import { computeCampaignCost, formatNaira, PROOF_TYPES, TASK_CATEGORIES, type MarketplaceSettings, type ProofType } from '../config/marketplace';
+import { computeCampaignCost, computeCancelRefund, formatNaira, PROOF_TYPES, TASK_CATEGORIES, type MarketplaceSettings, type ProofType } from '../config/marketplace';
 import {
   becomeBusinessRpc,
   createCampaignRpc,
@@ -92,7 +92,7 @@ export function BusinessTab({
       ) : (
         <div className="space-y-3">
           {campaigns.map(c => (
-            <CampaignCard key={c.id} campaign={c} onReview={() => setReviewing({ campaignId: c.id, title: c.title })} onChanged={load} notify={notify} />
+            <CampaignCard key={c.id} campaign={c} settings={settings} onReview={() => setReviewing({ campaignId: c.id, title: c.title })} onChanged={load} notify={notify} />
           ))}
         </div>
       )}
@@ -149,11 +149,13 @@ function BecomeBusiness({ onDone, notify }: { onDone: () => Promise<void>; notif
 
 function CampaignCard({
   campaign: c,
+  settings,
   onReview,
   onChanged,
   notify,
 }: {
   campaign: Campaign;
+  settings: MarketplaceSettings;
   onReview: () => void;
   onChanged: () => Promise<void>;
   notify: (t: string, s: string) => void;
@@ -161,6 +163,8 @@ function CampaignCard({
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const pct = c.slots > 0 ? Math.round((c.slotsApproved / c.slots) * 100) : 0;
+  const cancelRefund = computeCancelRefund(c, settings.platformFeeRate, settings.refundFeeOnUnused);
+  const refundOwed = Math.max(0, c.refundDue - c.refundedAmount);
 
   const fund = async () => {
     setBusy('fund');
@@ -194,7 +198,16 @@ function CampaignCard({
     setBusy(status);
     try {
       await setCampaignStatusRpc(c.id, status);
-      notify('Campaign updated', status === 'cancelled' ? 'Unused budget will be refunded.' : status === 'paused' ? 'Paused.' : 'Live again.');
+      notify(
+        'Campaign updated',
+        status === 'cancelled'
+          ? c.status === 'pending_payment'
+            ? 'Draft deleted.'
+            : 'TaskPulse will refund your unused budget to the card or account you paid with.'
+          : status === 'paused'
+          ? 'Paused.'
+          : 'Live again.'
+      );
       await onChanged();
     } catch (err: any) {
       notify('Update failed', err.message);
@@ -241,7 +254,8 @@ function CampaignCard({
               </span>
               <span>{formatNaira(c.escrowBalance)} left</span>
             </div>
-            {c.refundDue > 0 && <p className="text-sm text-zinc-500">Refund due: {formatNaira(c.refundDue)}</p>}
+            {refundOwed > 0 && <p className="text-sm text-zinc-500">Refund on its way: {formatNaira(refundOwed)}</p>}
+            {c.refundedAmount > 0 && <p className="text-sm text-zinc-500">Refunded: {formatNaira(c.refundedAmount)}</p>}
           </div>
           <div className="flex gap-2">
             <button type="button" className={`${primaryButtonClass} flex-1`} onClick={onReview}>
@@ -270,7 +284,9 @@ function CampaignCard({
         <p className="text-[15px] text-zinc-600 dark:text-zinc-300">
           {c.status === 'pending_payment'
             ? "It hasn't been paid for, so nothing is charged."
-            : 'No one new can start it. Work already sent can still be reviewed. The rest of your budget will be refunded.'}
+            : `No one new can start it. Work already sent (${c.slotsPending}) can still be reviewed. We'll refund ${formatNaira(cancelRefund.total)} for unused slots${
+                cancelRefund.fee > 0 ? ` (${formatNaira(cancelRefund.reward)} rewards + ${formatNaira(cancelRefund.fee)} fee)` : ' (rewards only; the platform fee is kept)'
+              } to the card or account you paid with. Anything you reject from here on is refunded too.`}
         </p>
         <button
           type="button"
@@ -418,6 +434,12 @@ function CreateCampaignModal({
           <span>Total</span>
           <span>{formatNaira(cost.total)}</span>
         </div>
+        {rewardNum > 0 && (
+          <p className="text-xs text-zinc-500 pt-1.5">
+            Each approved response costs you {formatNaira(cost.costPerResponse)}: the worker gets the full {formatNaira(rewardNum)}, plus our{' '}
+            {feePct}% fee ({formatNaira(cost.feePerResponse)}). Unused slots are refunded{settings.refundFeeOnUnused ? ' with their fee' : ''} if you end the campaign.
+          </p>
+        )}
       </div>
 
       <ErrorText>{error}</ErrorText>

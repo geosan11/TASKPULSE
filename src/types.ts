@@ -81,7 +81,7 @@ export function txTypeLabel(type: string) {
     case 'cashout':
       return 'Withdrawal';
     case 'campaign_funding':
-      return 'Campaign funding';
+      return 'Campaign payment (card)';
     case 'deposit':
       return 'Deposit (old plan)';
     case 'streak_reward':

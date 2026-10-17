@@ -129,7 +129,7 @@ for (const [cmd, re] of [['/help', /what I can do/i], ['/business', /real people
 }
 reset();
 await post(privMsg('/invite'));
-check('/invite says 3 approved tasks + Profile', /first 3 tasks approved/.test(calls[0].body.text) && /Profile/.test(calls[0].body.text));
+check('/invite says 3 approved tasks + Profile', /gets 3 tasks approved by businesses/.test(calls[0].body.text) && /Profile/.test(calls[0].body.text));
 reset();
 await post(privMsg('hello there'));
 check('free text -> gentle fallback', /\/tasks/.test(calls[0]?.body.text || ''));

@@ -23,6 +23,9 @@ export async function fetchMarketplaceSettings(): Promise<MarketplaceSettings> {
       maxRewardPerTask: Number(data.max_reward_per_task),
       minCampaignSlots: Number(data.min_campaign_slots),
       maxCampaignSlots: Number(data.max_campaign_slots),
+      // Columns added in 009; default to the 009 behaviour if not there yet.
+      refundFeeOnUnused: data.refund_fee_on_unused ?? DEFAULT_MARKETPLACE_SETTINGS.refundFeeOnUnused,
+      referralRequireFeeCover: data.referral_require_fee_cover ?? DEFAULT_MARKETPLACE_SETTINGS.referralRequireFeeCover,
     };
   } catch {
     return DEFAULT_MARKETPLACE_SETTINGS;
@@ -61,6 +64,8 @@ export interface Campaign {
   slotsApproved: number;
   slotsPending: number;
   refundDue: number;
+  feeRefundDue: number;
+  refundedAmount: number;
   status: 'pending_payment' | 'active' | 'paused' | 'completed' | 'cancelled';
   createdAt: string;
   fundedAt: string | null;
@@ -105,7 +110,7 @@ export async function fetchMyCampaigns(): Promise<Campaign[]> {
   if (!user) return [];
   const { data, error } = await supabase
     .from('campaigns')
-    .select('id, title, instructions, category, proof_type, target_url, reward_per_completion, slots, reward_budget, platform_fee, total_charge, escrow_balance, slots_approved, slots_pending, refund_due, status, created_at, funded_at')
+    .select('*')
     .eq('business_id', user.id)
     .order('created_at', { ascending: false })
     .limit(50);
@@ -126,6 +131,8 @@ export async function fetchMyCampaigns(): Promise<Campaign[]> {
     slotsApproved: c.slots_approved,
     slotsPending: c.slots_pending,
     refundDue: Number(c.refund_due),
+    feeRefundDue: Number(c.fee_refund_due || 0),
+    refundedAmount: Number(c.refunded_amount || 0),
     status: c.status,
     createdAt: c.created_at,
     fundedAt: c.funded_at,

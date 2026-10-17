@@ -13,7 +13,8 @@
     "test:sql": "bash supabase/tests/run-local.sh",
     "test:api": "tsx scripts/tests/api-local.test.ts",
     "test:telegram": "tsx scripts/tests/telegram-webhook.test.ts",
-    "telegram:setup": "tsx scripts/telegram-setup.ts"
+    "telegram:setup": "tsx scripts/telegram-setup.ts",
+    "test:pricing": "tsx scripts/tests/pricing.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

@@ -216,7 +216,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({
         status: true,
         message: settleResult?.status === 'duplicate_needs_refund'
-          ? 'This campaign was already funded. The extra payment is flagged for a refund.'
+          ? settleResult?.reason === 'campaign_cancelled'
+            ? 'This campaign was deleted before payment. Your payment is flagged for a full refund.'
+            : 'This campaign was already funded. The extra payment is flagged for a refund.'
           : 'Campaign funded. Your task is now live for workers.',
         data: {
           kind: 'campaign',

@@ -229,8 +229,8 @@ async function sendInvite(chatId: number) {
     chat_id: chatId,
     parse_mode: 'HTML',
     text:
-      '<b>Invite friends, you both get ₦200</b>\n\n' +
-      'When a friend joins with your link and gets their first 3 tasks approved, you each get ₦200 in your wallet.\n\n' +
+      '<b>Invite friends, get ₦200 per friend</b>\n\n' +
+      'When a friend joins with your link and gets 3 tasks approved by businesses, you get ₦200 in your wallet.\n\n' +
       'Get your personal link from <b>Profile → Invite friends</b> on the website, then share it anywhere.',
     reply_markup: { inline_keyboard: [[{ text: 'Get my invite link', url: siteUrl({ tab: 'profile' }) }]] },
   });

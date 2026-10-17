@@ -252,7 +252,12 @@ export default function App() {
           if (res.data?.kind === 'campaign') {
             const dup = res.data.settleResult?.duplicate && res.data.settleResult?.status === 'duplicate_needs_refund';
             if (dup) {
-              notify('Payment received twice', 'This campaign was already funded. Contact support for a refund of the extra payment.');
+              notify(
+                'Payment not needed',
+                res.data.settleResult?.reason === 'campaign_cancelled'
+                  ? 'This campaign was deleted before payment, so it was not published. Your payment is listed for a full refund.'
+                  : 'This campaign was already funded. The extra payment is listed for a full refund.'
+              );
             } else {
               celebrate('Your task is live!', `${formatNaira(res.data.amount)} received. People can start now.`);
             }
