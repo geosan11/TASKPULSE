@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="public/brand/logo-lockup-light.png" alt="TaskPulse logo" width="480" />
+</p>
+
 # TaskPulse
 
 **Get paid for real tasks. No deposit, ever.**
