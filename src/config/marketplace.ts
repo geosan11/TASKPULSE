@@ -45,13 +45,83 @@ export const DEFAULT_MARKETPLACE_SETTINGS: MarketplaceSettings = {
   referralRequireFeeCover: true,
 };
 
-export const TASK_CATEGORIES = ['Social', 'App Tests', 'Surveys', 'Reviews', 'Field Audits', 'Other'] as const;
+/**
+ * Campaign categories. Must match create_campaign() / chk_campaign_category
+ * in supabase/010_task_categories_policy.sql. 'Reviews' and 'Social' were
+ * retired in 010 (they read like paid fake reviews / bought engagement); the
+ * server still accepts them from old app builds and maps them like
+ * normalizeCategory() below.
+ */
+export const TASK_CATEGORIES = ['Surveys', 'App Tests', 'Product Feedback', 'Field Audits', 'Community & Content', 'Other'] as const;
 export type TaskCategory = (typeof TASK_CATEGORIES)[number];
+
+/** One-line guidance shown in the campaign builder for each category. */
+export const CATEGORY_HINTS: Record<TaskCategory, string> = {
+  Surveys: 'Questionnaires and polls. Ask for honest answers; never ask for passwords, BVN/NIN or card details.',
+  'App Tests': 'Install, sign up or try a flow and report what happened. Testing only: no paid store ratings.',
+  'Product Feedback':
+    'Honest, private feedback sent to you (form, text or call). Never a public review on Google, App Store, Play Store, Jumia or similar.',
+  'Field Audits': 'Visit a location, check prices, stock or signage and send a photo.',
+  'Community & Content':
+    'Join a community, try content and say what works, or create original content. Paying for follows, likes, subscribers or reposts is not allowed.',
+  Other: 'Any other lawful task with clear steps and checkable proof.',
+};
+
+const LEGACY_CATEGORIES: Record<string, TaskCategory> = { reviews: 'Product Feedback', review: 'Product Feedback', social: 'Community & Content' };
+
+/** Display label for a stored category (maps pre-010 labels). */
+export function normalizeCategory(category: string | null | undefined): string {
+  const c = (category || '').trim();
+  if (!c) return 'Other';
+  return LEGACY_CATEGORIES[c.toLowerCase()] || c;
+}
+
+/** What businesses may not post. Shown on /business, in the builder and in the Terms. */
+export const NOT_ALLOWED_TASKS = [
+  'Fake, paid or incentivised public reviews or star ratings (Google, App Store, Play Store, Jumia, Konga and similar)',
+  'Buying followers, likes, subscribers, views or reposts',
+  'Asking for passwords, OTPs, BVN/NIN, card details or any payment from workers',
+  'Anything illegal, adult, gambling, crypto/investment schemes, or that breaks another platform’s rules',
+] as const;
+
+export type ProhibitedReason = 'fake_engagement' | 'public_review' | 'social_engagement';
+
+const STORES = '(google|play\\s*store|app\\s*store|apple|jumia|konga|jiji|trustpilot|tripadvisor|yelp|maps)';
+const PROHIBITED_PATTERNS: [ProhibitedReason, RegExp][] = [
+  ['fake_engagement', /fake\s+(reviews?|ratings?|accounts?|followers|likes)/],
+  ['public_review', /\b(5|five)[\s-]*stars?\b/],
+  ['public_review', new RegExp(`\\b${STORES}\\s+(reviews?|ratings?)\\b`)],
+  ['public_review', new RegExp(`\\b(reviews?|rate|ratings?)\\s+(us\\s+|our\\s+\\w+\\s+|the\\s+\\w+\\s+|it\\s+)?(on|in)\\s+(the\\s+)?${STORES}\\b`)],
+  ['public_review', /\b(leave|write|post|drop)\s+(us\s+)?(an?\s+)?(positive\s+|good\s+|great\s+)?(public\s+)?(review|rating)\b/],
+  ['social_engagement', /\b(buy|bought|sell|gain|grow|boost|increase|get)\s+(\w+\s+)?(followers|likes|subscribers|views|retweets)\b/],
+  ['social_engagement', /\bfollow\s+(us|me|our|my|this|the)\s+(\w+\s+)?(page|account|handle|channel|profile|on)\b/],
+  ['social_engagement', /\bfollow\s+(us|me)\b/],
+  ['social_engagement', /\b(like|subscribe\s+to|retweet|repost|share)\s+(and\s+\w+\s+)?(our|my|this|the)\s+(\w+\s+)?(page|post|video|tweet|reel|photo|account|channel|status)\b/],
+  ['social_engagement', /\bsubscribe\s+to\s+(our|my|this|the)\b/],
+];
+
+/**
+ * Client mirror of campaign_prohibited_reason() in 010 (the server decides).
+ * Returns null when the task looks fine.
+ */
+export function prohibitedTaskReason(title: string, instructions: string): ProhibitedReason | null {
+  const t = `${title || ''}\n${instructions || ''}`.toLowerCase();
+  for (const [reason, re] of PROHIBITED_PATTERNS) if (re.test(t)) return reason;
+  return null;
+}
+
+export const PROHIBITED_MESSAGES: Record<ProhibitedReason, string> = {
+  fake_engagement: 'Fake reviews, accounts or engagement are not allowed on TaskPulse.',
+  public_review:
+    'Paying for public reviews or star ratings is not allowed. Use Product Feedback and collect honest feedback privately (form, text answer or call).',
+  social_engagement:
+    'Paying for follows, likes, subscribers or reposts is not allowed. Ask people to try your content and give feedback, or to join a community, instead.',
+};
 
 export const PROOF_TYPES = [
   { id: 'screenshot', label: 'Screenshot', hint: 'Worker uploads an image as proof' },
   { id: 'text', label: 'Text answer', hint: 'Worker types a username, code or answer' },
-  { id: 'link', label: 'Link', hint: 'Worker pastes a URL (e.g. their review or post)' },
+  { id: 'link', label: 'Link', hint: 'Worker pastes a URL (e.g. a form confirmation or content they created)' },
 ] as const;
 export type ProofType = (typeof PROOF_TYPES)[number]['id'];
 

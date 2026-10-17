@@ -33,12 +33,16 @@ import { WalletTab } from './components/WalletTab';
 import { Celebration } from './components/Celebration';
 import { ProfileTab } from './components/ProfileTab';
 import { BusinessTab } from './components/BusinessTab';
+import { BusinessPage } from './components/BusinessPage';
+import { navigate, usePathname } from './lib/router';
+import { applyRouteHead } from './lib/seo';
 
 type Tab = 'home' | 'tasks' | 'wallet' | 'profile';
 
 const lagosToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Lagos' });
 
 export default function App() {
+  const path = usePathname();
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => localStorage.getItem('taskpulse_theme') !== 'light');
   const [isOnline, setIsOnline] = useState<boolean>(() => (typeof navigator !== 'undefined' ? navigator.onLine : true));
   const [settings, setSettings] = useState<MarketplaceSettings>(DEFAULT_MARKETPLACE_SETTINGS);
@@ -82,6 +86,16 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('taskpulse_theme', isDarkMode ? 'dark' : 'light');
   }, [isDarkMode]);
+
+  // Public routes: per-route <head> tags; /terms and /privacy open the legal sheet.
+  useEffect(() => {
+    applyRouteHead(path);
+    if (path === '/terms' || path === '/privacy') setTermsOpen(path === '/terms' ? 'terms' : 'privacy');
+  }, [path]);
+  const closeTerms = () => {
+    setTermsOpen(null);
+    if (path === '/terms' || path === '/privacy') navigate('/');
+  };
 
   useEffect(() => {
     const on = () => setIsOnline(true);
@@ -373,6 +387,24 @@ export default function App() {
 
   return (
     <div className={`h-[100dvh] w-full overflow-hidden flex justify-center ${isDarkMode ? 'dark bg-ink' : 'bg-zinc-100'}`}>
+      {path === '/business' ? (
+        <BusinessPage
+          settings={settings}
+          isDarkMode={isDarkMode}
+          signedIn={Boolean(user)}
+          onSignUpBusiness={() => {
+            if (user) {
+              setBusinessMode(true);
+              goto('tasks');
+              navigate('/');
+            } else {
+              openAuth('signup', 'business');
+            }
+          }}
+          onSignIn={() => openAuth('signin')}
+          onOpenLegal={tab => setTermsOpen(tab)}
+        />
+      ) : (
       <div className="relative w-full max-w-md h-full flex flex-col bg-white dark:bg-ink text-ink dark:text-white sm:border-x sm:border-zinc-200 dark:sm:border-zinc-900">
         {!isOnline && (
           <div className="bg-ink text-white dark:bg-white dark:text-ink text-sm font-semibold py-2 px-3 flex items-center justify-center gap-2 shrink-0 z-50">
@@ -429,6 +461,8 @@ export default function App() {
               onStartEarning={() => openAuth('signup', 'worker')}
               onPostTasks={() => openAuth('signup', 'business')}
               onSignIn={() => openAuth('signin')}
+              onSeePricing={() => navigate('/business')}
+              onOpenTerms={tab => setTermsOpen(tab)}
             />
           ) : activeTab === 'home' ? (
             <HomeTab
@@ -513,6 +547,7 @@ export default function App() {
           </nav>
         )}
       </div>
+      )}
 
       <AuthModal
         open={authOpen}
@@ -526,12 +561,13 @@ export default function App() {
           await refreshUserData();
           if (business) setBusinessMode(true);
           goto(business ? 'tasks' : 'home');
+          if (path !== '/') navigate('/');
           setPendingBusinessIntent(false);
         }}
         onOpenTerms={tab => setTermsOpen(tab)}
         notify={notify}
       />
-      {termsOpen && <TermsModal key={termsOpen} open onClose={() => setTermsOpen(null)} initialTab={termsOpen} settings={settings} />}
+      {termsOpen && <TermsModal key={termsOpen} open onClose={closeTerms} initialTab={termsOpen} settings={settings} />}
       <Toast show={toast.show} title={toast.title} subtitle={toast.subtitle} onClose={() => setToast(t => ({ ...t, show: false }))} />
       <Celebration />
       <Analytics />

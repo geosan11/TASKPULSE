@@ -1,25 +1,58 @@
 <!doctype html>
-<html lang="en">
+<html lang="en-NG">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>TaskPulse — Get paid for real tasks. No deposit, ever.</title>
-    <meta name="description" content="Free-to-join Nigerian micro-task marketplace. Businesses fund real tasks; you complete them and get paid to your bank. No deposit, ever." />
-    <meta property="og:title" content="TaskPulse — Get paid for real tasks. No deposit, ever." />
-    <meta property="og:description" content="Free-to-join Nigerian micro-task marketplace. Businesses fund real tasks; you complete them and get paid to your bank. No deposit, ever." />
+    <!-- Defaults for "/". src/lib/seo.ts updates these per route at runtime and
+         vite.config.ts writes per-route copies (business.html, terms.html,
+         privacy.html) for link-preview crawlers that do not run JavaScript. -->
+    <title>TaskPulse — Get paid for real tasks in Nigeria. No deposit, ever.</title>
+    <meta name="description" content="Free-to-join Nigerian micro-task marketplace. Complete surveys, app tests and product feedback for real businesses and get paid to your bank. No deposit, ever." />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://www.taskpulse.website/" />
+    <meta property="og:site_name" content="TaskPulse" />
     <meta property="og:type" content="website" />
+    <meta property="og:locale" content="en_NG" />
+    <meta property="og:title" content="TaskPulse — Get paid for real tasks in Nigeria. No deposit, ever." />
+    <meta property="og:description" content="Free-to-join Nigerian micro-task marketplace. Complete surveys, app tests and product feedback for real businesses and get paid to your bank. No deposit, ever." />
+    <meta property="og:url" content="https://www.taskpulse.website/" />
+    <meta property="og:image" content="https://www.taskpulse.website/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="TaskPulse — real people, real actions, paid for approved work" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta property="og:image" content="/brand/logo-lockup-light.png" />
-    <meta name="twitter:image" content="/brand/logo-lockup-light.png" />
+    <meta name="twitter:title" content="TaskPulse — Get paid for real tasks in Nigeria. No deposit, ever." />
+    <meta name="twitter:description" content="Free-to-join Nigerian micro-task marketplace. Complete surveys, app tests and product feedback for real businesses and get paid to your bank. No deposit, ever." />
+    <meta name="twitter:image" content="https://www.taskpulse.website/og-image.png" />
     <meta name="theme-color" content="#00C853" />
     <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "@id": "https://www.taskpulse.website/#organization",
+        "name": "TaskPulse",
+        "legalName": "GEOSAN NEXGEN INNOVATIONS",
+        "url": "https://www.taskpulse.website/",
+        "logo": "https://www.taskpulse.website/icon-512.png",
+        "image": "https://www.taskpulse.website/og-image.png",
+        "description": "Nigerian micro-task marketplace: businesses fund real tasks (surveys, app tests, product feedback) and pay only for approved work; workers join free and get paid to their bank.",
+        "areaServed": { "@type": "Country", "name": "Nigeria" },
+        "email": "geoflashsanni@gmail.com",
+        "parentOrganization": { "@type": "Organization", "name": "GEOSAN NEXGEN INNOVATIONS" },
+        "contactPoint": [{ "@type": "ContactPoint", "contactType": "sales", "email": "geoflashsanni@gmail.com", "areaServed": "NG", "availableLanguage": ["English"] }]
+      }
+    </script>
   </head>
   <body>
+    <noscript>
+      <h1>TaskPulse</h1>
+      <p>Get paid for real tasks in Nigeria. No deposit, ever. <a href="/business">TaskPulse for Businesses</a></p>
+    </noscript>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-

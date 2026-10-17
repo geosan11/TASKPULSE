@@ -8,6 +8,18 @@
       "destination": "/api/$1"
     },
     {
+      "source": "/business",
+      "destination": "/business.html"
+    },
+    {
+      "source": "/terms",
+      "destination": "/terms.html"
+    },
+    {
+      "source": "/privacy",
+      "destination": "/privacy.html"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

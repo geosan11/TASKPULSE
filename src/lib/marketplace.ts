@@ -1,5 +1,5 @@
 import { supabase } from './supabaseClient';
-import { DEFAULT_MARKETPLACE_SETTINGS, type MarketplaceSettings, type ProofType } from '../config/marketplace';
+import { DEFAULT_MARKETPLACE_SETTINGS, normalizeCategory, PROHIBITED_MESSAGES, type MarketplaceSettings, type ProofType } from '../config/marketplace';
 
 // =========================================================================
 // SETTINGS (single row in public.marketplace_settings)
@@ -77,6 +77,11 @@ const CAMPAIGN_ERRORS: Record<string, string> = {
   invalid_slots: 'Number of slots is outside the allowed range.',
   invalid_proof_type: 'Choose a proof type.',
   invalid_category: 'Choose a category.',
+  'prohibited_task:public_review': PROHIBITED_MESSAGES.public_review,
+  'prohibited_task:social_engagement': PROHIBITED_MESSAGES.social_engagement,
+  'prohibited_task:fake_engagement': PROHIBITED_MESSAGES.fake_engagement,
+  prohibited_task: 'This task is not allowed on TaskPulse. See the Not allowed list.',
+  chk_campaign_category: 'Choose a category.',
   chk_campaign: 'Please check the campaign details.',
   campaigns_title_check: 'Title must be at least 5 characters.',
   campaigns_instructions_check: 'Instructions must be 20 to 4,000 characters.',
@@ -119,7 +124,7 @@ export async function fetchMyCampaigns(): Promise<Campaign[]> {
     id: c.id,
     title: c.title,
     instructions: c.instructions,
-    category: c.category,
+    category: normalizeCategory(c.category),
     proofType: c.proof_type,
     targetUrl: c.target_url,
     rewardPerCompletion: Number(c.reward_per_completion),

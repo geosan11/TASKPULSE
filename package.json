@@ -14,7 +14,8 @@
     "test:api": "tsx scripts/tests/api-local.test.ts",
     "test:telegram": "tsx scripts/tests/telegram-webhook.test.ts",
     "telegram:setup": "tsx scripts/telegram-setup.ts",
-    "test:pricing": "tsx scripts/tests/pricing.test.ts"
+    "test:pricing": "tsx scripts/tests/pricing.test.ts",
+    "test:categories": "tsx scripts/tests/categories.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

@@ -1,7 +1,20 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowLeft, Check, Image as ImageIcon, Loader2, Pause, Play, Plus, X } from 'lucide-react';
+import { ArrowLeft, Ban, Check, Image as ImageIcon, Loader2, Pause, Play, Plus, X } from 'lucide-react';
 import { EmptyState, ErrorText, inputClass, Label, Modal, primaryButtonClass, secondaryButtonClass, Segmented, StatusPill, textareaClass } from './ui';
-import { computeCampaignCost, computeCancelRefund, formatNaira, PROOF_TYPES, TASK_CATEGORIES, type MarketplaceSettings, type ProofType } from '../config/marketplace';
+import {
+  CATEGORY_HINTS,
+  computeCampaignCost,
+  computeCancelRefund,
+  formatNaira,
+  NOT_ALLOWED_TASKS,
+  PROHIBITED_MESSAGES,
+  prohibitedTaskReason,
+  PROOF_TYPES,
+  TASK_CATEGORIES,
+  type MarketplaceSettings,
+  type ProofType,
+  type TaskCategory,
+} from '../config/marketplace';
 import {
   becomeBusinessRpc,
   createCampaignRpc,
@@ -319,7 +332,7 @@ function CreateCampaignModal({
 }) {
   const [title, setTitle] = useState('');
   const [instructions, setInstructions] = useState('');
-  const [category, setCategory] = useState<string>(TASK_CATEGORIES[0]);
+  const [category, setCategory] = useState<TaskCategory>(TASK_CATEGORIES[0]);
   const [proofType, setProofType] = useState<ProofType>('screenshot');
   const [reward, setReward] = useState('');
   const [slots, setSlots] = useState('');
@@ -331,6 +344,7 @@ function CreateCampaignModal({
   const slotsNum = Number(slots) || 0;
   const cost = computeCampaignCost(rewardNum, slotsNum, settings.platformFeeRate);
   const feePct = Math.round(settings.platformFeeRate * 100);
+  const prohibited = prohibitedTaskReason(title, instructions);
 
   const validate = () => {
     if (title.trim().length < 5) return 'Title must be at least 5 characters.';
@@ -340,6 +354,7 @@ function CreateCampaignModal({
     if (!Number.isInteger(slotsNum) || slotsNum < settings.minCampaignSlots || slotsNum > settings.maxCampaignSlots)
       return `People needed must be ${settings.minCampaignSlots} to ${settings.maxCampaignSlots.toLocaleString()}.`;
     if (targetUrl.trim() && !/^https?:\/\//i.test(targetUrl.trim())) return 'Link must start with http:// or https://';
+    if (prohibited) return PROHIBITED_MESSAGES[prohibited];
     return null;
   };
 
@@ -407,7 +422,7 @@ function CreateCampaignModal({
       <div className="grid grid-cols-2 gap-3">
         <div>
           <Label>Category</Label>
-          <select className={inputClass} value={category} onChange={e => setCategory(e.target.value)}>
+          <select className={inputClass} value={category} onChange={e => setCategory(e.target.value as TaskCategory)}>
             {TASK_CATEGORIES.map(c => (
               <option key={c} value={c}>
                 {c}
@@ -419,6 +434,20 @@ function CreateCampaignModal({
           <Label hint="Optional">Link</Label>
           <input className={inputClass} value={targetUrl} onChange={e => setTargetUrl(e.target.value)} placeholder="https://" inputMode="url" />
         </div>
+      </div>
+      <p className="text-xs text-zinc-500 -mt-1 px-1">{CATEGORY_HINTS[category]}</p>
+      {prohibited && <ErrorText>{PROHIBITED_MESSAGES[prohibited]}</ErrorText>}
+
+      <div className="p-4 rounded-2xl border border-zinc-200 dark:border-zinc-800 space-y-1.5 text-xs text-zinc-600 dark:text-zinc-400">
+        <p className="flex items-center gap-1.5 text-sm font-bold text-ink dark:text-white">
+          <Ban className="w-4 h-4" /> Not allowed
+        </p>
+        <ul className="list-disc pl-4 space-y-0.5">
+          {NOT_ALLOWED_TASKS.map(t => (
+            <li key={t}>{t}</li>
+          ))}
+        </ul>
+        <p>Campaigns that break these rules are removed and unpaid rewards are refunded.</p>
       </div>
 
       <div className="p-4 rounded-2xl bg-zinc-100 dark:bg-zinc-900 space-y-1.5 text-sm">
