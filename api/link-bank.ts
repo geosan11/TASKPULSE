@@ -18,40 +18,68 @@ function handleApiError(res: VercelResponse, err: any) {
   if (err instanceof HttpError) {
     return res.status(err.status).json({ status: false, message: err.message });
   }
-  const message = err?.message || 'Internal server error';
   console.error('[API Error: link-bank]', err);
+  const raw = String(err?.message || '');
+  const message = raw.startsWith('Server misconfiguration') ? raw : 'Internal server error';
   return res.status(500).json({ status: false, message });
 }
 
-let _adminClient: SupabaseClient | null = null;
-function getSupabaseClient(userToken?: string): SupabaseClient {
-  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-  const serviceKey =
+// Server-side Supabase access ALWAYS uses the service-role key. Every money
+// RPC (settle_*, request_cashout, finalize_cashout, save_verified_bank_account,
+// create_campaign_payment) is granted to service_role only, so an anon-key
+// fallback can never work and only hides misconfiguration until a real
+// payment gets stuck. Prefer SUPABASE_SERVICE_ROLE_KEY: anything prefixed
+// VITE_ is a candidate for inlining into the public browser bundle.
+function readServiceRoleKey(): string | undefined {
+  return (
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
     process.env.SUPABASE_SERVICE_KEY ||
     process.env.SUPABASE_SECRET_KEY ||
     process.env.SERVICE_ROLE_KEY ||
-    process.env.VITE_SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_KEY;
+    legacyViteServiceKey()
+  );
+}
 
-  if (url && serviceKey) {
-    if (_adminClient && !userToken) return _adminClient;
-    const client = createClient(url, serviceKey, {
-      auth: { persistSession: false, autoRefreshToken: false }
-    });
-    if (!userToken) _adminClient = client;
-    return client;
+// Back-compat only: older setups stored the key as VITE_SUPABASE_SERVICE_ROLE_KEY.
+// It is not referenced by any browser code, so it is not in the bundle today,
+// but the name is a foot-gun. Rename it to SUPABASE_SERVICE_ROLE_KEY.
+function legacyViteServiceKey(): string | undefined {
+  const k = process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
+  if (k) console.warn('[config] Using VITE_SUPABASE_SERVICE_ROLE_KEY. Rename it to SUPABASE_SERVICE_ROLE_KEY.');
+  return k || undefined;
+}
+
+/** True when the key is a service-role/secret key (not an anon/publishable key). */
+function isServiceRoleKey(key: string): boolean {
+  if (key.startsWith('sb_secret_')) return true;
+  if (key.startsWith('sb_publishable_')) return false;
+  const parts = key.split('.');
+  if (parts.length === 3) {
+    try {
+      const payload = JSON.parse(Buffer.from(parts[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
+      return payload?.role === 'service_role';
+    } catch {
+      return false;
+    }
   }
+  return false;
+}
 
-  const anonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
-  if (!url || (!serviceKey && !anonKey)) {
-    throw new Error('Database server misconfiguration: SUPABASE_URL or Supabase API keys are missing. In Vercel Project Settings > Environment Variables, please add SUPABASE_SERVICE_ROLE_KEY.');
+let _adminClient: SupabaseClient | null = null;
+function getSupabaseClient(_userToken?: string): SupabaseClient {
+  if (_adminClient) return _adminClient;
+  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  const serviceKey = readServiceRoleKey();
+  if (!url || !serviceKey) {
+    throw new Error('Server misconfiguration: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in Vercel Project Settings > Environment Variables (Production), then redeploy.');
   }
-
-  return createClient(url, anonKey!, {
+  if (!isServiceRoleKey(serviceKey)) {
+    throw new Error('Server misconfiguration: SUPABASE_SERVICE_ROLE_KEY is not a service-role key (looks like an anon/publishable key). Copy the service_role secret from Supabase > Project Settings > API.');
+  }
+  _adminClient = createClient(url, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
-    global: userToken ? { headers: { Authorization: `Bearer ${userToken}` } } : undefined
   });
+  return _adminClient;
 }
 
 async function requireUser(req: VercelRequest): Promise<{ user: User; token: string }> {
@@ -88,6 +116,7 @@ async function paystackRequest<T = any>(
       ...options.headers,
     },
     body: options.body ? JSON.stringify(options.body) : undefined,
+    signal: AbortSignal.timeout(8000),
   });
   let data: any = null;
   try { data = await res.json(); } catch { data = null; }
@@ -109,7 +138,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const cleanAccount = String(accountNumber || '').trim();
     const cleanBankCode = String(bankCode || '').trim();
-    const cleanBankName = String(bankName || '').trim();
+    const cleanBankName = String(bankName || '').trim().slice(0, 100);
 
     if (!/^\d{10}$/.test(cleanAccount)) {
       throw new HttpError(400, 'Invalid account number: Must be exactly 10 digits.');
