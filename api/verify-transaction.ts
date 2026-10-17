@@ -147,17 +147,44 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const actualAmountNaira = Math.floor(txData.amount / 100);
 
-    // 2. Call the database settle_deposit RPC with row locks and idempotency
-    const { data: settleResult, error: settleErr } = await client.rpc('settle_deposit', {
-      p_reference: reference,
-      p_paid_amount: actualAmountNaira,
-    });
+    // 2. Route by reference prefix:
+    //    camp_*  -> business campaign funding (escrow + publish task)
+    //    dep_*   -> legacy user deposit started before the free-marketplace
+    //               pivot (still honoured, credited once)
+    const isCampaign = reference.startsWith('camp_');
+    const { data: settleResult, error: settleErr } = await client.rpc(
+      isCampaign ? 'settle_campaign_funding' : 'settle_deposit',
+      { p_reference: reference, p_paid_amount: actualAmountNaira }
+    );
 
     if (settleErr) {
-      throw new HttpError(400, `Failed to settle deposit in database: ${settleErr.message}`);
+      throw new HttpError(400, `Failed to settle payment in database: ${settleErr.message}`);
+    }
+    if (settleResult && settleResult.success === false) {
+      const code = settleResult.error || 'settlement_failed';
+      if (code === 'underpaid') {
+        throw new HttpError(400, 'The amount paid is less than the amount due. Please contact support.');
+      }
+      throw new HttpError(400, `Payment could not be applied (${code}).`);
     }
 
-    // 3. Resolve target user ID from transaction record or auth session
+    if (isCampaign) {
+      return res.status(200).json({
+        status: true,
+        message: settleResult?.status === 'duplicate_needs_refund'
+          ? 'This campaign was already funded. The extra payment is flagged for a refund.'
+          : 'Campaign funded. Your task is now live for workers.',
+        data: {
+          kind: 'campaign',
+          reference,
+          amount: actualAmountNaira,
+          campaign_id: settleResult?.campaign_id,
+          settleResult,
+        },
+      });
+    }
+
+    // 3. Legacy deposit: return the refreshed wallet balance
     const { data: txRecord } = await client
       .from('transactions')
       .select('user_id')
@@ -170,7 +197,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (targetUserId) {
       const { data: prof } = await client
         .from('profiles')
-        .select('is_activated, withdrawable_balance, tier_id')
+        .select('withdrawable_balance')
         .eq('id', targetUserId)
         .maybeSingle();
       updatedProfile = prof;
@@ -178,8 +205,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     return res.status(200).json({
       status: true,
-      message: 'Deposit verified and credited successfully.',
+      message: 'Legacy deposit verified and credited to your wallet.',
       data: {
+        kind: 'legacy_deposit',
         reference,
         amount: actualAmountNaira,
         settleResult,

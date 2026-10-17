@@ -109,8 +109,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { amount, bankAccountId, idempotencyKey } = req.body || {};
 
     const numAmount = Number(amount);
-    if (!numAmount || isNaN(numAmount) || numAmount < 3000 || numAmount !== Math.floor(numAmount)) {
-      throw new HttpError(400, 'Invalid cashout amount: Minimum is ₦3,000, whole numbers only.');
+    // Basic shape check only; the minimum, daily limit and cooldown are
+    // enforced atomically inside request_cashout() from marketplace_settings.
+    if (!numAmount || isNaN(numAmount) || numAmount <= 0 || numAmount !== Math.floor(numAmount)) {
+      throw new HttpError(400, 'Invalid cashout amount: whole Naira amounts only.');
     }
 
     if (!bankAccountId || typeof bankAccountId !== 'string') {
@@ -133,23 +135,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (rpcErr) {
       const msg = rpcErr.message;
-      if (msg.includes('not_activated')) {
-        throw new HttpError(403, 'Account not activated: A minimum deposit of ₦3,000 is required before making your first withdrawal.');
+      if (msg.includes('min_withdrawal')) {
+        throw new HttpError(400, 'Amount is below the minimum withdrawal.');
+      }
+      if (msg.includes('no_approved_tasks')) {
+        throw new HttpError(403, 'Withdrawals unlock after your first approved task (plus a short security cooldown).');
       }
       if (msg.includes('cooldown_active')) {
-        throw new HttpError(403, '48-hour security cooling-off period active since your activation. Please check your unlock countdown.');
+        throw new HttpError(403, 'Security cooldown active: withdrawals unlock 48 hours after your first approved task.');
       }
-      if (msg.includes('referral_condition')) {
-        throw new HttpError(403, 'Withdrawal condition unmet: You need at least 3 qualified referrals (₦9,000 volume) or a tier upgrade to withdraw.');
+      if (msg.includes('daily_count_limit')) {
+        throw new HttpError(429, 'Daily withdrawal count reached. Please try again tomorrow.');
+      }
+      if (msg.includes('daily_limit')) {
+        throw new HttpError(400, 'This amount would exceed your daily withdrawal limit.');
       }
       if (msg.includes('insufficient_balance')) {
         throw new HttpError(400, 'Insufficient withdrawable wallet balance.');
       }
-      if (msg.includes('tier_cap')) {
-        throw new HttpError(403, 'Cumulative tier withdrawal limit reached. Please upgrade your tier to continue withdrawing.');
-      }
-      if (msg.includes('single_limit')) {
-        throw new HttpError(400, 'Amount exceeds your tier maximum single transfer limit.');
+      if (msg.includes('whole_naira_only')) {
+        throw new HttpError(400, 'Whole Naira amounts only.');
       }
       if (msg.includes('bank_not_found')) {
         throw new HttpError(404, 'Selected bank account was not found or is not active.');

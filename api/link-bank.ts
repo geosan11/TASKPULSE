@@ -177,18 +177,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    // 4. Check maximum banks per user (limit 3)
-    const { count: bankCount, error: countErr } = await client
+    // 4. One verified payout account per user (anti-fraud). Re-linking the
+    //    SAME account is allowed (refreshes the Paystack recipient).
+    const { data: activeBanks, error: countErr } = await client
       .from('bank_accounts')
-      .select('id', { count: 'exact', head: true })
+      .select('id, bank_code, account_number')
       .eq('user_id', user.id)
       .eq('is_active', true);
 
     if (countErr) {
       throw new HttpError(500, countErr.message);
     }
-    if ((bankCount || 0) >= 3) {
-      throw new HttpError(400, 'Maximum of 3 bank accounts allowed per user.');
+    const otherActive = (activeBanks || []).filter(
+      (b: any) => !(b.bank_code === cleanBankCode && b.account_number === cleanAccount)
+    );
+    if (otherActive.length > 0) {
+      throw new HttpError(400, 'You already have a verified payout account. Contact support to change it.');
     }
 
     // 5. Prevent duplicate linking across different accounts
@@ -233,9 +237,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const recipientCode = recipientRes.data.data.recipient_code;
 
-    // 7. Insert or activate bank account in Supabase (with RPC resilience)
-    let savedBank = null;
-    const { data: rpcBank, error: rpcErr } = await client.rpc('save_verified_bank_account', {
+    // 7. Save through the server-only RPC (enforces one account per user and
+    //    no sharing of an account across users, under a row lock).
+    const { data: savedBank, error: rpcErr } = await client.rpc('save_verified_bank_account', {
       p_user_id: user.id,
       p_bank_code: cleanBankCode,
       p_bank_name: cleanBankName || 'Commercial Bank',
@@ -244,30 +248,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       p_recipient_code: recipientCode,
     });
 
-    if (!rpcErr && rpcBank) {
-      savedBank = rpcBank;
-    } else {
-      const { data: insertedBank, error: insertErr } = await client
-        .from('bank_accounts')
-        .upsert(
-          {
-            user_id: user.id,
-            bank_code: cleanBankCode,
-            bank_name: cleanBankName || 'Commercial Bank',
-            account_number: cleanAccount,
-            account_name: resolvedName,
-            recipient_code: recipientCode,
-            is_active: true,
-          },
-          { onConflict: 'user_id, account_number, bank_code' }
-        )
-        .select()
-        .single();
-
-      if (insertErr) {
-        throw new HttpError(500, `Failed to save bank account: ${insertErr.message}`);
+    if (rpcErr || !savedBank) {
+      const msg = rpcErr?.message || '';
+      if (msg.includes('bank_already_linked')) {
+        throw new HttpError(400, 'You already have a verified payout account. Contact support to change it.');
       }
-      savedBank = insertedBank;
+      if (msg.includes('bank_linked_to_other_user')) {
+        throw new HttpError(400, 'This bank account is already linked to another TaskPulse account.');
+      }
+      throw new HttpError(500, `Failed to save bank account: ${msg || 'unknown error'}`);
     }
 
     return res.status(200).json({

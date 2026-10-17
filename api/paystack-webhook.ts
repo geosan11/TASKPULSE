@@ -107,22 +107,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     console.log(`[Webhook] Processing event: ${eventType}`);
 
     // =========================================================================
-    // EVENT 1: charge.success (Deposit Settled)
+    // EVENT 1: charge.success (Campaign funding or legacy deposit settled)
     // =========================================================================
     if (eventType === 'charge.success') {
       const { reference, amount, currency, status } = eventData;
       if (status === 'success' && currency === 'NGN' && reference) {
         const amountNaira = Math.floor(Number(amount) / 100);
-        const { data: settleResult, error: settleErr } = await admin.rpc('settle_deposit', {
+        // camp_* = business campaign funding; anything else = legacy deposit
+        const rpcName = String(reference).startsWith('camp_') ? 'settle_campaign_funding' : 'settle_deposit';
+        const { data: settleResult, error: settleErr } = await admin.rpc(rpcName, {
           p_reference: reference,
           p_paid_amount: amountNaira,
         });
 
         if (settleErr) {
-          console.error(`[Webhook] settle_deposit failed for ${reference}:`, settleErr);
+          console.error(`[Webhook] ${rpcName} failed for ${reference}:`, settleErr);
           return res.status(500).json({ status: false, message: settleErr.message });
         }
-        console.log(`[Webhook] Deposit settled for ${reference}:`, settleResult);
+        console.log(`[Webhook] ${rpcName} for ${reference}:`, settleResult);
       }
     }
 
