@@ -3,7 +3,7 @@ import { ArrowDownLeft, ArrowUpRight, ChevronRight, Landmark, Loader2, Lock } fr
 import { EmptyState, ErrorText, inputClass, Label, Modal, primaryButtonClass, secondaryButtonClass, StatusPill } from './ui';
 import { formatNaira, type MarketplaceSettings } from '../config/marketplace';
 import { PAYSTACK_BANKS } from '../config/banks';
-import { linkBankAccount, requestDisbursement, resolveBankAccount } from '../lib/api';
+import { linkBankAccount, requestDisbursement, resolveBankAccount, verifyPayment } from '../lib/api';
 import { celebrate } from '../lib/celebrate';
 import { formatDateTime, isDebit, txTypeLabel, type SavedBank, type TxItem, type UserProfile } from '../types';
 
@@ -31,6 +31,25 @@ export function WalletTab({
   const [bankModal, setBankModal] = useState(false);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [receipt, setReceipt] = useState<TxItem | null>(null);
+  const [checking, setChecking] = useState(false);
+
+  // Older activation deposits can be stuck at "pending" if Paystack's redirect
+  // or webhook never reached us. Let the owner of the row re-check it; the
+  // server verifies with Paystack and credits it at most once.
+  const recheckPayment = async (t: TxItem) => {
+    if (!t.reference) return;
+    setChecking(true);
+    try {
+      const res = await verifyPayment(t.reference);
+      notify('Payment confirmed', res.message || 'Credited to your wallet.');
+      setReceipt(null);
+      await onChanged();
+    } catch (err: any) {
+      notify('Not confirmed', err?.message || 'Paystack has no completed payment for this reference.');
+    } finally {
+      setChecking(false);
+    }
+  };
   const [, forceTick] = useState(0);
 
   useEffect(() => {
@@ -187,6 +206,19 @@ export function WalletTab({
             ))}
           </dl>
         )}
+        {receipt &&
+          receipt.type.toLowerCase() === 'deposit' &&
+          receipt.status.toLowerCase() === 'pending' &&
+          /^dep_/.test(receipt.reference || '') && (
+            <button
+              type="button"
+              className={`${secondaryButtonClass} mt-5`}
+              disabled={checking}
+              onClick={() => recheckPayment(receipt)}
+            >
+              {checking && <Loader2 className="w-5 h-5 animate-spin" />} Check payment with Paystack
+            </button>
+          )}
       </Modal>
 
       <BankModal

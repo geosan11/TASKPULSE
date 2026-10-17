@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Local-only regression run for the money functions. Creates a throwaway
+# database on the LOCAL Postgres (sudo -u postgres). Never point this at
+# production: it refuses if PGHOST is set to anything but localhost.
+set -euo pipefail
+if [[ -n "${PGHOST:-}" && "${PGHOST}" != "localhost" && "${PGHOST}" != "127.0.0.1" && "${PGHOST}" != /* ]]; then
+  echo "Refusing to run against non-local PGHOST=${PGHOST}" >&2; exit 2
+fi
+cd "$(dirname "$0")/.."
+DB=${DB:-taskpulse_localtest}
+PSQL=(sudo -u postgres psql -q -v ON_ERROR_STOP=1)
+"${PSQL[@]}" -c "DROP DATABASE IF EXISTS ${DB}" -c "CREATE DATABASE ${DB}"
+run() { echo "== $1"; "${PSQL[@]}" -d "$DB" -f "$1" 2>&1 | grep -v '^psql.*NOTICE:.*skipping' || true; }
+for f in tests/00_supabase_stub.sql schema.sql 002_hardening.sql 003_resilience.sql 004_auto_confirm.sql \
+         005_daily_reward_450.sql 006_remove_demo_data.sql 007_referral_commission_1k.sql \
+         tests/10_seed_stuck_deposits.sql; do run "$f"; done
+echo "== tests/20_settle_deposit_pre008_bug.sql (expect updated_at error + amount_mismatch)"
+sudo -u postgres psql -q -d "$DB" -f tests/20_settle_deposit_pre008_bug.sql 2>&1 | grep -E 'ERROR|pending' || true
+run 008_free_marketplace.sql
+echo "== tests/30_settle_after_008.sql"
+sudo -u postgres psql -q -d "$DB" -f tests/30_settle_after_008.sql 2>&1 | grep -E 'PASS|ERROR|FAILED|assert' 

@@ -107,7 +107,13 @@ export default function App() {
       return;
     }
     const p: any = await getCurrentUserProfile();
-    if (!p) return;
+    if (!p) {
+      // Signed in but the profile could not be read (network, or the
+      // database migration has not been applied yet). Say so instead of
+      // silently showing the signed-out landing page.
+      notify('Could not load your account', 'Check your connection and refresh. If this keeps happening, contact support.');
+      return;
+    }
     setUser({
       id: p.id,
       username: p.username || 'user',

@@ -85,6 +85,20 @@ function friendly(message: string, map: Record<string, string>) {
   return key ? map[key] : message;
 }
 
+/** Most recent unsettled checkout reference for a campaign (owner-only via RLS). */
+export async function fetchLatestPendingCampaignPayment(campaignId: string): Promise<string | null> {
+  if (!supabase) return null;
+  const { data, error } = await supabase
+    .from('campaign_payments')
+    .select('reference')
+    .eq('campaign_id', campaignId)
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (error || !data || data.length === 0) return null;
+  return data[0].reference as string;
+}
+
 export async function fetchMyCampaigns(): Promise<Campaign[]> {
   if (!supabase) return [];
   const { data: { user } } = await supabase.auth.getUser();

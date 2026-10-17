@@ -6,6 +6,7 @@ import {
   becomeBusinessRpc,
   createCampaignRpc,
   fetchMyCampaigns,
+  fetchLatestPendingCampaignPayment,
   fetchReviewSubmissions,
   getProofSignedUrl,
   reviewSubmissionRpc,
@@ -13,7 +14,7 @@ import {
   type Campaign,
   type ReviewSubmission,
 } from '../lib/marketplace';
-import { initializeCampaignFunding } from '../lib/api';
+import { initializeCampaignFunding, verifyPayment } from '../lib/api';
 import { formatDateTime, type UserProfile } from '../types';
 
 export function BusinessTab({
@@ -164,6 +165,23 @@ function CampaignCard({
   const fund = async () => {
     setBusy('fund');
     try {
+      // If an earlier checkout was paid but the redirect back never happened
+      // (tab closed, network drop), settle that one instead of charging the
+      // business a second time.
+      const earlierRef = await fetchLatestPendingCampaignPayment(c.id);
+      if (earlierRef) {
+        try {
+          const v = await verifyPayment(earlierRef);
+          if (v?.status) {
+            notify('Payment found', 'Your earlier payment went through. Your task is live.');
+            await onChanged();
+            setBusy(null);
+            return;
+          }
+        } catch {
+          // Not paid: fall through to a fresh checkout.
+        }
+      }
       const res = await initializeCampaignFunding(c.id);
       window.location.href = res.data.authorization_url;
     } catch (err: any) {
