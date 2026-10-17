@@ -1,6 +1,6 @@
 {
   "name": "TaskPulse",
-  "description": "A clean, monochromatic, and simplistic micro-tasking and escrow payout platform.",
+  "description": "Free-to-join Nigerian micro-task marketplace. Businesses fund real tasks; you complete them and get paid to your bank. No deposit, ever.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
