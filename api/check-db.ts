@@ -33,16 +33,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // A false here means deposits/campaign payments cannot be settled.
     supabase_service_role_key_valid: Boolean(serviceRoleKey && isServiceRoleKey(serviceRoleKey)),
     supabase_service_role_key_uses_vite_name: !process.env.SUPABASE_SERVICE_ROLE_KEY && Boolean(process.env.VITE_SUPABASE_SERVICE_ROLE_KEY),
-    // Telegram bot diagnostics: booleans and env var NAMES only, never values.
-    telegram_bot_token_set: Boolean((process.env.TELEGRAM_BOT_TOKEN || '').trim()),
-    telegram_webhook_secret_set: Boolean(process.env.TELEGRAM_WEBHOOK_SECRET),
-    telegram_webhook_secret_has_whitespace: /\s/.test(process.env.TELEGRAM_WEBHOOK_SECRET || ''),
-    telegram_webhook_secret_valid_format: /^[A-Za-z0-9_-]{16,256}$/.test(process.env.TELEGRAM_WEBHOOK_SECRET || ''),
-    telegram_webhook_secret_via_socket_alias: !process.env.TELEGRAM_WEBHOOK_SECRET && Boolean(process.env.TELEGRAM_WEBHOOK_SOCKET),
-    telegram_webhook_socket_valid_format: /^[A-Za-z0-9_-]{16,256}$/.test(process.env.TELEGRAM_WEBHOOK_SOCKET || ''),
-    telegram_env_names: Object.keys(process.env).filter((k) => /TELEGRAM|WEBHOOK|BOT/i.test(k)).sort(),
-    vercel_env: process.env.VERCEL_ENV || null,
-    deployed_commit: (process.env.VERCEL_GIT_COMMIT_SHA || '').slice(0, 7) || null,
     paystack_secret_key: Boolean(paystackSecretKey),
     paystack_public_key: Boolean(paystackPublicKey),
   };
