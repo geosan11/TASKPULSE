@@ -313,7 +313,9 @@ function secretMatches(header: string | string[] | undefined, expected: string):
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return res.status(405).json({ ok: false });
-  const expected = process.env.TELEGRAM_WEBHOOK_SECRET;
+  // TELEGRAM_WEBHOOK_SOCKET is accepted as a fallback because production was
+  // configured under that (misspelled) name; prefer TELEGRAM_WEBHOOK_SECRET.
+  const expected = process.env.TELEGRAM_WEBHOOK_SECRET || process.env.TELEGRAM_WEBHOOK_SOCKET;
   if (!expected) {
     console.error('[telegram] TELEGRAM_WEBHOOK_SECRET is not configured');
     return res.status(500).json({ ok: false });

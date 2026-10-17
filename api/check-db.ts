@@ -38,6 +38,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     telegram_webhook_secret_set: Boolean(process.env.TELEGRAM_WEBHOOK_SECRET),
     telegram_webhook_secret_has_whitespace: /\s/.test(process.env.TELEGRAM_WEBHOOK_SECRET || ''),
     telegram_webhook_secret_valid_format: /^[A-Za-z0-9_-]{16,256}$/.test(process.env.TELEGRAM_WEBHOOK_SECRET || ''),
+    telegram_webhook_secret_via_socket_alias: !process.env.TELEGRAM_WEBHOOK_SECRET && Boolean(process.env.TELEGRAM_WEBHOOK_SOCKET),
+    telegram_webhook_socket_valid_format: /^[A-Za-z0-9_-]{16,256}$/.test(process.env.TELEGRAM_WEBHOOK_SOCKET || ''),
     telegram_env_names: Object.keys(process.env).filter((k) => /TELEGRAM|WEBHOOK|BOT/i.test(k)).sort(),
     vercel_env: process.env.VERCEL_ENV || null,
     deployed_commit: (process.env.VERCEL_GIT_COMMIT_SHA || '').slice(0, 7) || null,
