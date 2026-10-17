@@ -74,69 +74,46 @@ export async function apiFetch<T = any>(
 // Typed API Calls
 // ---------------------------------------------------------------------------
 
-export async function initializeDeposit(amount?: number) {
-  try {
-    return await apiFetch<{
-      status: boolean;
-      data: {
-        authorization_url: string;
-        access_code: string;
-        reference: string;
-        amount: number;
-      };
-    }>('/api/initialize-deposit', {
-      method: 'POST',
-      body: JSON.stringify({ amount }),
-    });
-  } catch (err: any) {
-    if (!import.meta.env.PROD) {
-      console.info('[Dev Mode] Simulating Paystack payment gateway initialization');
-      const depositRef = `dep_dev_${Date.now()}`;
-      return {
-        status: true,
-        data: {
-          authorization_url: `${window.location.origin}/?verify_deposit=${depositRef}&amount=${amount || 3000}`,
-          access_code: 'dev_access_code',
-          reference: depositRef,
-          amount: amount || 3000,
-        },
-      };
-    }
-    throw err;
-  }
+/**
+ * Start a Paystack checkout for a business campaign. The server charges the
+ * campaign's total (reward x slots + platform fee) computed in the database.
+ */
+export async function initializeCampaignFunding(campaignId: string) {
+  return await apiFetch<{
+    status: boolean;
+    data: {
+      authorization_url: string;
+      access_code: string;
+      reference: string;
+      amount: number;
+      campaign_id: string;
+    };
+  }>('/api/initialize-deposit', {
+    method: 'POST',
+    body: JSON.stringify({ campaignId }),
+  });
 }
 
-export async function verifyDeposit(reference: string) {
-  try {
-    return await apiFetch<{
-      status: boolean;
-      message: string;
-      data: {
-        reference: string;
-        amount: number;
-        settleResult: any;
-        profile: any;
-      };
-    }>('/api/verify-transaction', {
-      method: 'POST',
-      body: JSON.stringify({ reference }),
-    });
-  } catch (err: any) {
-    if (!import.meta.env.PROD) {
-      console.info('[Dev Mode] Simulating Paystack deposit verification');
-      return {
-        status: true,
-        message: 'Deposit verified and credited successfully (Dev Simulation).',
-        data: {
-          reference,
-          amount: 3000,
-          settleResult: { activated: true, credited: 3000 },
-          profile: { is_activated: true, withdrawable_balance: 3000 },
-        },
-      };
-    }
-    throw err;
-  }
+/**
+ * Verify a Paystack payment after redirect. Handles campaign funding (camp_*)
+ * and legacy deposits that were started before the free-marketplace pivot.
+ */
+export async function verifyPayment(reference: string) {
+  return await apiFetch<{
+    status: boolean;
+    message: string;
+    data: {
+      kind: 'campaign' | 'legacy_deposit';
+      reference: string;
+      amount: number;
+      campaign_id?: string;
+      settleResult: any;
+      profile?: any;
+    };
+  }>('/api/verify-transaction', {
+    method: 'POST',
+    body: JSON.stringify({ reference }),
+  });
 }
 
 export async function resolveBankAccount(accountNumber: string, bankCode: string) {
