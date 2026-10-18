@@ -93,14 +93,14 @@ check('photo failure falls back to text message', calls.map(c => c.method).join(
 // --- /tasks
 reset();
 taskRows = [
-  { id: 'cmp_a', title: 'Install Kobo <Notes>', company: 'Kobo', reward: 300, spots_left: 42 },
-  { id: 'cmp_b', title: 'Survey', company: 'ChowNow', reward: 150, spots_left: 1 },
+  { id: 'cmp_a', title: 'Install Kobo <Notes>', company: 'Kobo', reward: 300, spots_left: 42, spots_total: 50 },
+  { id: 'cmp_b', title: 'Survey', company: 'ChowNow', reward: 150, spots_left: 1, spots_total: 20 },
 ];
 r = await post(privMsg('/tasks'));
 const tmsg = calls.find(c => c.method === 'sendMessage');
 check('/tasks -> sendMessage list', r.body.result === 'tasks' && Boolean(tmsg));
 check('task query only open + funded', /is_active=eq\.true/.test(lastTaskQuery) && /spots_left=gt\.0/.test(lastTaskQuery) && /campaigns\.status=eq\.active/.test(lastTaskQuery) && /campaigns!inner/.test(lastTaskQuery) && /limit=5/.test(lastTaskQuery), lastTaskQuery);
-check('lists reward and slots', /₦300 · 42 slots left/.test(tmsg?.body.text) && /₦150 · 1 slot left/.test(tmsg?.body.text), tmsg?.body.text);
+check('lists reward and slots', /₦300 · 42 of 50 spots left/.test(tmsg?.body.text) && /₦150 · Only 1 left/.test(tmsg?.body.text), tmsg?.body.text);
 check('escapes HTML in titles', /Install Kobo &lt;Notes&gt;/.test(tmsg?.body.text));
 const open1 = allButtons(tmsg?.body).find((b: any) => b.text.startsWith('Open 1'));
 check('Open button deep-links to task', open1?.url === 'https://www.taskpulse.website/?task=cmp_a&utm_source=telegram', open1);
