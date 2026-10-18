@@ -1,5 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { normalizeCategory } from '../config/marketplace';
+import { signupSourceMetadata } from './signupSource';
 
 // Retrieve credentials from environment variables
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
@@ -161,7 +162,8 @@ export async function signUpUser(params: AuthUserSignup) {
             referred_by_code: referralCode ? referralCode.trim() : null,
             heard_about_us: heardAboutUs ? heardAboutUs.trim().slice(0, 120) : null,
             account_type: accountType === 'business' ? 'business' : 'worker',
-            business_name: accountType === 'business' && businessName ? businessName.trim().slice(0, 100) : null
+            business_name: accountType === 'business' && businessName ? businessName.trim().slice(0, 100) : null,
+            ...signupSourceMetadata()
           }
         }
       });

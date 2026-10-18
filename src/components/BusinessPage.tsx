@@ -3,6 +3,7 @@ import { ArrowRight, Ban, Check, ChevronDown, ClipboardCheck, CreditCard, Mail, 
 import { Mascot } from './ui';
 import { CATEGORY_HINTS, computeCampaignCost, formatNaira, NOT_ALLOWED_TASKS, TASK_CATEGORIES, type MarketplaceSettings } from '../config/marketplace';
 import { navigate } from '../lib/router';
+import { IntlNote } from './IntlNote';
 
 export const BUSINESS_CONTACT_EMAIL = 'geoflashsanni@gmail.com';
 /** Suggested reward for one survey response or app test (a recommendation, not a rule). */
@@ -140,6 +141,7 @@ export function BusinessPage({
               <p className="inline-flex items-center gap-2 h-8 px-3 rounded-full bg-pulse-50 dark:bg-pulse-500/10 text-pulse-800 dark:text-pulse-400 text-sm font-bold">
                 <Sparkles className="w-4 h-4" /> TaskPulse for Businesses
               </p>
+              <IntlNote audience="business" className="max-w-md" />
               <h1 className="text-[38px] sm:text-[56px] leading-[1.05] font-extrabold tracking-tight">
                 Real Nigerian people. Real actions.{' '}
                 <span className="text-pulse-600 dark:text-pulse-500">Pay only for approved work.</span>
