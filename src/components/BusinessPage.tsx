@@ -294,17 +294,17 @@ export function BusinessPage({
               </div>
             </div>
 
-            {/* Pilot offer */}
+            {/* First-campaign offer */}
             <div className="rounded-3xl bg-pulse-500 text-ink p-6 sm:p-8 grid md:grid-cols-[1fr_auto] gap-6 items-center">
               <div className="space-y-2">
-                <p className="text-sm font-extrabold uppercase tracking-wider">Pilot offer for early partners — contact us</p>
-                <p className="text-2xl sm:text-3xl font-extrabold leading-tight">Your first campaign at half price, and 100 responses in 72 hours or your money back.</p>
+                <p className="text-sm font-extrabold uppercase tracking-wider">First-campaign offer for new businesses. Contact us</p>
+                <p className="text-2xl sm:text-3xl font-extrabold leading-tight">Your first campaign with zero platform fee. Pay only for approved responses, and get every unused naira back.</p>
                 <p className="text-[15px] font-medium text-ink/80">
-                  Limited to early partners and agreed with you by email before you pay. It is not applied automatically at checkout.
+                  Your first responses arrive within 72 hours of going live. We agree the offer with you by email before you pay, and the fee is refunded once the campaign ends. It isn't applied automatically at checkout.
                 </p>
               </div>
-              <a href={mailto('TaskPulse pilot offer for early partners')} className={`${btn} bg-ink text-white hover:bg-zinc-800`}>
-                <Mail className="w-4 h-4" /> Ask about the pilot
+              <a href={mailto('TaskPulse first-campaign offer')} className={`${btn} bg-ink text-white hover:bg-zinc-800`}>
+                <Mail className="w-4 h-4" /> Ask about the offer
               </a>
             </div>
           </section>
@@ -383,13 +383,13 @@ export function BusinessPage({
                   collect honest opinions privately, or App Tests to have people try your app and report what happened.
                 </p>
               </Faq>
-              <Faq q="What is the pilot offer?">
+              <Faq q="What is the first-campaign offer?">
                 <p>
-                  For selected early partners we run the first campaign at half price and promise 100 responses in 72 hours or your money back. Email{' '}
-                  <a className="font-bold underline underline-offset-2" href={mailto('TaskPulse pilot offer for early partners')}>
+                  On your first campaign we charge zero platform fee, so you pay only the rewards for responses you approve, and every unused naira comes back to you. First responses arrive within 72 hours of going live. Email{' '}
+                  <a className="font-bold underline underline-offset-2" href={mailto('TaskPulse first-campaign offer')}>
                     {BUSINESS_CONTACT_EMAIL}
                   </a>{' '}
-                  to agree it before you pay; it is not applied automatically.
+                  to agree it before you pay. It isn't applied automatically, and the 25% fee is refunded after the campaign ends.
                 </p>
               </Faq>
             </div>
