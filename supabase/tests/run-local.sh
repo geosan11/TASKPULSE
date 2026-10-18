@@ -41,3 +41,7 @@ run 010_task_categories_policy.sql
 run 010_task_categories_policy.sql   # must be safe to re-run
 echo "== tests/50_categories_010.sql"
 sudo -u postgres psql -q -v ON_ERROR_STOP=1 -d "$DB" -f tests/50_categories_010.sql 2>&1 | grep -E 'PASS|ERROR|FAILED'
+run 011_fast_approvals.sql
+run 011_fast_approvals.sql   # must be safe to re-run
+echo "== tests/60_fast_approvals_011.sql"
+sudo -u postgres psql -q -v ON_ERROR_STOP=1 -d "$DB" -f tests/60_fast_approvals_011.sql 2>&1 | grep -E 'PASS|ERROR|FAILED'

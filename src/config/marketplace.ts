@@ -25,6 +25,22 @@ export interface MarketplaceSettings {
   refundFeeOnUnused: boolean;
   /** Referral bonus only once the referee's third-party work generated enough fee (009). */
   referralRequireFeeCover: boolean;
+  /**
+   * Review windows (011). Each submission stores its own deadline at submit time.
+   * Auto: verified and approved instantly by the system (code matched or link check passed, no flags).
+   * Human: everything a person should look at (screenshot proof, Product Feedback, Field Audits,
+   * Other, high rewards, a worker's first tasks, flagged items, auto/manual campaigns).
+   */
+  reviewWindowAutoHours: number;
+  reviewWindowHumanHours: number;
+  /** When true, flagged submissions are never auto-approved; they wait for a person (011). */
+  holdFlaggedForReview: boolean;
+  /** A worker's first N approved tasks are always reviewed by a person (011). */
+  trustedAfterTasks: number;
+  /** Rewards above this are always reviewed by a person (011). */
+  humanReviewRewardAbove: number;
+  /** Minimum seconds between starting and submitting a task (011). */
+  minTaskSeconds: number;
 }
 
 export const DEFAULT_MARKETPLACE_SETTINGS: MarketplaceSettings = {
@@ -43,6 +59,12 @@ export const DEFAULT_MARKETPLACE_SETTINGS: MarketplaceSettings = {
   maxCampaignSlots: 10000,
   refundFeeOnUnused: true,
   referralRequireFeeCover: true,
+  reviewWindowAutoHours: 24,
+  reviewWindowHumanHours: 48,
+  holdFlaggedForReview: false,
+  trustedAfterTasks: 3,
+  humanReviewRewardAbove: 1000,
+  minTaskSeconds: 60,
 };
 
 /**
@@ -124,6 +146,109 @@ export const PROOF_TYPES = [
   { id: 'link', label: 'Link', hint: 'Worker pastes a URL (e.g. a form confirmation or content they created)' },
 ] as const;
 export type ProofType = (typeof PROOF_TYPES)[number]['id'];
+
+// =========================================================================
+// FAST APPROVALS (011). The server decides: resolve_approval_mode() and
+// submit_task() in supabase/011_fast_approvals.sql. These mirror them for
+// display and form defaults only.
+// =========================================================================
+export type ApprovalMode = 'instant' | 'auto' | 'manual';
+export interface ReviewWindows {
+  autoHours: number;
+  humanHours: number;
+  holdFlagged: boolean;
+}
+export const reviewWindowsFrom = (s: Pick<MarketplaceSettings, 'reviewWindowAutoHours' | 'reviewWindowHumanHours' | 'holdFlaggedForReview'>): ReviewWindows => ({
+  autoHours: s.reviewWindowAutoHours,
+  humanHours: s.reviewWindowHumanHours,
+  holdFlagged: s.holdFlaggedForReview,
+});
+export type CodeMode = 'shared' | 'unique';
+
+/** Categories that may use instant approval. Everything else is always reviewed by a person. */
+export const INSTANT_CATEGORIES: readonly TaskCategory[] = ['Surveys', 'App Tests', 'Community & Content'];
+
+export function approvalModeCopy(mode: ApprovalMode, w: ReviewWindows) {
+  const a = `${w.autoHours}h`;
+  const h = `${w.humanHours}h`;
+  const flagged = w.holdFlagged
+    ? 'Flagged submissions are never approved automatically; they wait for you.'
+    : `Flagged submissions show their warnings to you, but are also approved after ${h} if you don't act.`;
+  switch (mode) {
+    case 'instant':
+      return {
+        label: 'Instant',
+        title: 'Instant (automatic checks)',
+        body: `Approved the moment the automatic checks pass (completion code or link). The reward stays pending for ${a} (${h} for screenshot proof) and you can reject it during that time. Anything that needs a person comes to you, with ${h} to review it.`,
+      };
+    case 'auto':
+      return {
+        label: 'You review, auto-approve',
+        title: `You review, auto-approve after ${h}`,
+        body: `You approve or reject each submission, with flagged items listed first. Anything you haven't reviewed within ${h} is approved automatically. ${flagged}`,
+      };
+    case 'manual':
+      return {
+        label: 'Manual',
+        title: 'Manual review',
+        body: `Same ${h} rule as "You review, auto-approve": anything unreviewed after ${h} is still approved so workers aren't stuck. The only difference is the default handling of checks: submissions are listed plainly in the order they arrive instead of flagged-first (flags still show). ${flagged}`,
+      };
+  }
+}
+
+/** Hours the worker's reward stays pending for an instant approval on this proof type. */
+export const instantWindowHours = (proofType: ProofType, w: Pick<ReviewWindows, 'autoHours' | 'humanHours'>) =>
+  proofType === 'screenshot' ? w.humanHours : w.autoHours;
+
+/**
+ * Which modes a business may pick, and the default (mirror of resolve_approval_mode()).
+ * Instant needs a check TaskPulse can verify: a completion code, or link proof with a task link.
+ */
+export function approvalModeOptions(params: { category: TaskCategory; proofType: ProofType; hasCode: boolean; hasTargetUrl: boolean }) {
+  const { category, proofType, hasCode, hasTargetUrl } = params;
+  const instantCategory = INSTANT_CATEGORIES.includes(category);
+  const hasCheck = hasCode || (proofType === 'link' && hasTargetUrl);
+  const allowed: ApprovalMode[] = instantCategory && hasCheck ? ['instant', 'auto', 'manual'] : ['auto', 'manual'];
+  const defaultMode: ApprovalMode = (category === 'Surveys' || category === 'App Tests') && hasCode ? 'instant' : 'auto';
+  let instantBlockedReason: string | null = null;
+  if (!instantCategory) instantBlockedReason = `${category} is always reviewed by a person.`;
+  else if (!hasCheck) instantBlockedReason = 'Add a completion code (or use link proof with a task link) to allow instant approval.';
+  return { allowed, defaultMode, instantBlockedReason };
+}
+
+/** Plain words for the automatic-check flags shown to businesses. */
+export const CHECK_FLAG_LABELS: Record<string, string> = {
+  wrong_code: 'Wrong completion code',
+  missing_code: 'No completion code',
+  too_fast: 'Submitted faster than the minimum time',
+  not_started: 'Never opened the task in TaskPulse',
+  duplicate_link: 'Same link already used in this campaign',
+  duplicate_text: 'Same answer already sent in this campaign',
+  duplicate_screenshot: 'Same screenshot already sent in this campaign',
+  screenshot_unverified: 'Screenshot could not be fingerprinted',
+  link_not_https: 'Link is not https',
+  link_invalid: 'Link is not a valid web address',
+  link_domain_mismatch: "Link is not on your task link's domain",
+};
+
+/** Why an item waits for a person even when checks pass. */
+export const REVIEW_REASON_LABELS: Record<string, string> = {
+  new_worker: 'New worker (first approved tasks are always reviewed)',
+  high_reward: 'High reward (always reviewed)',
+  category_review: 'Category is always reviewed',
+  business_review: 'You review this campaign',
+  no_automatic_check: 'No automatic check available',
+};
+
+/** "5h", "45m", or "now" until a timestamp. */
+export function timeLeftLabel(iso: string | null | undefined, now: number = Date.now()): string {
+  if (!iso) return '';
+  const ms = new Date(iso).getTime() - now;
+  if (!Number.isFinite(ms) || ms <= 0) return 'now';
+  const mins = Math.ceil(ms / 60_000);
+  if (mins < 60) return `${mins}m`;
+  return `${Math.ceil(mins / 60)}h`;
+}
 
 export const HEARD_ABOUT_US_OPTIONS = [
   'Friend or family',

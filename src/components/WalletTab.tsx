@@ -121,6 +121,12 @@ export function WalletTab({
           <p className="text-sm text-zinc-400 mt-3">
             Pending <span className="text-white font-semibold ml-1">{formatNaira(user.pendingBalance)}</span>
           </p>
+          {user.pendingBalance > 0 && (
+            <p className="text-xs text-zinc-500 mt-1">
+              Approved rewards stay pending while the business can still check them ({settings.reviewWindowAutoHours}h for automatically
+              checked tasks, {settings.reviewWindowHumanHours}h for ones a person reviews), then move to Available automatically.
+            </p>
+          )}
         </div>
         <button
           type="button"

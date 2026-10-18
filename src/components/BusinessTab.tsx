@@ -1,10 +1,20 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowLeft, Ban, Check, Image as ImageIcon, Loader2, Pause, Play, Plus, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Ban, Check, Clock, Image as ImageIcon, Loader2, Pause, Play, Plus, X, Zap } from 'lucide-react';
 import { EmptyState, ErrorText, inputClass, Label, Modal, primaryButtonClass, secondaryButtonClass, Segmented, StatusPill, textareaClass } from './ui';
 import { SpotsBar } from './SpotsBar';
 import { spotsState } from '../lib/spots';
 import {
+  approvalModeCopy,
+  approvalModeOptions,
   CATEGORY_HINTS,
+  CHECK_FLAG_LABELS,
+  instantWindowHours,
+  REVIEW_REASON_LABELS,
+  reviewWindowsFrom,
+  timeLeftLabel,
+  type ApprovalMode,
+  type CodeMode,
+  type ReviewWindows,
   computeCampaignCost,
   computeCancelRefund,
   formatNaira,
@@ -27,6 +37,7 @@ import {
   reviewSubmissionRpc,
   setCampaignStatusRpc,
   type Campaign,
+  type ReviewListStatus,
   type ReviewSubmission,
 } from '../lib/marketplace';
 import { initializeCampaignFunding, verifyPayment } from '../lib/api';
@@ -67,6 +78,7 @@ export function BusinessTab({
       <ReviewPanel
         campaignId={reviewing.campaignId}
         title={reviewing.title}
+        windows={reviewWindowsFrom(settings)}
         onBack={() => {
           setReviewing(null);
           load();
@@ -237,7 +249,8 @@ function CampaignCard({
         <div className="min-w-0">
           <p className="text-[15px] font-bold text-ink dark:text-white leading-snug">{c.title}</p>
           <p className="text-sm text-zinc-500 mt-0.5">
-            {formatNaira(c.rewardPerCompletion)} × {c.slots}
+            {formatNaira(c.rewardPerCompletion)} × {c.slots} · {approvalModeCopy(c.approvalMode, reviewWindowsFrom(settings)).label}
+            {c.completionCodeMode ? ' · code check' : ''}
           </p>
         </div>
         <StatusPill status={c.status} kind="campaign" />
@@ -349,6 +362,9 @@ function CreateCampaignModal({
   const [reward, setReward] = useState('');
   const [slots, setSlots] = useState('');
   const [targetUrl, setTargetUrl] = useState('');
+  const [modeChoice, setModeChoice] = useState<ApprovalMode | null>(null);
+  const [completionCode, setCompletionCode] = useState('');
+  const [codeMode, setCodeMode] = useState<CodeMode>('shared');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -357,6 +373,10 @@ function CreateCampaignModal({
   const cost = computeCampaignCost(rewardNum, slotsNum, settings.platformFeeRate);
   const feePct = Math.round(settings.platformFeeRate * 100);
   const prohibited = prohibitedTaskReason(title, instructions);
+  const hasCode = completionCode.trim().length > 0;
+  const modeOptions = approvalModeOptions({ category, proofType, hasCode, hasTargetUrl: /^https?:\/\//i.test(targetUrl.trim()) });
+  const approvalMode: ApprovalMode = modeChoice && modeOptions.allowed.includes(modeChoice) ? modeChoice : modeOptions.defaultMode;
+  const windows = reviewWindowsFrom(settings);
 
   const validate = () => {
     if (!categoryChosen && !proofChosen) return 'Choose a task category and how workers send proof.';
@@ -370,6 +390,11 @@ function CreateCampaignModal({
       return `People needed must be ${settings.minCampaignSlots} to ${settings.maxCampaignSlots.toLocaleString()}.`;
     if (targetUrl.trim() && !/^https?:\/\//i.test(targetUrl.trim())) return 'Link must start with http:// or https://';
     if (prohibited) return PROHIBITED_MESSAGES[prohibited];
+    if (hasCode && codeMode === 'shared' && (completionCode.trim().length < 4 || completionCode.trim().length > 64))
+      return 'Completion code must be 4 to 64 characters.';
+    if (hasCode && codeMode === 'unique' && (completionCode.trim().length < 16 || completionCode.trim().length > 128))
+      return 'The per-worker code secret must be 16 to 128 characters.';
+    if (hasCode && codeMode === 'unique' && !targetUrl.trim()) return 'Per-worker codes need a task link.';
     return null;
   };
 
@@ -391,6 +416,9 @@ function CreateCampaignModal({
         reward: rewardNum,
         slots: slotsNum,
         targetUrl: targetUrl.trim() || undefined,
+        approvalMode,
+        completionCode: completionCode.trim() || undefined,
+        codeMode,
       });
       if (payNow) {
         const pay = await initializeCampaignFunding(res.campaign_id);
@@ -403,6 +431,8 @@ function CreateCampaignModal({
       setReward('');
       setSlots('');
       setTargetUrl('');
+      setCompletionCode('');
+      setModeChoice(null);
       await onCreated();
     } catch (err: any) {
       setError(err.message || 'Could not create the campaign.');
@@ -475,6 +505,70 @@ function CreateCampaignModal({
       {categoryChosen && <p className="text-xs text-zinc-500 -mt-1 px-1">{CATEGORY_HINTS[category]}</p>}
       {prohibited && <ErrorText>{PROHIBITED_MESSAGES[prohibited]}</ErrorText>}
 
+      <div>
+        <Label hint="Optional, recommended for surveys and app tests">Completion code</Label>
+        <Segmented
+          value={codeMode}
+          onChange={setCodeMode}
+          options={[
+            { id: 'shared', label: 'Same code for everyone' },
+            { id: 'unique', label: 'Unique per worker' },
+          ]}
+        />
+        <input
+          className={`${inputClass} mt-2`}
+          value={completionCode}
+          onChange={e => setCompletionCode(e.target.value)}
+          maxLength={128}
+          autoComplete="off"
+          placeholder={codeMode === 'shared' ? 'e.g. BLUE42' : 'A long secret only you know (16+ characters)'}
+        />
+        <p className="text-xs text-zinc-500 mt-1.5 px-1">
+          {codeMode === 'shared'
+            ? 'Show this code (or secret word) on the last screen of your form or app. Workers type it in and TaskPulse checks it automatically. We store only a scrambled (hashed) copy; workers never see it in the app.'
+            : 'Advanced: we add tp_ref=<worker reference> to your task link. Your end screen shows the first 8 characters of sha256(secret + ":" + tp_ref), in capitals. Each worker gets a different code, so a leaked code is useless to others.'}
+        </p>
+      </div>
+
+      <div>
+        <Label>How submissions are approved</Label>
+        <div className="space-y-2">
+          {(['instant', 'auto', 'manual'] as ApprovalMode[]).map(m => {
+            const copy = approvalModeCopy(m, windows);
+            const allowed = modeOptions.allowed.includes(m);
+            const selected = approvalMode === m;
+            return (
+              <button
+                key={m}
+                type="button"
+                disabled={!allowed}
+                onClick={() => setModeChoice(m)}
+                className={`w-full text-left p-3.5 rounded-2xl border cursor-pointer disabled:cursor-not-allowed disabled:opacity-45 ${
+                  selected ? 'border-pulse-500 bg-pulse-500/8' : 'border-zinc-200 dark:border-zinc-800'
+                }`}
+              >
+                <p className="text-sm font-bold text-ink dark:text-white flex items-center gap-1.5">
+                  {m === 'instant' ? <Zap className="w-4 h-4" /> : <Clock className="w-4 h-4" />} {copy.title}
+                  {m === modeOptions.defaultMode && <span className="text-[11px] font-semibold text-zinc-500">(suggested)</span>}
+                </p>
+                <p className="text-xs text-zinc-500 mt-1">{allowed || m !== 'instant' ? copy.body : modeOptions.instantBlockedReason}</p>
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-xs text-zinc-500 mt-2 px-1">
+          Always sent to you, in every mode: a worker's first {settings.trustedAfterTasks} approved tasks, rewards above{' '}
+          {formatNaira(settings.humanReviewRewardAbove)}, Product Feedback and Field Audits, and anything our checks flag (reused answers, links or
+          screenshots, wrong codes, submitting too fast). You have {windows.humanHours}h to review those.{' '}
+          {approvalMode === 'instant'
+            ? `Instantly approved rewards stay pending for ${instantWindowHours(proofType, windows)}h so you can still reject them.`
+            : `Rewards you approve stay pending until ${windows.humanHours}h after submission, so you can still reject them.`}{' '}
+          {windows.holdFlagged
+            ? 'Flagged items are never approved automatically.'
+            : `Flagged items are also approved after ${windows.humanHours}h if you don't act.`}
+        </p>
+      </div>
+
       <div className="p-4 rounded-2xl border border-zinc-200 dark:border-zinc-800 space-y-1.5 text-xs text-zinc-600 dark:text-zinc-400">
         <p className="flex items-center gap-1.5 text-sm font-bold text-ink dark:text-white">
           <Ban className="w-4 h-4" /> Not allowed
@@ -522,21 +616,32 @@ function CreateCampaignModal({
 function ReviewPanel({
   campaignId,
   title,
+  windows,
   onBack,
   notify,
 }: {
   campaignId: string | null;
   title: string;
+  windows: ReviewWindows;
   onBack: () => void;
   notify: (t: string, s: string) => void;
 }) {
-  const [status, setStatus] = useState<'pending' | 'approved' | 'rejected'>('pending');
+  const [status, setStatus] = useState<ReviewListStatus>('pending');
   const [items, setItems] = useState<ReviewSubmission[]>([]);
   const [loading, setLoading] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
-    setItems(await fetchReviewSubmissions(campaignId, status));
+    const list = await fetchReviewSubmissions(campaignId, status);
+    // Manual campaigns: plain arrival order. Otherwise flagged items first.
+    if (status === 'pending') {
+      list.sort((a, b) => {
+        const fa = a.approvalMode !== 'manual' && a.checkFlags.length > 0 ? 0 : 1;
+        const fb = b.approvalMode !== 'manual' && b.checkFlags.length > 0 ? 0 : 1;
+        return fa - fb || new Date(a.completedAt).getTime() - new Date(b.completedAt).getTime();
+      });
+    }
+    setItems(list);
     setLoading(false);
   }, [campaignId, status]);
 
@@ -555,20 +660,30 @@ function ReviewPanel({
         onChange={setStatus}
         options={[
           { id: 'pending', label: 'To review' },
+          { id: 'held', label: 'Can still reject' },
           { id: 'approved', label: 'Approved' },
           { id: 'rejected', label: 'Rejected' },
         ]}
       />
+      <p className="text-xs text-zinc-500 px-1">
+        {status === 'pending'
+          ? windows.holdFlagged
+            ? `Anything you don't review within ${windows.humanHours}h of submission is approved automatically, except flagged items, which wait for you.`
+            : `Anything you don't review within ${windows.humanHours}h of submission is approved automatically, flagged items included.`
+          : status === 'held'
+            ? `Approved work (by you or automatically) whose review window is still open: ${windows.autoHours}h for instantly checked items, ${windows.humanHours}h for everything else. The worker's reward is pending; rejecting returns it to your campaign budget.`
+            : null}
+      </p>
       {loading ? (
         <div className="flex justify-center py-10">
           <Loader2 className="w-6 h-6 animate-spin text-zinc-400" />
         </div>
       ) : items.length === 0 ? (
-        <EmptyState mascot="thinking" title={status === 'pending' ? 'All caught up.' : 'Nothing here yet.'} subtitle={status === 'pending' ? 'New work shows up here.' : undefined} />
+        <EmptyState mascot="thinking" title={status === 'pending' || status === 'held' ? 'All caught up.' : 'Nothing here yet.'} subtitle={status === 'pending' ? 'New work shows up here.' : undefined} />
       ) : (
         <div className="space-y-3">
           {items.map(s => (
-            <SubmissionCard key={s.id} item={s} onReviewed={load} notify={notify} />
+            <SubmissionCard key={s.id} item={s} holdFlagged={windows.holdFlagged} onReviewed={load} notify={notify} />
           ))}
         </div>
       )}
@@ -576,7 +691,17 @@ function ReviewPanel({
   );
 }
 
-function SubmissionCard({ item, onReviewed, notify }: { item: ReviewSubmission; onReviewed: () => Promise<void>; notify: (t: string, s: string) => void }) {
+function SubmissionCard({
+  item,
+  holdFlagged,
+  onReviewed,
+  notify,
+}: {
+  item: ReviewSubmission;
+  holdFlagged: boolean;
+  onReviewed: () => Promise<void>;
+  notify: (t: string, s: string) => void;
+}) {
   const [imgUrl, setImgUrl] = useState<string | null>(null);
   const [loadingImg, setLoadingImg] = useState(false);
   const [note, setNote] = useState('');
@@ -599,7 +724,14 @@ function SubmissionCard({ item, onReviewed, notify }: { item: ReviewSubmission; 
     setBusy(approve ? 'approve' : 'reject');
     try {
       await reviewSubmissionRpc(item.id, approve, note.trim() || undefined);
-      notify(approve ? 'Approved and paid' : 'Rejected', approve ? `@${item.workerUsername} got ${formatNaira(item.rewardAmount)}.` : 'The worker can see your note.');
+      notify(
+        approve ? 'Approved' : 'Rejected',
+        approve
+          ? `${formatNaira(item.rewardAmount)} is pending for @${item.workerUsername} and becomes withdrawable when the review window closes.`
+          : item.status === 'approved'
+            ? `${formatNaira(item.rewardAmount)} went back to your campaign budget. The worker can see your note.`
+            : 'The worker can see your note.'
+      );
       await onReviewed();
     } catch (err: any) {
       notify('Review failed', err.message);
@@ -609,6 +741,9 @@ function SubmissionCard({ item, onReviewed, notify }: { item: ReviewSubmission; 
   };
 
   const isLink = item.proofText && /^https?:\/\//i.test(item.proofText.trim());
+  const held = item.status === 'approved' && item.payoutStatus === 'held';
+  const left = timeLeftLabel(item.reviewDeadlineAt);
+  const windowOpen = Boolean(left) && left !== 'now';
 
   return (
     <div className="p-5 rounded-3xl bg-white dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 space-y-4">
@@ -621,6 +756,35 @@ function SubmissionCard({ item, onReviewed, notify }: { item: ReviewSubmission; 
         </div>
         <span className="text-[15px] font-extrabold text-ink dark:text-white shrink-0">{formatNaira(item.rewardAmount)}</span>
       </div>
+      {(item.status === 'pending' || held) && item.reviewDeadlineAt && (
+        <p className="text-xs font-semibold text-zinc-600 dark:text-zinc-300 flex items-center gap-1.5">
+          <Clock className="w-3.5 h-3.5" />
+          {held
+            ? windowOpen
+              ? `${item.approvalSource === 'instant' ? 'Auto-approved by checks' : 'Approved'} · reject within ${left}`
+              : 'Window closed, reward being released'
+            : holdFlagged && item.checkFlags.length > 0
+              ? 'Flagged: waits for your decision (not auto-approved)'
+              : windowOpen
+                ? `Auto-approves in ${left}`
+                : 'Auto-approving now'}
+        </p>
+      )}
+      {item.checkFlags.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {item.checkFlags.map(f => (
+            <span key={f} className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-full bg-red-500/10 text-red-700 dark:text-red-400">
+              <AlertTriangle className="w-3 h-3" /> {CHECK_FLAG_LABELS[f] ?? f}
+            </span>
+          ))}
+        </div>
+      )}
+      {item.status === 'pending' && item.reviewReasons.length > 0 && (
+        <p className="text-[11px] text-zinc-500">
+          Why it's here: {item.reviewReasons.map(r => REVIEW_REASON_LABELS[r] ?? r).join(' · ')}
+        </p>
+      )}
+      {item.codeStatus === 'match' && <p className="text-[11px] font-semibold text-pulse-700 dark:text-pulse-400">Completion code correct</p>}
       {item.proofText &&
         (isLink ? (
           <a href={item.proofText.trim()} target="_blank" rel="noopener noreferrer nofollow" className="block text-sm font-semibold text-pulse-700 dark:text-pulse-400 break-all">
@@ -639,6 +803,19 @@ function SubmissionCard({ item, onReviewed, notify }: { item: ReviewSubmission; 
             {loadingImg ? <Loader2 className="w-5 h-5 animate-spin" /> : <ImageIcon className="w-5 h-5" />} View screenshot
           </button>
         ))}
+      {held && windowOpen && (
+        <>
+          <input className={inputClass} value={note} onChange={e => setNote(e.target.value)} maxLength={300} placeholder="Reason (needed to reject)" />
+          <button
+            type="button"
+            disabled={busy !== null}
+            onClick={() => review(false)}
+            className="tactile w-full h-12 rounded-full bg-zinc-100 dark:bg-zinc-800 text-ink dark:text-white font-bold text-[15px] flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40"
+          >
+            {busy === 'reject' ? <Loader2 className="w-5 h-5 animate-spin" /> : <X className="w-5 h-5" />} Reject and return {formatNaira(item.rewardAmount)}
+          </button>
+        </>
+      )}
       {item.status !== 'pending' && (
         <div className="flex items-center justify-between gap-3">
           <StatusPill status={item.status} kind="submission" />
