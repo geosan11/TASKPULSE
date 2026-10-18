@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowLeft, Ban, Check, Image as ImageIcon, Loader2, Pause, Play, Plus, X } from 'lucide-react';
 import { EmptyState, ErrorText, inputClass, Label, Modal, primaryButtonClass, secondaryButtonClass, Segmented, StatusPill, textareaClass } from './ui';
+import { SpotsBar } from './SpotsBar';
+import { spotsState } from '../lib/spots';
 import {
   CATEGORY_HINTS,
   computeCampaignCost,
@@ -29,8 +31,6 @@ import {
 } from '../lib/marketplace';
 import { initializeCampaignFunding, verifyPayment } from '../lib/api';
 import { formatDateTime, type UserProfile } from '../types';
-import { SpotsBar } from './SpotsBar';
-import { spotsState } from '../lib/spots';
 
 export function BusinessTab({
   user,
