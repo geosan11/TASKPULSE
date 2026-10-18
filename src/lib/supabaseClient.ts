@@ -543,17 +543,22 @@ export interface DbTask {
 }
 
 /**
- * Fetch active, business-funded tasks from public.tasks
+ * Fetch active, business-funded tasks from public.tasks: the open feed
+ * (spots left), or specific tasks by id (e.g. full ones I hold a spot on).
  */
-export async function fetchActiveTasks(): Promise<DbTask[]> {
+export async function fetchActiveTasks(opts: { ids?: string[] } = {}): Promise<DbTask[]> {
   if (!supabase) return [];
 
   try {
-    const { data, error } = await supabase
+    // Free spots whose accept expired before counting (no-op if none; 013).
+    if (!opts.ids && (await supabase.auth.getSession()).data.session) {
+      await supabase.rpc('release_expired_spot_holds').then(() => undefined, () => undefined);
+    }
+    const base = supabase
       .from('tasks')
       .select('id, title, company, reward, category, time_estimate, sla, spots_left, spots_total, description, steps, platform_icon, proof_type, campaign_id, target_url')
-      .eq('is_active', true)
-      .gt('spots_left', 0)
+      .eq('is_active', true);
+    const { data, error } = await (opts.ids ? base.in('id', opts.ids) : base.gt('spots_left', 0))
       .order('created_at', { ascending: false });
 
     if (error || !data) {

@@ -2,6 +2,7 @@ import { ArrowRight, Flame, Gift, Plus } from 'lucide-react';
 import { Card, Mascot, primaryButtonClass } from './ui';
 import { formatNaira, referralOffer, type MarketplaceSettings } from '../config/marketplace';
 import type { DbTask } from '../lib/supabaseClient';
+import { spotsState } from '../lib/spots';
 import type { UserProfile } from '../types';
 import { IntlNote } from './IntlNote';
 
@@ -106,7 +107,7 @@ export function HomeTab({
                   <div className="min-w-0">
                     <p className="text-[15px] font-bold text-ink dark:text-white truncate">{t.title}</p>
                     <p className="text-xs text-zinc-500">
-                      {t.time} · {t.spotsLeft} left
+                      {t.time} · {spotsState(t.spotsLeft, t.spotsTotal).label}
                     </p>
                   </div>
                   <span className="text-[15px] font-extrabold text-pulse-700 dark:text-pulse-400 shrink-0">{formatNaira(t.reward)}</span>

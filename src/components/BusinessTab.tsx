@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowLeft, Ban, Check, Image as ImageIcon, Loader2, Pause, Play, Plus, X } from 'lucide-react';
 import { EmptyState, ErrorText, inputClass, Label, Modal, primaryButtonClass, secondaryButtonClass, Segmented, StatusPill, textareaClass } from './ui';
+import { SpotsBar } from './SpotsBar';
+import { spotsState } from '../lib/spots';
 import {
   CATEGORY_HINTS,
   computeCampaignCost,
@@ -175,7 +177,6 @@ function CampaignCard({
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
-  const pct = c.slots > 0 ? Math.round((c.slotsApproved / c.slots) * 100) : 0;
   const cancelRefund = computeCancelRefund(c, settings.platformFeeRate, settings.refundFeeOnUnused);
   const refundOwed = Math.max(0, c.refundDue - c.refundedAmount);
 
@@ -258,15 +259,21 @@ function CampaignCard({
       ) : (
         <>
           <div className="space-y-2">
-            <div className="h-2 rounded-full bg-zinc-100 dark:bg-zinc-800 overflow-hidden">
-              <div className="h-full bg-pulse-500 rounded-full" style={{ width: `${pct}%` }} />
-            </div>
-            <div className="flex justify-between text-sm text-zinc-500">
-              <span>
-                <span className="font-bold text-ink dark:text-white">{c.slotsApproved}</span> / {c.slots} done
-              </span>
-              <span>{formatNaira(c.escrowBalance)} left</span>
-            </div>
+            <SpotsBar
+              left={c.slots - c.slotsApproved - c.slotsPending - c.slotsHeld}
+              total={c.slots}
+              label={`${c.slotsApproved} of ${c.slots} done`}
+              trailing={<span className="text-zinc-500">{formatNaira(c.escrowBalance)} left</span>}
+            />
+            <p className="text-xs text-zinc-500">
+              {[
+                c.slotsPending > 0 && `${c.slotsPending} in review`,
+                c.slotsHeld > 0 && `${c.slotsHeld} working on it`,
+                spotsState(c.slots - c.slotsApproved - c.slotsPending - c.slotsHeld, c.slots).label,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </p>
             {refundOwed > 0 && <p className="text-sm text-zinc-500">Refund on its way: {formatNaira(refundOwed)}</p>}
             {c.refundedAmount > 0 && <p className="text-sm text-zinc-500">Refunded: {formatNaira(c.refundedAmount)}</p>}
           </div>

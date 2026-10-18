@@ -63,6 +63,8 @@ export interface Campaign {
   escrowBalance: number;
   slotsApproved: number;
   slotsPending: number;
+  /** Accepted by a worker, proof not sent yet (013; 0 before it runs). */
+  slotsHeld: number;
   refundDue: number;
   feeRefundDue: number;
   refundedAmount: number;
@@ -135,6 +137,7 @@ export async function fetchMyCampaigns(): Promise<Campaign[]> {
     escrowBalance: Number(c.escrow_balance),
     slotsApproved: c.slots_approved,
     slotsPending: c.slots_pending,
+    slotsHeld: Number(c.slots_held || 0),
     refundDue: Number(c.refund_due),
     feeRefundDue: Number(c.fee_refund_due || 0),
     refundedAmount: Number(c.refunded_amount || 0),

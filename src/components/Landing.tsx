@@ -2,6 +2,7 @@ import { Briefcase } from 'lucide-react';
 import { Card, Mascot, inkButtonClass, primaryButtonClass, secondaryButtonClass, linkButtonClass } from './ui';
 import { formatNaira, type MarketplaceSettings } from '../config/marketplace';
 import type { DbTask } from '../lib/supabaseClient';
+import { spotsState } from '../lib/spots';
 
 export function Landing({
   settings,
@@ -68,7 +69,7 @@ export function Landing({
               <div key={t.id} className="flex items-center justify-between gap-3 px-5 py-4 bg-white dark:bg-zinc-900">
                 <div className="min-w-0">
                   <p className="text-[15px] font-bold text-ink dark:text-white truncate">{t.title}</p>
-                  <p className="text-xs text-zinc-500">{t.spotsLeft} slots left</p>
+                  <p className="text-xs text-zinc-500">{spotsState(t.spotsLeft, t.spotsTotal).label}</p>
                 </div>
                 <span className="text-[15px] font-extrabold text-pulse-700 dark:text-pulse-400 shrink-0">{formatNaira(t.reward)}</span>
               </div>

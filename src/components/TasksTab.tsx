@@ -5,10 +5,12 @@ import { formatNaira } from '../config/marketplace';
 import { submitTaskProofRpc, uploadTaskProofImage, type DbTask } from '../lib/supabaseClient';
 import { celebrate } from '../lib/celebrate';
 import { formatDateTime, type MySubmission, type UserProfile } from '../types';
+import { AcceptTaskPanel, isTaskFull, TaskSpotsBar, TaskSpotsStatus, useHasSpot } from './SpotsBar';
+import { useTaskFeed } from '../lib/spots';
 
 export function TasksTab({
   user,
-  tasks,
+  tasks: taskRows,
   submissions,
   selected,
   onSelect,
@@ -23,6 +25,8 @@ export function TasksTab({
 }) {
   const [view, setView] = useState<'available' | 'mine'>('available');
   const [category, setCategory] = useState('All');
+  // Open tasks + full ones I already hold a spot on, with fresh counts.
+  const tasks = useTaskFeed(taskRows);
   const submittedTaskIds = useMemo(() => new Set(submissions.map(s => s.taskId)), [submissions]);
   const categories = useMemo(() => ['All', ...Array.from(new Set(tasks.map(t => t.category)))], [tasks]);
   const visible = tasks.filter(t => category === 'All' || t.category === category);
@@ -82,7 +86,7 @@ export function TasksTab({
                   key={t.id}
                   type="button"
                   onClick={() => onSelect(t)}
-                  className="tactile w-full text-left p-5 rounded-3xl bg-white dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 cursor-pointer"
+                  className={`tactile w-full text-left p-5 rounded-3xl bg-white dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 cursor-pointer ${isTaskFull(t) ? 'opacity-60' : ''}`}
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div className="min-w-0 space-y-1">
@@ -95,11 +99,9 @@ export function TasksTab({
                     <span className="flex items-center gap-1">
                       <Clock className="w-3.5 h-3.5" /> {t.time}
                     </span>
-                    <span className="flex items-center gap-1">
-                      <Users className="w-3.5 h-3.5" /> {t.spotsLeft} slots left
-                    </span>
                     {submittedTaskIds.has(t.id) && <span className="ml-auto text-zinc-400">Submitted</span>}
                   </div>
+                  <TaskSpotsBar task={t} className="mt-3" />
                 </button>
               ))}
             </div>
@@ -141,6 +143,7 @@ function TaskWorkspace({
   onBack: () => void;
   onDone: () => Promise<void>;
 }) {
+  const hasSpot = useHasSpot(task);
   const [proofText, setProofText] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
@@ -208,10 +211,8 @@ function TaskWorkspace({
           <span className="flex items-center gap-1">
             <Clock className="w-4 h-4" /> {task.time}
           </span>
-          <span className="flex items-center gap-1">
-            <Users className="w-4 h-4" /> {task.spotsLeft} left
-          </span>
         </div>
+        <TaskSpotsStatus task={task} />
       </div>
 
       <Card>
@@ -239,6 +240,8 @@ function TaskWorkspace({
         <p className="text-sm text-zinc-500 text-center px-6">You've already sent proof for this task. Check "My work" for the result.</p>
       ) : isOwn ? (
         <p className="text-sm text-zinc-500 text-center px-6">This is your own task, so you can't complete it.</p>
+      ) : !hasSpot ? (
+        <AcceptTaskPanel task={task} />
       ) : (
         <div className="space-y-4">
           {task.proofType === 'screenshot' && (
