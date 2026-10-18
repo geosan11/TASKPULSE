@@ -54,7 +54,14 @@ export function IntlNote({ audience, className = '' }: { audience: IntlAudience;
   };
 
   const copy = INTL_COPY[audience];
-  let label: React.ReactNode = copy.line;
+  let label: React.ReactNode = copy.lineCompact ? (
+    <>
+      <span className="sm:hidden">{copy.lineCompact}</span>
+      <span className="hidden sm:inline">{copy.line}</span>
+    </>
+  ) : (
+    copy.line
+  );
   if (remaining) {
     const [before, after = ''] = copy.countdownLine.split('{time}');
     label = (

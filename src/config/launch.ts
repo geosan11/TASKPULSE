@@ -14,8 +14,10 @@ export type IntlAudience = 'worker' | 'business';
 export const INTL_COPY: Record<
   IntlAudience,
   {
-    /** Line shown while INTERNATIONAL_LAUNCH_AT is null. */
+    /** Line shown while INTERNATIONAL_LAUNCH_AT is null (sm and up when lineCompact is set). */
     line: string;
+    /** Optional shorter dateless line used below the sm breakpoint (640px). */
+    lineCompact?: string;
     /** Line shown when a date is set; {time} becomes "13d 4h" (worker) or "13d" (business). */
     countdownLine: string;
     readMore: string;
@@ -36,6 +38,7 @@ export const INTL_COPY: Record<
   },
   business: {
     line: 'TaskPulse is opening to businesses worldwide',
+    lineCompact: 'Going worldwide',
     countdownLine: 'Going international in {time}',
     readMore: 'Read more',
     sheetTitle: 'TaskPulse is going international',

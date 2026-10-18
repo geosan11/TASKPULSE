@@ -37,12 +37,13 @@ check('dismiss key differs by date and audience',
   dismissKey('worker', null) !== dismissKey('worker', '2026-11-01T00:00:00+01:00') && dismissKey('worker', null) !== dismissKey('business', null));
 
 // Copy guard: no promises we must not make.
-const all = Object.values(INTL_COPY).map(c => `${c.line} ${c.countdownLine} ${c.sheetTitle} ${c.sheetBody}`).join(' ').toLowerCase();
+const all = Object.values(INTL_COPY).map(c => `${c.line} ${c.lineCompact ?? ''} ${c.countdownLine} ${c.sheetTitle} ${c.sheetBody}`).join(' ').toLowerCase();
 check('copy: no dollar payouts', !/dollar|usd|\$/.test(all));
 check('copy: no foreign workers', !/workers? (from|outside|abroad)|join from anywhere/.test(all));
 check('copy: exact lines', INTL_COPY.worker.line === 'TaskPulse is going international' && INTL_COPY.business.line === 'TaskPulse is opening to businesses worldwide');
 check('copy: exact titles', INTL_COPY.worker.sheetTitle === 'TaskPulse is going international' && INTL_COPY.business.sheetTitle === 'TaskPulse is going international');
 check('copy: no dates in dateless copy', !/november|two weeks|\b\d+\s*(d|days?)\b/i.test(all));
+check('business compact line', INTL_COPY.business.lineCompact === 'Going worldwide' && INTL_COPY.worker.lineCompact === undefined);
 check('countdown template has {time}', INTL_COPY.worker.countdownLine.includes('{time}') && INTL_COPY.business.countdownLine.includes('{time}'));
 
 // Signup source: first touch, 30 days.
