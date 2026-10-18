@@ -1,10 +1,14 @@
 import { supabase } from './supabaseClient';
+import { isIdRequiredError } from './withdrawId';
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  /** Machine-readable reason from the server, e.g. 'identity_not_verified'. */
+  code?: string;
+  constructor(status: number, message: string, code?: string) {
     super(message);
     this.status = status;
+    this.code = code;
     Object.setPrototypeOf(this, ApiError.prototype);
   }
 }
@@ -64,7 +68,7 @@ export async function apiFetch<T = any>(
 
   if (!response.ok) {
     const errorMsg = payload?.message || `Request failed with status ${response.status}`;
-    throw new ApiError(response.status, errorMsg);
+    throw new ApiError(response.status, errorMsg, typeof payload?.code === 'string' ? payload.code : undefined);
   }
 
   return payload as T;
@@ -203,7 +207,8 @@ export async function requestDisbursement(params: {
       body: JSON.stringify(params),
     });
   } catch (err: any) {
-    if (!import.meta.env.PROD) {
+    // Never fake success for "verify your ID first", even in dev.
+    if (!import.meta.env.PROD && !isIdRequiredError(err)) {
       return {
         status: true,
         message: 'Withdrawal queued (dev mode).',

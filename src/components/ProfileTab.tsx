@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ChoiceButtons } from './Select';
 import { Briefcase, ChevronRight, Copy, FileText, IdCard, Loader2, LogOut, Moon, Share2, Sun } from 'lucide-react';
 import { Card, ErrorText, inputClass, Label, Modal, primaryButtonClass, secondaryButtonClass, StatusBadge } from './ui';
@@ -62,6 +62,8 @@ export function ProfileTab({
   onChanged,
   onOpenTerms,
   onSignOut,
+  openKycSheet = false,
+  onKycSheetOpened,
   notify,
 }: {
   user: UserProfile;
@@ -74,6 +76,9 @@ export function ProfileTab({
   onChanged: () => Promise<void>;
   onOpenTerms: () => void;
   onSignOut: () => void;
+  /** Open the Verify identity sheet on arrival (from Wallet > Withdraw). */
+  openKycSheet?: boolean;
+  onKycSheetOpened?: () => void;
   notify: (title: string, subtitle: string) => void;
 }) {
   const [sheet, setSheet] = useState<null | 'name' | 'kyc' | 'business'>(null);
@@ -123,6 +128,12 @@ export function ProfileTab({
     setError(null);
     setSheet(s);
   };
+
+  useEffect(() => {
+    if (!openKycSheet) return;
+    openSheet('kyc');
+    onKycSheetOpened?.();
+  }, [openKycSheet]);
 
   return (
     <div className="space-y-6 pb-8">

@@ -23,6 +23,13 @@ run 009_business_payments.sql
 run 009_business_payments.sql   # must be safe to re-run
 echo "== tests/40_business_flow.sql"
 sudo -u postgres psql -q -v ON_ERROR_STOP=1 -d "$DB" -f tests/40_business_flow.sql 2>&1 | grep -E 'PASS|ERROR|FAILED'
+# 012 only replaces request_cashout() from 008 and does not depend on 009-011, so
+# it runs here (production order is still 010 then 012) to keep this file
+# merge-friendly with the 011 block appended by feat/fast-approvals.
+run 012_withdraw_requires_id.sql
+run 012_withdraw_requires_id.sql   # must be safe to re-run
+echo "== tests/70_withdraw_id_012.sql"
+sudo -u postgres psql -q -v ON_ERROR_STOP=1 -d "$DB" -f tests/70_withdraw_id_012.sql 2>&1 | grep -E 'PASS|ERROR|FAILED'
 run 010_task_categories_policy.sql
 run 010_task_categories_policy.sql   # must be safe to re-run
 echo "== tests/50_categories_010.sql"

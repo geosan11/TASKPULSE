@@ -6,7 +6,8 @@ import { PAYSTACK_BANKS } from '../config/banks';
 import { Combobox } from './Select';
 
 const BANK_OPTIONS = PAYSTACK_BANKS.map(b => ({ value: b.code, label: b.name }));
-import { linkBankAccount, requestDisbursement, resolveBankAccount, verifyPayment } from '../lib/api';
+import { linkBankAccount, requestDisbursement as requestDisbursementApi, resolveBankAccount, verifyPayment } from '../lib/api';
+import { isIdRequiredError, withdrawIdPrompt, type WithdrawIdPrompt } from '../lib/withdrawId';
 import { celebrate } from '../lib/celebrate';
 import { formatDateTime, isDebit, txTypeLabel, type SavedBank, type TxItem, type UserProfile } from '../types';
 
@@ -22,6 +23,7 @@ export function WalletTab({
   transactions,
   onChanged,
   notify,
+  onVerifyId,
 }: {
   user: UserProfile;
   settings: MarketplaceSettings;
@@ -29,8 +31,14 @@ export function WalletTab({
   transactions: TxItem[];
   onChanged: () => Promise<void>;
   notify: (title: string, subtitle: string) => void;
+  /** Open Profile > Verify identity. */
+  onVerifyId: () => void;
 }) {
   const bank = banks[0];
+  // Withdrawals need a verified ID (the server enforces it; this is the friendly prompt).
+  const [idGate, setIdGate] = useState<WithdrawIdPrompt | null>(null);
+  const [withdrawKey, setWithdrawKey] = useState(0);
+  const idPrompt = withdrawIdPrompt(user.kycStatus);
   const [bankModal, setBankModal] = useState(false);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [receipt, setReceipt] = useState<TxItem | null>(null);
@@ -96,7 +104,7 @@ export function WalletTab({
         <button
           type="button"
           disabled={!canWithdraw}
-          onClick={() => setWithdrawOpen(true)}
+          onClick={() => (idPrompt ? setIdGate(idPrompt) : setWithdrawOpen(true))}
           className={`${primaryButtonClass} disabled:!opacity-100 disabled:!bg-zinc-800 disabled:!text-zinc-500`}
         >
           {!canWithdraw && <Lock className="w-4 h-4" />} Withdraw
@@ -111,6 +119,17 @@ export function WalletTab({
           </ul>
         )}
       </div>
+
+      {idPrompt && (
+        <button
+          type="button"
+          onClick={() => setIdGate(idPrompt)}
+          className="tactile w-full text-left px-5 py-4 rounded-3xl bg-pulse-50 dark:bg-zinc-900 border border-pulse-200 dark:border-zinc-800 cursor-pointer"
+        >
+          <p className="text-[15px] font-bold text-ink dark:text-white">{idPrompt.title}</p>
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">{idPrompt.body}</p>
+        </button>
+      )}
 
       {user.isLegacyMember && user.withdrawableBalance > 0 && (
         <p className="text-sm text-zinc-500 dark:text-zinc-400 px-1">Your earlier balance was carried over in full.</p>
@@ -179,6 +198,13 @@ export function WalletTab({
       </section>
 
       <WithdrawModal
+        key={withdrawKey}
+        onNeedsId={() => {
+          setWithdrawOpen(false);
+          setWithdrawKey(k => k + 1);
+          setIdGate(withdrawIdPrompt('unverified'));
+          void onChanged();
+        }}
         open={withdrawOpen}
         onClose={() => setWithdrawOpen(false)}
         bank={bank}
@@ -224,6 +250,26 @@ export function WalletTab({
           )}
       </Modal>
 
+      <Modal open={Boolean(idGate)} onClose={() => setIdGate(null)} title={idGate?.title || ''}>
+        <p className="text-[15px] text-zinc-600 dark:text-zinc-300">{idGate?.body}</p>
+        {idGate?.action ? (
+          <button
+            type="button"
+            className={primaryButtonClass}
+            onClick={() => {
+              setIdGate(null);
+              onVerifyId();
+            }}
+          >
+            {idGate.action}
+          </button>
+        ) : (
+          <button type="button" className={secondaryButtonClass} onClick={() => setIdGate(null)}>
+            OK
+          </button>
+        )}
+      </Modal>
+
       <BankModal
         open={bankModal}
         current={bank}
@@ -240,6 +286,7 @@ export function WalletTab({
 
 function WithdrawModal({
   open,
+  onNeedsId,
   onClose,
   bank,
   balance,
@@ -248,6 +295,8 @@ function WithdrawModal({
   onDone,
 }: {
   open: boolean;
+  /** The server said "verify your ID first". */
+  onNeedsId: () => void;
   onClose: () => void;
   bank?: SavedBank;
   balance: number;
@@ -261,6 +310,17 @@ function WithdrawModal({
   const [idemKey, setIdemKey] = useState(() => crypto.randomUUID());
   const max = Math.floor(Math.min(balance, remainingToday));
   const amountNum = Number(amount);
+
+  // lib/api's requestDisbursement, plus: if the server answers "verify your ID
+  // first", close this sheet and show the Verify ID prompt instead of a raw error.
+  const requestDisbursement = async (params: Parameters<typeof requestDisbursementApi>[0]) => {
+    try {
+      return await requestDisbursementApi(params);
+    } catch (err) {
+      if (isIdRequiredError(err)) onNeedsId();
+      throw err;
+    }
+  };
 
   const validate = () => {
     if (!Number.isInteger(amountNum) || amountNum <= 0) return 'Enter an amount.';
