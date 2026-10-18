@@ -3,6 +3,9 @@ import { ArrowDownLeft, ArrowUpRight, ChevronRight, Landmark, Loader2, Lock } fr
 import { EmptyState, ErrorText, inputClass, Label, Modal, primaryButtonClass, secondaryButtonClass, StatusPill } from './ui';
 import { formatNaira, type MarketplaceSettings } from '../config/marketplace';
 import { PAYSTACK_BANKS } from '../config/banks';
+import { Combobox } from './Select';
+
+const BANK_OPTIONS = PAYSTACK_BANKS.map(b => ({ value: b.code, label: b.name }));
 import { linkBankAccount, requestDisbursement, resolveBankAccount, verifyPayment } from '../lib/api';
 import { celebrate } from '../lib/celebrate';
 import { formatDateTime, isDebit, txTypeLabel, type SavedBank, type TxItem, type UserProfile } from '../types';
@@ -332,7 +335,8 @@ function BankModal({
   onClose: () => void;
   onLinked: () => Promise<void>;
 }) {
-  const [bankCode, setBankCode] = useState<string>(current?.bankCode || PAYSTACK_BANKS[0].code);
+  // Starts empty so nobody saves (or name-checks against) a bank they didn't pick.
+  const [bankCode, setBankCode] = useState<string>('');
   const [accountNumber, setAccountNumber] = useState('');
   const [accountName, setAccountName] = useState<string | null>(null);
   const [resolving, setResolving] = useState(false);
@@ -342,7 +346,7 @@ function BankModal({
   useEffect(() => {
     setAccountName(null);
     setError(null);
-    if (accountNumber.length !== 10) return;
+    if (accountNumber.length !== 10 || !bankCode) return;
     let cancelled = false;
     setResolving(true);
     resolveBankAccount(accountNumber, bankCode)
@@ -381,21 +385,25 @@ function BankModal({
           You can have one bank account. Current: {current.bankName} ••{current.accountNumber.slice(-4)}
         </p>
       )}
+      <Combobox
+        label="Bank"
+        value={bankCode}
+        onChange={setBankCode}
+        options={BANK_OPTIONS}
+        placeholder="Select your bank"
+        emptyText="Bank not listed yet."
+        required
+        error={!bankCode && accountNumber.length === 10 ? 'Bank is required. Select your bank to check the account name.' : undefined}
+      />
       <div>
-        <Label>Bank</Label>
-        <select className={inputClass} value={bankCode} onChange={e => setBankCode(e.target.value)}>
-          {PAYSTACK_BANKS.map(b => (
-            <option key={b.code} value={b.code}>
-              {b.name}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div>
-        <Label>Account number</Label>
+        <Label hint="10-digit NUBAN">Account number</Label>
         <input
           className={inputClass}
+          type="text"
           inputMode="numeric"
+          pattern="[0-9]{10}"
+          autoComplete="off"
+          aria-label="Account number"
           maxLength={10}
           value={accountNumber}
           onChange={e => setAccountNumber(e.target.value.replace(/\D/g, '').slice(0, 10))}

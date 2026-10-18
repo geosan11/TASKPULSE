@@ -1,7 +1,8 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { ArrowLeft, Briefcase, ChevronDown, Eye, EyeOff, Loader2, Smartphone, X } from 'lucide-react';
 import { ErrorText, Mascot } from './ui';
-import { HEARD_ABOUT_US_OPTIONS } from '../config/marketplace';
+import { ChoiceButtons, Combobox, type ComboOption } from './Select';
+import { HEARD_ABOUT_OPTIONS, NIGERIAN_STATES, OTHER_SCHOOL, SCHOOLS, STUDY_LEVELS, type HeardAboutId } from '../config/signupOptions';
 import {
   checkDuplicateUser,
   resendVerificationEmail,
@@ -15,12 +16,25 @@ export type AuthMode = 'signin' | 'signup' | 'verify_email' | 'forgot' | 'reset'
 export type AccountType = 'worker' | 'business';
 
 const PHONE_RE = /^0[789][01]\d{8}$/;
+/** Phone is typed after a fixed +234 prefix: keep the 10 national digits (accepts pasted 080…, 234…, +234…). */
+const nationalDigits = (raw: string) => {
+  let d = raw.replace(/\D/g, '');
+  if (d.startsWith('234')) d = d.slice(3);
+  if (d.startsWith('0')) d = d.slice(1);
+  return d.slice(0, 10);
+};
+const SCHOOL_OPTIONS: ComboOption[] = [
+  ...SCHOOLS.map(s => ({ value: s.name, label: s.name, keywords: s.keywords })),
+  { value: OTHER_SCHOOL, label: 'Other (type it in)' },
+];
+const STATE_OPTIONS: ComboOption[] = NIGERIAN_STATES.map(s => ({ value: s, label: s, keywords: s === 'FCT (Abuja)' ? 'federal capital territory' : undefined }));
+const LEVEL_OPTIONS = STUDY_LEVELS.map(l => ({ id: l, label: l }));
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,30}$/;
 const LAST_TAB_KEY = 'taskpulse_auth_tab';
 const COMMON_PASSWORDS = ['password', '12345678', '123456789', '1234567890', 'qwertyui', 'qwerty123', 'password1', '11111111', '00000000', 'taskpulse'];
 
-type Field = 'fullName' | 'username' | 'phone' | 'email' | 'password' | 'confirm' | 'businessName';
+type Field = 'accountType' | 'fullName' | 'username' | 'phone' | 'email' | 'password' | 'confirm' | 'businessName';
 type FieldErrors = Partial<Record<Field, string>>;
 
 /** Remember whether the user last used sign in or sign up. */
@@ -63,8 +77,9 @@ function TextField({
   error,
   className = '',
   trailing,
+  leading,
   ...input
-}: React.InputHTMLAttributes<HTMLInputElement> & { label: string; hint?: string; error?: string; trailing?: React.ReactNode }) {
+}: React.InputHTMLAttributes<HTMLInputElement> & { label: string; hint?: string; error?: string; trailing?: React.ReactNode; leading?: string }) {
   const id = useId();
   return (
     <div className={className}>
@@ -79,9 +94,14 @@ function TextField({
           id={id}
           aria-invalid={error ? true : undefined}
           aria-describedby={error ? `${id}-err` : undefined}
-          className={`${fieldInput} ${trailing ? 'pr-12' : ''}`}
+          className={`${fieldInput} ${trailing ? 'pr-12' : ''} ${leading ? 'pl-[4.25rem]' : ''}`}
           {...input}
         />
+        {leading && (
+          <span aria-hidden="true" className="absolute inset-y-0 left-4 flex items-center text-[16px] font-semibold text-zinc-500 dark:text-zinc-400 pointer-events-none">
+            {leading}
+          </span>
+        )}
         {trailing && <div className="absolute inset-y-0 right-1 flex items-center">{trailing}</div>}
       </div>
       {error && (
@@ -142,7 +162,8 @@ export function AuthModal({
   notify: (title: string, subtitle: string) => void;
 }) {
   const [mode, setModeState] = useState<AuthMode>(initialMode);
-  const [accountType, setAccountType] = useState<AccountType>(initialAccountType);
+  // Only a business link preselects the account type; otherwise the user must choose.
+  const [accountType, setAccountType] = useState<AccountType | null>(initialAccountType === 'business' ? 'business' : null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -150,7 +171,11 @@ export function AuthModal({
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [businessName, setBusinessName] = useState('');
-  const [heardAboutUs, setHeardAboutUs] = useState('');
+  const [heardAboutUs, setHeardAboutUs] = useState<HeardAboutId | ''>('');
+  const [school, setSchool] = useState('');
+  const [otherSchool, setOtherSchool] = useState('');
+  const [level, setLevel] = useState<(typeof STUDY_LEVELS)[number] | ''>('');
+  const [stateOfResidence, setStateOfResidence] = useState('');
   const [refCode, setRefCode] = useState(referralCode);
   const [showRef, setShowRef] = useState(Boolean(referralCode));
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
@@ -178,7 +203,7 @@ export function AuthModal({
   useEffect(() => {
     if (open) {
       setModeState(initialMode);
-      setAccountType(initialAccountType);
+      setAccountType(initialAccountType === 'business' ? 'business' : null);
       setError(null);
       setFieldErrors({});
       setResetSent(false);
@@ -213,11 +238,11 @@ export function AuthModal({
 
   const checkTaken = async (field: 'email' | 'username' | 'phone') => {
     if (mode !== 'signup') return;
-    const value = field === 'email' ? email.trim() : field === 'username' ? username.trim() : phone.replace(/\D/g, '');
+    const value = field === 'email' ? email.trim() : field === 'username' ? username.trim() : phone ? `0${phone}` : '';
     if (!value) return;
     if (field === 'email' && !EMAIL_RE.test(value)) return setFieldError('email', 'Enter a valid email address, like you@example.com.');
     if (field === 'username' && !USERNAME_RE.test(value)) return setFieldError('username', '3 to 30 letters, numbers or underscores.');
-    if (field === 'phone' && !PHONE_RE.test(value)) return setFieldError('phone', 'Enter an 11-digit Nigerian number, like 08012345678.');
+    if (field === 'phone' && !PHONE_RE.test(value)) return setFieldError('phone', 'Enter your 10-digit number after +234, like 801 234 5678.');
     const res = await checkDuplicateUser(field === 'email' ? value : '', field === 'username' ? value : '', field === 'phone' ? value : '');
     if (field === 'email') setFieldError('email', res.emailTaken ? 'This email already has an account. Sign in instead?' : undefined);
     if (field === 'username') setFieldError('username', res.usernameTaken ? 'That username is taken. Try another.' : undefined);
@@ -226,10 +251,12 @@ export function AuthModal({
 
   const validateSignup = (): FieldErrors => {
     const errs: FieldErrors = {};
-    const cleanPhone = phone.replace(/\D/g, '');
+    const cleanPhone = `0${phone}`;
+    if (!accountType) errs.accountType = 'Choose what brings you here.';
     if (fullName.trim().length < 2) errs.fullName = 'Enter your name as it appears on your bank account.';
     if (!USERNAME_RE.test(username.trim())) errs.username = '3 to 30 letters, numbers or underscores.';
-    if (!PHONE_RE.test(cleanPhone)) errs.phone = 'Enter an 11-digit Nigerian number, like 08012345678.';
+    if (!phone) errs.phone = 'Enter your phone number.';
+    else if (!PHONE_RE.test(cleanPhone)) errs.phone = 'Enter your 10-digit number after +234, like 801 234 5678.';
     if (!EMAIL_RE.test(email.trim())) errs.email = 'Enter a valid email address, like you@example.com.';
     const pw = passwordProblem(password);
     if (pw) errs.password = pw;
@@ -247,15 +274,22 @@ export function AuthModal({
       setError('Please fix the highlighted fields.');
       return;
     }
+    if (!accountType) return;
+    const schoolName = (school === OTHER_SCHOOL ? otherSchool : school).trim().slice(0, 120);
+    const profileExtras: Record<string, string> = {};
+    if (accountType === 'worker' && schoolName) profileExtras.school = schoolName;
+    if (accountType === 'worker' && level) profileExtras.school_level = level;
+    if (stateOfResidence) profileExtras.state = stateOfResidence;
     setSubmitting(true);
     const res = await signUpUser({
       email,
       password,
       username,
       fullName,
-      phone: phone.replace(/\D/g, ''),
+      phone: `0${phone}`,
       referralCode: refCode.trim() || undefined,
       heardAboutUs: heardAboutUs || undefined,
+      profileExtras,
       accountType,
       businessName: accountType === 'business' ? businessName.trim() || fullName.trim() : undefined,
     });
@@ -453,7 +487,7 @@ export function AuthModal({
           {/* ------------------------------ SIGN UP */}
           {mode === 'signup' && (
             <form onSubmit={handleSignUp} noValidate className="space-y-4">
-              <fieldset>
+              <fieldset aria-describedby={fieldErrors.accountType ? 'account-type-err' : undefined}>
                 <legend className="text-sm font-semibold text-zinc-700 dark:text-zinc-300 px-1 mb-2">What brings you here?</legend>
                 <div className="grid grid-cols-2 gap-3">
                   {([
@@ -465,10 +499,10 @@ export function AuthModal({
                       <label
                         key={opt.id}
                         className={`relative block p-4 min-h-[112px] rounded-3xl border-2 cursor-pointer transition-all focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-pulse-500 ${
-                          selected ? 'border-pulse-500 bg-pulse-500/10' : 'border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700'
+                          selected ? 'border-pulse-500 bg-pulse-500/10' : fieldErrors.accountType ? 'border-red-500/70' : 'border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700'
                         }`}
                       >
-                        <input type="radio" name="account-type" value={opt.id} checked={selected} onChange={() => setAccountType(opt.id)} className="sr-only" />
+                        <input type="radio" name="account-type" value={opt.id} checked={selected} onChange={() => { setAccountType(opt.id); setFieldError('accountType'); }} required className="sr-only" />
                         <span className={`w-9 h-9 rounded-full flex items-center justify-center ${selected ? 'bg-pulse-500 text-ink' : 'bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300'}`}>
                           {opt.icon}
                         </span>
@@ -478,6 +512,11 @@ export function AuthModal({
                     );
                   })}
                 </div>
+                {fieldErrors.accountType && (
+                  <p id="account-type-err" role="alert" className="text-[13px] font-medium text-red-600 dark:text-red-400 px-1 mt-1.5">
+                    {fieldErrors.accountType}
+                  </p>
+                )}
               </fieldset>
 
               <TextField label="Full name" hint="As on your bank account" value={fullName} onChange={e => { setFullName(e.target.value); setFieldError('fullName'); }} placeholder="Chiamaka Obi" autoComplete="name" autoCapitalize="words" enterKeyHint="next" error={fieldErrors.fullName} />
@@ -485,25 +524,38 @@ export function AuthModal({
                 <TextField label="Business name" hint="Optional" value={businessName} onChange={e => setBusinessName(e.target.value)} placeholder="Acme Foods Ltd" autoComplete="organization" enterKeyHint="next" />
               )}
               <TextField label="Username" value={username} onChange={e => { setUsername(e.target.value.replace(/\s/g, '')); setFieldError('username'); }} onBlur={() => checkTaken('username')} placeholder="chiamaka" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} enterKeyHint="next" error={fieldErrors.username} />
-              <TextField label="Phone number" value={phone} onChange={e => { setPhone(e.target.value); setFieldError('phone'); }} onBlur={() => checkTaken('phone')} placeholder="08012345678" type="tel" inputMode="tel" autoComplete="tel-national" maxLength={14} enterKeyHint="next" error={fieldErrors.phone} />
+              <TextField label="Phone number" hint="Nigerian mobile" leading="+234" value={phone} onChange={e => { setPhone(nationalDigits(e.target.value)); setFieldError('phone'); }} onBlur={() => checkTaken('phone')} placeholder="801 234 5678" type="tel" inputMode="numeric" autoComplete="tel-national" enterKeyHint="next" error={fieldErrors.phone} />
               <TextField label="Email" value={email} onChange={e => { setEmail(e.target.value); setFieldError('email'); }} onBlur={() => checkTaken('email')} placeholder="you@example.com" type="email" inputMode="email" autoComplete="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} enterKeyHint="next" error={fieldErrors.email} />
               <PasswordField label="Password" value={password} onChange={e => { setPassword(e.target.value); setFieldError('password'); }} onBlur={() => password && setFieldError('password', passwordProblem(password) || undefined)} placeholder="At least 8 characters" autoComplete="new-password" enterKeyHint="next" error={fieldErrors.password} />
 
-              <div>
-                <label htmlFor="heard" className="block text-sm font-semibold text-zinc-700 dark:text-zinc-300 px-1 mb-1.5">
-                  How did you hear about us? <span className="font-normal text-zinc-400">(optional)</span>
-                </label>
-                <select id="heard" className={`${fieldInput} appearance-none`} value={heardAboutUs} onChange={e => setHeardAboutUs(e.target.value)}>
-                  <option value="">Choose one</option>
-                  {HEARD_ABOUT_US_OPTIONS.map(o => (
-                    <option key={o} value={o}>
-                      {o}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {accountType !== 'business' && (
+                <>
+                  <Combobox
+                    label="School"
+                    hint="Optional"
+                    value={school}
+                    onChange={setSchool}
+                    options={SCHOOL_OPTIONS}
+                    pinned={[OTHER_SCHOOL]}
+                    placeholder="Select your school"
+                    emptyText="Not listed? Choose “Other”."
+                  />
+                  {school === OTHER_SCHOOL && (
+                    <TextField label="School name" hint="Optional" value={otherSchool} onChange={e => setOtherSchool(e.target.value)} placeholder="Type your school" autoCapitalize="words" maxLength={120} enterKeyHint="next" />
+                  )}
+                  <ChoiceButtons label="Level" hint="Optional" value={level} onChange={v => setLevel(l => (l === v ? '' : v))} options={LEVEL_OPTIONS} />
+                </>
+              )}
+              <Combobox label="State" hint="Optional" value={stateOfResidence} onChange={setStateOfResidence} options={STATE_OPTIONS} placeholder="Select your state" />
+              <ChoiceButtons
+                label="Where did you hear about TaskPulse?"
+                hint="Optional"
+                value={heardAboutUs}
+                onChange={v => setHeardAboutUs(h => (h === v ? '' : v))}
+                options={HEARD_ABOUT_OPTIONS}
+              />
 
-              {accountType === 'worker' && (
+              {accountType !== 'business' && (
                 <div>
                   <button type="button" onClick={() => setShowRef(s => !s)} aria-expanded={showRef} className={textLink}>
                     {showRef ? 'Referral code' : 'Have a referral code?'}
