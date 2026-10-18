@@ -238,7 +238,7 @@ export type IdentityReviewItem = {
   bank_account_name: string | null;
   bank_name: string | null;
   account_masked: string;
-  reason: 'name_mismatch' | 'no_profile_name' | 'shared_bank_account';
+  reason: 'name_mismatch' | 'no_profile_name' | 'single_name' | 'shared_bank_account';
   source: string;
   kyc_status: string;
   created_at: string;
@@ -253,6 +253,14 @@ export async function decideIdentityReview(reviewId: string, approve: boolean, n
   return await apiFetch<{ status: boolean; data: any }>('/api/admin-identity', {
     method: 'POST',
     body: JSON.stringify({ action: approve ? 'approve' : 'reject', reviewId, note }),
+  });
+}
+
+/** Support: change a user's (possibly locked) profile name. Admin only. */
+export async function adminSetFullName(username: string, fullName: string) {
+  return await apiFetch<{ status: boolean; data: { id: string; username: string; full_name: string; kyc_status: string } }>('/api/admin-identity', {
+    method: 'POST',
+    body: JSON.stringify({ action: 'set_name', username, fullName }),
   });
 }
 

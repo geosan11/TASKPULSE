@@ -43,7 +43,11 @@ globalThis.fetch = (async (input: any, init?: any) => {
   if (u.host === 'supabase.local') {
     if (u.pathname === '/auth/v1/user') return state.authUser ? json(200, { id: state.authUser, aud: 'authenticated', role: 'authenticated' }) : json(401, { message: 'bad jwt' });
     if (u.pathname === '/rest/v1/profiles') {
-      if (method === 'PATCH') return json(204, null);
+      if (method === 'PATCH') {
+        const un = u.searchParams.get('username');
+        if (un) return json(200, un === 'eq.nobody' ? [] : [{ id: 'u9', username: un.slice(3), full_name: body.full_name, kyc_status: 'verified' }]);
+        return json(204, null);
+      }
       if (u.searchParams.get('select') === 'role') return json(200, { role: state.role });
       return json(200, { full_name: state.profileName });
     }
@@ -114,6 +118,13 @@ check('link: generic profile name is filled from the bank but not auto-verified'
   && calls.some(c => c.method === 'PATCH' && c.url.includes('/rest/v1/profiles')), rec);
 state.profileName = 'George Sanni';
 
+state.profileName = 'Emeka';
+state.resolvedName = 'EMEKA NWOSU';
+r = await run(linkBank, { method: 'POST', body: linkBody });
+rec = rpcBodies('record_bank_identity_check')[0];
+check('link: one-word profile name never auto-verifies (review, single_name)', rec?.p_matched === false && rec?.p_reason === 'single_name', rec);
+state.profileName = 'George Sanni';
+
 state.otherOwner = true;
 r = await run(linkBank, { method: 'POST', body: linkBody });
 check('link: account owned by another user -> friendly error, nothing saved', r.statusCode === 400 && r.payload?.message === 'This bank account is already linked to another TaskPulse account.'
@@ -131,6 +142,9 @@ state.role = 'worker';
 r = await run(admin, { method: 'GET' });
 check('admin: non-admin gets 404', r.statusCode === 404 && !calls.some(c => c.url.includes('/rpc/')), r.payload);
 r = await run(admin, { method: 'POST', body: { action: 'backfill' } });
+r = await run(admin, { method: 'POST', body: { action: 'set_name', username: 'someone', fullName: 'New Name' } });
+check('admin: non-admin cannot change names (404, no write)', r.statusCode === 404 && !calls.some(c => c.method === 'PATCH'), r.payload);
+r = await run(admin, { method: 'POST', body: { action: 'backfill' } });
 check('admin: non-admin backfill 404, no Paystack', r.statusCode === 404 && !calls.some(c => c.url.includes('paystack')), r.payload);
 state.authUser = null;
 r = await run(admin, { method: 'GET', headers: {} });
@@ -144,6 +158,14 @@ const dec = rpcBodies('decide_identity_review')[0];
 check('admin: approve passes the admin id from the session', r.statusCode === 200 && dec?.p_approve === true && dec?.p_admin === ADMIN, dec);
 r = await run(admin, { method: 'POST', body: { action: 'reject', reviewId: '11111111-2222-4333-8444-555555555555', note: 'names differ' } });
 check('admin: reject', rpcBodies('decide_identity_review')[0]?.p_approve === false, rpcBodies('decide_identity_review'));
+
+r = await run(admin, { method: 'POST', body: { action: 'set_name', username: '@Ada_Obi', fullName: '  Ada   Nkechi Obi ' } });
+const patch = calls.find(c => c.method === 'PATCH');
+check('admin: set_name updates by username with a tidied name', r.statusCode === 200 && !!patch?.url.includes('username=eq.ada_obi') && patch?.body?.full_name === 'Ada Nkechi Obi', { r: r.payload, patch });
+r = await run(admin, { method: 'POST', body: { action: 'set_name', username: 'nobody', fullName: 'X Y' } });
+check('admin: set_name unknown user -> 404', r.statusCode === 404, r.payload);
+r = await run(admin, { method: 'POST', body: { action: 'set_name', username: 'ada', fullName: 'A' } });
+check('admin: set_name rejects a too-short name', r.statusCode === 400, r.payload);
 
 state.candidates = [
   { bank_account_id: '00000000-0000-4000-8000-000000000001', user_id: 'u1', bank_code: '058', account_number: '0123456789', account_name: 'OLD', full_name: 'George Sanni', kyc_status: 'unverified' },

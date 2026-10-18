@@ -122,6 +122,33 @@ SELECT pg_temp.ok((SELECT count(*) FROM list_identity_backfill_candidates(NULL, 
 SELECT pg_temp.ok((SELECT count(*) FROM list_identity_backfill_candidates(NULL, 100) WHERE user_id IN ('c1200000-0000-0000-0000-000000000003','d1200000-0000-0000-0000-000000000001','d1200000-0000-0000-0000-000000000002')) = 0, 'rejected, verified and duplicate rows are not candidates');
 SELECT pg_temp.ok(NOT has_function_privilege('authenticated', 'public.list_identity_backfill_candidates(uuid,int)', 'EXECUTE'), 'users cannot list candidates');
 
+-- name lock: verified users cannot change their own name; admins and the server can
+SELECT set_config('request.jwt.claim.sub', 'd1200000-0000-0000-0000-000000000001', false);  -- verified (approved above)
+SELECT pg_temp.fails($q$SET LOCAL ROLE authenticated; UPDATE profiles SET full_name='Someone Else' WHERE id='d1200000-0000-0000-0000-000000000001'$q$, 'name_locked_verified');
+RESET ROLE;
+SELECT pg_temp.ok((SELECT full_name FROM profiles WHERE id='d1200000-0000-0000-0000-000000000001') = 'Ada Obi', 'locked name unchanged');
+SELECT set_config('request.jwt.claim.sub', 'd1200000-0000-0000-0000-000000000002', false);  -- pending: may still edit
+SET ROLE authenticated;
+UPDATE profiles SET full_name = 'Ada N. Obi' WHERE id = 'd1200000-0000-0000-0000-000000000002';
+RESET ROLE;
+SELECT pg_temp.ok((SELECT full_name FROM profiles WHERE id='d1200000-0000-0000-0000-000000000002') = 'Ada N. Obi', 'unverified/pending users can still edit their name');
+UPDATE profiles SET kyc_status='verified' WHERE id='c1200000-0000-0000-0000-000000000002';  -- the admin (role admin, set above)
+SELECT set_config('request.jwt.claim.sub', 'c1200000-0000-0000-0000-000000000002', false);
+SET ROLE authenticated;
+UPDATE profiles SET full_name = 'George E. Sanni' WHERE id = 'c1200000-0000-0000-0000-000000000002';
+RESET ROLE;
+SELECT pg_temp.ok((SELECT full_name FROM profiles WHERE id='c1200000-0000-0000-0000-000000000002') = 'George E. Sanni', 'admin can change a verified name');
+SET ROLE service_role;
+UPDATE profiles SET full_name = 'Ada Obi Nnamdi' WHERE id = 'd1200000-0000-0000-0000-000000000001';
+RESET ROLE;
+SELECT pg_temp.ok((SELECT full_name FROM profiles WHERE id='d1200000-0000-0000-0000-000000000001') = 'Ada Obi Nnamdi', 'server (service_role) can change a verified name');
+UPDATE profiles SET full_name = 'Ada Obi' WHERE id = 'd1200000-0000-0000-0000-000000000001';
+SELECT pg_temp.ok((SELECT full_name FROM profiles WHERE id='d1200000-0000-0000-0000-000000000001') = 'Ada Obi', 'SQL Editor can change a verified name');
+SELECT set_config('request.jwt.claim.sub', '', false);
+-- single-name reason is accepted by the queue
+SELECT pg_temp.ok((record_bank_identity_check('c1200000-0000-0000-0000-000000000001','c1200000-0000-0000-0000-0000000000b1','EMEKA NWOSU','Emeka',false,'single_name',NULL,'bank_link')->>'kyc_status') = 'pending', 'single name -> pending');
+SELECT pg_temp.ok((SELECT reason FROM identity_reviews WHERE user_id='c1200000-0000-0000-0000-000000000001' AND status='open') = 'single_name', 'single name reason recorded');
+
 -- server-only
 SELECT pg_temp.ok(NOT has_table_privilege('authenticated', 'public.identity_reviews', 'SELECT'), 'users cannot read the review queue');
 SELECT pg_temp.ok(NOT has_function_privilege('authenticated', 'public.record_bank_identity_check(uuid,uuid,text,text,boolean,text,jsonb,text)', 'EXECUTE'), 'users cannot record a check');

@@ -38,7 +38,7 @@ yes('Abubakar Sadiq Musa', 'MUSA ABUBAKAR', 'two of three names');
 yes('Alhaji Abubakar Musa', 'ABUBAKAR MUSA', 'Alhaji title');
 yes('chinedu   okeke', 'OKEKE  CHINEDU', 'case and extra spaces');
 yes('Oluwaseun Adeyemi', "ADEYEMI OLUWASEUN 'TOBI", 'apostrophe nickname');
-yes('Emeka', 'EMEKA NWOSU', 'one-name profile, present (team rule: all names when one or two)');
+
 
 no('George Sanni', 'SANNI PETER', 'only the surname matches (family member)');
 no('Sanni-Musa George', 'SANNI-MUSA PETER', 'same double-barrelled surname, different first name');
@@ -49,6 +49,9 @@ no('G. E.', 'GEORGE EMMANUEL', 'initials only, no full name', 'no_profile_name')
 no('', 'GEORGE SANNI', 'empty profile name', 'no_profile_name');
 no('Mr', 'GEORGE SANNI', 'title only', 'no_profile_name');
 no('George Sanni', '', 'empty bank name', 'no_bank_name');
+no('Emeka', 'EMEKA NWOSU', 'one-word profile name goes to review', 'single_name');
+no('Mr. Emeka', 'EMEKA NWOSU', 'one word after dropping the title', 'single_name');
+no('Sanni-Musa', 'SANNI-MUSA GEORGE', 'one hyphenated word only', 'single_name');
 no('Ann Ann', 'ANN OBI', 'repeated profile name cannot use one bank name twice');
 
 // The API handlers carry a verbatim copy of the matcher (self-contained Vercel functions)

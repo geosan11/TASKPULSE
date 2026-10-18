@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
-import { EmptyState, ErrorText, Modal, primaryButtonClass, secondaryButtonClass } from './ui';
+import { EmptyState, ErrorText, inputClass, Modal, primaryButtonClass, secondaryButtonClass } from './ui';
 import {
   decideIdentityReview,
   fetchIdentityReviews,
+  adminSetFullName,
   runIdentityBackfill,
   type IdentityReviewItem,
 } from '../lib/api';
@@ -15,6 +16,7 @@ import { formatDateTime } from '../types';
 const REASON: Record<IdentityReviewItem['reason'], string> = {
   name_mismatch: 'Names differ',
   no_profile_name: 'No profile name',
+  single_name: 'Only one name on profile',
   shared_bank_account: 'Bank shared with another user',
 };
 
@@ -32,6 +34,26 @@ export function AdminReviews({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [backfill, setBackfill] = useState<string | null>(null);
   const [backfillBusy, setBackfillBusy] = useState(false);
+  const [nameUser, setNameUser] = useState('');
+  const [nameValue, setNameValue] = useState('');
+  const [nameBusy, setNameBusy] = useState(false);
+
+  // Support: verified users cannot change their own name.
+  const changeName = async () => {
+    setNameBusy(true);
+    setError(null);
+    try {
+      const res = await adminSetFullName(nameUser, nameValue);
+      notify('Name changed', `@${res.data.username}: ${res.data.full_name}`);
+      setNameUser('');
+      setNameValue('');
+      await load();
+    } catch (err: any) {
+      setError(err?.message || 'Could not change the name.');
+    } finally {
+      setNameBusy(false);
+    }
+  };
 
   const load = async () => {
     setError(null);
@@ -103,6 +125,17 @@ export function AdminReviews({
         </div>
         {backfill && <p className="text-sm font-semibold text-ink dark:text-white">{backfill}</p>}
       </div>
+
+      <details className="rounded-2xl border border-zinc-200 dark:border-zinc-800 p-4">
+        <summary className="text-sm font-bold text-ink dark:text-white cursor-pointer">Change a user's name</summary>
+        <div className="space-y-2 pt-3">
+          <input className={inputClass} placeholder="username" value={nameUser} onChange={e => setNameUser(e.target.value)} aria-label="Username" autoCapitalize="none" />
+          <input className={inputClass} placeholder="New full name" value={nameValue} onChange={e => setNameValue(e.target.value)} aria-label="New full name" />
+          <button type="button" className={secondaryButtonClass} disabled={nameBusy || !nameUser.trim() || nameValue.trim().length < 2} onClick={changeName}>
+            {nameBusy && <Loader2 className="w-5 h-5 animate-spin" />} Change name
+          </button>
+        </div>
+      </details>
 
       <ErrorText>{error}</ErrorText>
 

@@ -91,6 +91,8 @@ export function ProfileTab({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isBusiness = user.role === 'business' || user.role === 'admin';
+  // 012 locks a verified user's name in the database (admins excepted); this mirrors it.
+  const nameLocked = user.kycStatus === 'verified' && user.role !== 'admin';
   const shareUrl = `${window.location.origin}/?ref=${encodeURIComponent(user.referralCode)}`;
   const paid = referrals.filter(r => r.bonusStatus === 'paid').length;
 
@@ -215,16 +217,25 @@ export function ProfileTab({
       </button>
 
       <Modal open={sheet === 'name'} onClose={() => setSheet(null)} title="Your name">
-        <input className={inputClass} value={fullName} onChange={e => setFullName(e.target.value)} autoComplete="name" />
-        <ErrorText>{error}</ErrorText>
-        <button
-          type="button"
-          className={primaryButtonClass}
-          disabled={busy || fullName.trim().length < 2 || fullName.trim() === user.fullName}
-          onClick={() => run(() => updateProfileFullName(fullName), 'Saved', 'Your name was updated.')}
-        >
-          {busy && <Loader2 className="w-5 h-5 animate-spin" />} Save
-        </button>
+        {nameLocked ? (
+          <>
+            <input className={`${inputClass} opacity-70`} value={user.fullName} readOnly aria-readonly="true" aria-label="Your name" />
+            <p className="text-sm text-zinc-500 px-1">Your ID is verified with this name. Contact support to change your name.</p>
+          </>
+        ) : (
+          <>
+            <input className={inputClass} value={fullName} onChange={e => setFullName(e.target.value)} autoComplete="name" />
+            <ErrorText>{error}</ErrorText>
+            <button
+              type="button"
+              className={primaryButtonClass}
+              disabled={busy || fullName.trim().length < 2 || fullName.trim() === user.fullName}
+              onClick={() => run(() => updateProfileFullName(fullName), 'Saved', 'Your name was updated.')}
+            >
+              {busy && <Loader2 className="w-5 h-5 animate-spin" />} Save
+            </button>
+          </>
+        )}
       </Modal>
 
       <Modal open={sheet === 'kyc'} onClose={() => setSheet(null)} title="Verify identity">

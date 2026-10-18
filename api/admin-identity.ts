@@ -44,7 +44,7 @@ export type NameMatchResult = {
   required: number;
   profileUnits: string[];
   bankUnits: string[];
-  reason: 'match' | 'no_profile_name' | 'no_bank_name' | 'name_mismatch';
+  reason: 'match' | 'no_profile_name' | 'single_name' | 'no_bank_name' | 'name_mismatch';
 };
 
 /** Upper-case, drop accents/punctuation/titles, split into names; hyphenated names stay one unit. */
@@ -75,7 +75,9 @@ export function nameUnits(raw: string | null | undefined): NameUnit[] {
  * - an initial ("E.") matches any name starting with that letter, and a missing
  *   middle name or initial is fine
  * - match when at least two names match (at least one of them a full name);
- *   when the profile has only one or two names, all of them must appear
+ *   when the profile has exactly two names, both must appear
+ * - a one-word profile name ("Emeka") never matches automatically: it is too
+ *   weak to prove anything, so it goes to admin review (reason 'single_name')
  */
 export function matchNames(profileName: string | null | undefined, bankName: string | null | undefined): NameMatchResult {
   const p = nameUnits(profileName);
@@ -83,6 +85,7 @@ export function matchNames(profileName: string | null | undefined, bankName: str
   const base = { profileUnits: p.map(u => u.parts.join('-')), bankUnits: b.map(u => u.parts.join('-')) };
   if (!p.some(u => !u.initial)) return { match: false, matched: [], required: 0, ...base, reason: 'no_profile_name' };
   if (!b.some(u => !u.initial)) return { match: false, matched: [], required: 0, ...base, reason: 'no_bank_name' };
+  if (p.length === 1) return { match: false, matched: [], required: 2, ...base, reason: 'single_name' };
 
   const used = new Set<number>();
   const take = (pred: (u: NameUnit) => boolean) => {
@@ -231,6 +234,8 @@ async function paystackRequest<T = any>(
 //
 //   GET                                   -> open review items
 //   POST { action: 'approve' | 'reject', reviewId, note? }
+//   POST { action: 'set_name', username, fullName }   (support: change a
+//        verified user's locked name; the DB lets service_role through)
 //   POST { action: 'backfill', after?, limit?, dryRun? }
 //        Resolves saved bank accounts of users who are not verified yet with
 //        Paystack and applies the same name check as /api/link-bank. Paged:
@@ -292,6 +297,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         throw new HttpError(500, `Could not save the decision: ${error.message}`);
       }
       return res.status(200).json({ status: true, data });
+    }
+
+    if (action === 'set_name') {
+      const username = String(body.username || '').trim().replace(/^@/, '').toLowerCase();
+      const fullName = String(body.fullName || '').trim().replace(/\s+/g, ' ');
+      if (!username) throw new HttpError(400, 'username is required.');
+      if (fullName.length < 2 || fullName.length > 100) throw new HttpError(400, 'Enter a name of 2 to 100 characters.');
+      const { data, error } = await client
+        .from('profiles')
+        .update({ full_name: fullName })
+        .eq('username', username)
+        .select('id, username, full_name, kyc_status');
+      if (error) throw new HttpError(500, `Could not change the name: ${error.message}`);
+      if (!data || data.length === 0) throw new HttpError(404, 'No user with that username.');
+      console.log('[admin-identity] name changed', { by: user.id, user: data[0].id });
+      return res.status(200).json({ status: true, data: data[0] });
     }
 
     if (action === 'backfill') {

@@ -41,6 +41,11 @@
 --      api/admin-identity.ts (admins = profiles.role 'admin').
 --   7. save_verified_bank_account(): also refuses an account that another
 --      user holds even if that row is inactive (unique index backs it up).
+--   9. Name lock: once kyc_status = 'verified', a user can no longer change
+--      profiles.full_name (trigger trg_guard_verified_full_name, error
+--      'name_locked_verified'); admins, the API and the SQL Editor still can.
+--      One-word profile names never auto-verify (the API sends them to
+--      review with reason 'single_name').
 --   8. submit_kyc() (the optional ID-type form) keeps the ID type + last 4
 --      but no longer sets 'pending': nobody reviews that form, and 'pending'
 --      now means "in the admin queue". Users left 'pending' by the old form
@@ -155,7 +160,7 @@ CREATE TABLE IF NOT EXISTS public.identity_reviews (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
     bank_account_id UUID,
-    reason TEXT NOT NULL CHECK (reason IN ('name_mismatch', 'no_profile_name', 'shared_bank_account')),
+    reason TEXT NOT NULL,
     source TEXT NOT NULL DEFAULT 'bank_link' CHECK (source IN ('bank_link', 'backfill', 'migration')),
     profile_name TEXT,
     bank_account_name TEXT,
@@ -170,6 +175,9 @@ CREATE TABLE IF NOT EXISTS public.identity_reviews (
     decided_by UUID,
     decision_note TEXT
 );
+ALTER TABLE public.identity_reviews DROP CONSTRAINT IF EXISTS identity_reviews_reason_check;
+ALTER TABLE public.identity_reviews ADD CONSTRAINT identity_reviews_reason_check
+    CHECK (reason IN ('name_mismatch', 'no_profile_name', 'single_name', 'shared_bank_account'));
 -- one open item per user; newer checks update it
 CREATE UNIQUE INDEX IF NOT EXISTS uq_identity_reviews_open_user
     ON public.identity_reviews(user_id) WHERE status = 'open';
@@ -377,7 +385,7 @@ BEGIN
 
     v_review := public._queue_identity_review(
         p_user_id, v_bank.id,
-        CASE WHEN p_reason IN ('name_mismatch', 'no_profile_name') THEN p_reason ELSE 'name_mismatch' END,
+        CASE WHEN p_reason IN ('name_mismatch', 'no_profile_name', 'single_name') THEN p_reason ELSE 'name_mismatch' END,
         p_source, p_profile_name, p_bank_account_name, p_detail);
     UPDATE public.profiles
        SET kyc_status = 'pending', kyc_id_type = 'bank_account',
@@ -487,6 +495,34 @@ UPDATE public.profiles p
    SET kyc_status = 'unverified'
  WHERE p.kyc_status = 'pending'
    AND NOT EXISTS (SELECT 1 FROM public.identity_reviews r WHERE r.user_id = p.id AND r.status = 'open');
+
+-- -------------------------------------------------------------------------
+-- 8b. NAME LOCK: a verified user's full_name can only be changed by an admin
+--     (role 'admin', or the server/SQL Editor). Users may still edit it while
+--     unverified, pending or rejected.
+-- -------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.guard_verified_full_name()
+RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+    IF NEW.full_name IS DISTINCT FROM OLD.full_name
+       AND OLD.kyc_status = 'verified'
+       -- the request role (PostgREST does SET ROLE): 'authenticated'/'anon' for
+       -- app users, also inside SECURITY DEFINER functions they call;
+       -- service_role (API) and the SQL Editor are trusted
+       AND current_setting('role', true) IN ('authenticated', 'anon')
+       AND NOT public.is_admin() THEN
+        RAISE EXCEPTION 'name_locked_verified'
+            USING HINT = 'Your identity is verified, so your name can only be changed by support.';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS trg_guard_verified_full_name ON public.profiles;
+CREATE TRIGGER trg_guard_verified_full_name
+    BEFORE UPDATE OF full_name ON public.profiles
+    FOR EACH ROW EXECUTE FUNCTION public.guard_verified_full_name();
+REVOKE ALL ON FUNCTION public.guard_verified_full_name() FROM PUBLIC, anon, authenticated;
 
 -- -------------------------------------------------------------------------
 -- 9. GRANTS
