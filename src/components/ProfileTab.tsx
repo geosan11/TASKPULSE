@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { ChoiceButtons } from './Select';
-import { Briefcase, ChevronRight, Copy, FileText, IdCard, Loader2, LogOut, Moon, Share2, Sun } from 'lucide-react';
+import { Briefcase, ChevronRight, Copy, FileText, IdCard, Loader2, LogOut, Moon, Share2, ShieldCheck, Sun } from 'lucide-react';
 import { Card, ErrorText, inputClass, Label, Modal, primaryButtonClass, secondaryButtonClass, StatusBadge } from './ui';
 import { submitKycRpc, updateProfileFullName } from '../lib/supabaseClient';
 import { becomeBusinessRpc } from '../lib/marketplace';
 import { formatNaira, referralOffer, type MarketplaceSettings } from '../config/marketplace';
 import type { ReferralItem, UserProfile } from '../types';
+import { AdminReviews } from './AdminReviews';
 
 const KYC_TYPES: { id: string; label: string }[] = [
   { id: 'nin', label: 'NIN' },
@@ -62,6 +63,7 @@ export function ProfileTab({
   onChanged,
   onOpenTerms,
   onSignOut,
+  onGoWallet,
   notify,
 }: {
   user: UserProfile;
@@ -74,9 +76,13 @@ export function ProfileTab({
   onChanged: () => Promise<void>;
   onOpenTerms: () => void;
   onSignOut: () => void;
+  /** Identity is verified through the bank account in Wallet. */
+  onGoWallet?: () => void;
   notify: (title: string, subtitle: string) => void;
 }) {
   const [sheet, setSheet] = useState<null | 'name' | 'kyc' | 'business'>(null);
+  const [showIdForm, setShowIdForm] = useState(false);
+  const [adminOpen, setAdminOpen] = useState(false);
   const [fullName, setFullName] = useState(user.fullName);
   const [kycType, setKycType] = useState('');
   const [kycTried, setKycTried] = useState(false);
@@ -85,6 +91,8 @@ export function ProfileTab({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isBusiness = user.role === 'business' || user.role === 'admin';
+  // 012 locks a verified user's name in the database (admins excepted); this mirrors it.
+  const nameLocked = user.kycStatus === 'verified' && user.role !== 'admin';
   const shareUrl = `${window.location.origin}/?ref=${encodeURIComponent(user.referralCode)}`;
   const paid = referrals.filter(r => r.bonusStatus === 'paid').length;
 
@@ -188,7 +196,12 @@ export function ProfileTab({
         />
         <Row icon={isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />} label="Dark mode" onClick={onToggleTheme} right={<Switch on={isDarkMode} />} />
         <Row icon={<FileText className="w-4 h-4" />} label="Terms & privacy" onClick={onOpenTerms} />
+        {user.role === 'admin' && (
+          <Row icon={<ShieldCheck className="w-4 h-4" />} label="Review accounts" value="Bank name checks" onClick={() => setAdminOpen(true)} />
+        )}
       </div>
+
+      {user.role === 'admin' && <AdminReviews open={adminOpen} onClose={() => setAdminOpen(false)} notify={notify} />}
 
       <div className="px-1 text-sm text-zinc-500 space-y-1">
         <p>{user.email}</p>
@@ -204,20 +217,59 @@ export function ProfileTab({
       </button>
 
       <Modal open={sheet === 'name'} onClose={() => setSheet(null)} title="Your name">
-        <input className={inputClass} value={fullName} onChange={e => setFullName(e.target.value)} autoComplete="name" />
-        <ErrorText>{error}</ErrorText>
-        <button
-          type="button"
-          className={primaryButtonClass}
-          disabled={busy || fullName.trim().length < 2 || fullName.trim() === user.fullName}
-          onClick={() => run(() => updateProfileFullName(fullName), 'Saved', 'Your name was updated.')}
-        >
-          {busy && <Loader2 className="w-5 h-5 animate-spin" />} Save
-        </button>
+        {nameLocked ? (
+          <>
+            <input className={`${inputClass} opacity-70`} value={user.fullName} readOnly aria-readonly="true" aria-label="Your name" />
+            <p className="text-sm text-zinc-500 px-1">Your ID is verified with this name. Contact support to change your name.</p>
+          </>
+        ) : (
+          <>
+            <input className={inputClass} value={fullName} onChange={e => setFullName(e.target.value)} autoComplete="name" />
+            <ErrorText>{error}</ErrorText>
+            <button
+              type="button"
+              className={primaryButtonClass}
+              disabled={busy || fullName.trim().length < 2 || fullName.trim() === user.fullName}
+              onClick={() => run(() => updateProfileFullName(fullName), 'Saved', 'Your name was updated.')}
+            >
+              {busy && <Loader2 className="w-5 h-5 animate-spin" />} Save
+            </button>
+          </>
+        )}
       </Modal>
 
       <Modal open={sheet === 'kyc'} onClose={() => setSheet(null)} title="Verify identity">
-        {user.kycStatus === 'unverified' || user.kycStatus === 'rejected' ? (
+        {user.kycStatus === 'verified' ? (
+          <p className="text-[15px] text-zinc-600 dark:text-zinc-300">Your identity is verified.</p>
+        ) : user.kycStatus === 'pending' ? (
+          <p className="text-[15px] text-zinc-600 dark:text-zinc-300">We're checking your account name. This usually takes a few hours.</p>
+        ) : user.kycStatus === 'rejected' ? (
+          <p className="text-[15px] text-zinc-600 dark:text-zinc-300">The name on your bank account didn't match your profile. Contact support to withdraw.</p>
+        ) : (
+          <>
+            <p className="text-[15px] text-zinc-600 dark:text-zinc-300">
+              Add your bank account in Wallet. We check that the name on it matches your profile name. It's free and takes a minute.
+            </p>
+            {onGoWallet && (
+              <button
+                type="button"
+                className={primaryButtonClass}
+                onClick={() => {
+                  setSheet(null);
+                  onGoWallet();
+                }}
+              >
+                Go to Wallet
+              </button>
+            )}
+          </>
+        )}
+        {user.kycStatus !== 'verified' && !showIdForm && (
+          <button type="button" className="text-sm font-bold text-zinc-500 cursor-pointer" onClick={() => setShowIdForm(true)}>
+            Add an ID number (optional)
+          </button>
+        )}
+        {user.kycStatus !== 'verified' && showIdForm && (
           <>
             <ChoiceButtons
               label="ID type"
@@ -232,23 +284,21 @@ export function ProfileTab({
               <Label hint="Numbers only">ID number</Label>
               <input className={inputClass} type="text" inputMode="numeric" autoComplete="off" aria-label="ID number" value={kycNumber} onChange={e => setKycNumber(e.target.value.replace(/\D/g, ''))} />
             </div>
-            <p className="text-xs text-zinc-500 px-1">We only keep the ID type and last 4 digits.</p>
+            <p className="text-xs text-zinc-500 px-1">Optional. We only keep the ID type and last 4 digits. Your bank account is what verifies you.</p>
             <ErrorText>{error}</ErrorText>
             <button
               type="button"
-              className={primaryButtonClass}
+              className={secondaryButtonClass}
               disabled={busy || kycNumber.length < 8}
               onClick={() => {
                 setKycTried(true);
                 if (!kycType) return;
-                run(() => submitKycRpc(kycType, kycNumber), 'Sent for review', "We'll check your details.");
+                run(() => submitKycRpc(kycType, kycNumber), 'ID saved', 'Thanks. Add your bank account in Wallet to finish.');
               }}
             >
-              {busy && <Loader2 className="w-5 h-5 animate-spin" />} Submit
+              {busy && <Loader2 className="w-5 h-5 animate-spin" />} Save ID
             </button>
           </>
-        ) : (
-          <p className="text-[15px] text-zinc-600 dark:text-zinc-300">{user.kycStatus === 'verified' ? 'Your identity is verified.' : "We're reviewing your details."}</p>
         )}
       </Modal>
 

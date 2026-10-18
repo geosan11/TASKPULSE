@@ -444,6 +444,8 @@ export async function uploadTaskProofImage(file: File, userId: string): Promise<
 /**
  * Update user full name (the only allowed client profile update).
  */
+export const NAME_LOCKED_MESSAGE = 'Your ID is verified, so your name is locked. Contact support to change your name.';
+
 export async function updateProfileFullName(fullName: string) {
   if (!supabase) throw new Error('Database is not connected.');
   const { data: { user } } = await supabase.auth.getUser();
@@ -454,7 +456,11 @@ export async function updateProfileFullName(fullName: string) {
     .update({ full_name: fullName.trim() })
     .eq('id', user.id);
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    // 012: a verified user's name is locked (trigger trg_guard_verified_full_name)
+    if (error.message.includes('name_locked_verified')) throw new Error(NAME_LOCKED_MESSAGE);
+    throw new Error(error.message);
+  }
   return true;
 }
 

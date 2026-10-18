@@ -500,6 +500,7 @@ export default function App() {
               onChanged={refreshUserData}
               onOpenTerms={() => setTermsOpen('terms')}
               onSignOut={handleSignOut}
+              onGoWallet={() => goto('wallet')}
               notify={notify}
             />
           )}
