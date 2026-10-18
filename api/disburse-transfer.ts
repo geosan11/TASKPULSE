@@ -19,7 +19,7 @@ class HttpError extends Error {
 
 // Machine-readable code the app maps to its "Verify your ID" prompt.
 const ID_REQUIRED_CODE = 'identity_not_verified';
-const ID_REQUIRED_MESSAGE = "Verify your ID to withdraw. It's a one-time check that keeps payouts safe.";
+const ID_REQUIRED_MESSAGE = "Add your bank account to verify your ID before withdrawing. It's a one-time check that keeps payouts safe.";
 
 function handleApiError(res: VercelResponse, err: any) {
   if (err instanceof HttpError) {

@@ -24,6 +24,106 @@ function handleApiError(res: VercelResponse, err: any) {
   return res.status(500).json({ status: false, message });
 }
 
+// <name-match>
+const NAME_TITLES = new Set([
+  'MR', 'MRS', 'MS', 'MISS', 'MASTER', 'MADAM', 'MDM', 'DR', 'DOC', 'PROF', 'SIR', 'LADY', 'DAME',
+  'CHIEF', 'HRH', 'OBA', 'ALHAJI', 'ALHAJA', 'ALH', 'HAJIA', 'HAJIYA', 'HAJI', 'MALAM', 'MALLAM',
+  'PASTOR', 'PST', 'REV', 'REVD', 'BISHOP', 'EVANG', 'APOSTLE', 'PROPHET', 'PROPHETESS', 'DEACON',
+  'DEACONESS', 'DCN', 'ELDER', 'BRO', 'SIS', 'ENGR', 'ENG', 'BARR', 'ARC', 'ARCH', 'PHARM', 'SEN',
+  'HON', 'COMR', 'CAPT', 'GEN', 'COL', 'MAJ', 'LT', 'SGT', 'CPL', 'ESQ', 'JR', 'JNR', 'SR', 'SNR',
+]);
+
+/** One name, e.g. "GEORGE" or a double-barrelled "SANNI-MUSA" (parts SANNI, MUSA). */
+export type NameUnit = { full: string; parts: string[]; initial: boolean };
+
+export type NameMatchResult = {
+  match: boolean;
+  /** Profile names/initials that were found in the bank name. */
+  matched: string[];
+  /** How many had to match. */
+  required: number;
+  profileUnits: string[];
+  bankUnits: string[];
+  reason: 'match' | 'no_profile_name' | 'no_bank_name' | 'name_mismatch';
+};
+
+/** Upper-case, drop accents/punctuation/titles, split into names; hyphenated names stay one unit. */
+export function nameUnits(raw: string | null | undefined): NameUnit[] {
+  const cleaned = String(raw ?? '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/[\u2010-\u2015]/g, '-')
+    .replace(/[^A-Z\s-]/g, ' ') // dots, commas, apostrophes, digits...
+    .replace(/\s*-\s*/g, '-')
+    .replace(/-+/g, '-');
+  const units: NameUnit[] = [];
+  for (const word of cleaned.split(/\s+/)) {
+    const parts = word.split('-').filter(Boolean);
+    if (parts.length === 0) continue;
+    if (parts.length === 1 && NAME_TITLES.has(parts[0])) continue;
+    const full = parts.join('');
+    units.push({ full, parts, initial: full.length === 1 });
+  }
+  return units;
+}
+
+/**
+ * True when the bank name plausibly belongs to the profile owner.
+ * - case, punctuation, extra spaces and titles are ignored; order does not matter
+ * - a hyphenated name matches written joined, split, or with only one of its parts
+ * - an initial ("E.") matches any name starting with that letter, and a missing
+ *   middle name or initial is fine
+ * - match when at least two names match (at least one of them a full name);
+ *   when the profile has only one or two names, all of them must appear
+ */
+export function matchNames(profileName: string | null | undefined, bankName: string | null | undefined): NameMatchResult {
+  const p = nameUnits(profileName);
+  const b = nameUnits(bankName);
+  const base = { profileUnits: p.map(u => u.parts.join('-')), bankUnits: b.map(u => u.parts.join('-')) };
+  if (!p.some(u => !u.initial)) return { match: false, matched: [], required: 0, ...base, reason: 'no_profile_name' };
+  if (!b.some(u => !u.initial)) return { match: false, matched: [], required: 0, ...base, reason: 'no_bank_name' };
+
+  const used = new Set<number>();
+  const take = (pred: (u: NameUnit) => boolean) => {
+    const i = b.findIndex((u, k) => !used.has(k) && pred(u));
+    if (i >= 0) used.add(i);
+    return i >= 0;
+  };
+  const done = new Set<number>(); // profile units already matched
+  const matched: string[] = [];
+  let fullMatches = 0;
+  const hit = (i: number, full: boolean) => {
+    done.add(i);
+    matched.push(p[i].parts.join('-'));
+    if (full) fullMatches++;
+  };
+  // 1. Whole names first, so a partial match never steals a name another one needs.
+  p.forEach((u, i) => {
+    if (!u.initial && take(x => !x.initial && x.full === u.full)) hit(i, true);
+  });
+  // 2. Hyphenated names: "SANNI-MUSA" vs "SANNI MUSA" / "SANNI", or "SANNI" vs "SANNI-MUSA".
+  p.forEach((u, i) => {
+    if (u.initial || done.has(i)) return;
+    if (u.parts.length > 1) {
+      let any = false;
+      for (const part of u.parts) any = take(x => !x.initial && x.full === part) || any;
+      if (any) return hit(i, true);
+    }
+    if (take(x => x.parts.length > 1 && x.parts.includes(u.full))) hit(i, true);
+  });
+  // 3. Initials, either side: "E." vs "EMMANUEL", or "EMMANUEL" vs "E.".
+  p.forEach((u, i) => {
+    if (done.has(i)) return;
+    const letter = u.full[0];
+    if (u.initial ? take(x => x.full[0] === letter) : take(x => x.initial && x.full === letter)) hit(i, false);
+  });
+  const required = Math.min(p.length, 2);
+  const match = fullMatches >= 1 && matched.length >= required;
+  return { match, matched, required, ...base, reason: match ? 'match' : 'name_mismatch' };
+}
+// </name-match>
+
 // Server-side Supabase access ALWAYS uses the service-role key. Every money
 // RPC (settle_*, request_cashout, finalize_cashout, save_verified_bank_account,
 // create_campaign_payment) is granted to service_role only, so an anon-key
@@ -177,33 +277,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const resolvedName = resolveRes.data.data.account_name.trim();
 
-    // 3. Name check: require at least one significant name match between profile and bank
-    const isGenericName = !profile.full_name || 
+    // 3. Name check (identity): compare the Paystack-resolved account name with
+    //    the profile name. Never blocks saving; the result is applied after the
+    //    account is saved (verified on a match, otherwise queued for review).
+    const isGenericName = !profile.full_name ||
       ['user', 'new user', 'guest'].includes(profile.full_name.trim().toLowerCase());
+    const profileNameForCheck = isGenericName ? '' : String(profile.full_name);
+    const nameCheck = matchNames(profileNameForCheck, resolvedName);
 
     if (isGenericName) {
-      // Auto-sync profile name with verified banking identity
+      // Fill an empty profile name from the bank. That is not proof of
+      // identity, so this user still goes to review (reason no_profile_name).
       await client
         .from('profiles')
         .update({ full_name: resolvedName })
         .eq('id', user.id);
-    } else {
-      const profileTokens = (profile.full_name || '')
-        .toUpperCase()
-        .split(/\s+/)
-        .filter((t: string) => t.length > 2);
-      const bankTokens = resolvedName
-        .toUpperCase()
-        .split(/\s+/)
-        .filter((t: string) => t.length > 2);
-
-      const hasMatch = profileTokens.some((pt: string) => bankTokens.includes(pt));
-      if (profileTokens.length > 0 && !hasMatch) {
-        throw new HttpError(
-          400,
-          `Bank account name mismatch: The account name "${resolvedName}" does not match your registered profile name "${profile.full_name}".`
-        );
-      }
     }
 
     // 4. One verified payout account per user (anti-fraud). Re-linking the
@@ -224,14 +312,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       throw new HttpError(400, 'You already have a verified payout account. Contact support to change it.');
     }
 
-    // 5. Prevent duplicate linking across different accounts
+    // 5. One bank account belongs to one TaskPulse user (active or not).
+    //    Early, friendly exit before creating a Paystack recipient; the RPC
+    //    and the uq_bank_accounts_owner index (012) are the real guarantee.
+    //    Rows marked duplicate_of lost their claim in 012 and are ignored.
     const { data: existingOther } = await client
       .from('bank_accounts')
       .select('id')
       .eq('account_number', cleanAccount)
       .eq('bank_code', cleanBankCode)
       .neq('user_id', user.id)
-      .eq('is_active', true)
+      .is('duplicate_of', null)
       .limit(1);
 
     if (existingOther && existingOther.length > 0) {
@@ -282,16 +373,41 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (msg.includes('bank_already_linked')) {
         throw new HttpError(400, 'You already have a verified payout account. Contact support to change it.');
       }
-      if (msg.includes('bank_linked_to_other_user')) {
+      if (msg.includes('bank_linked_to_other_user') || rpcErr?.code === '23505' || msg.includes('uq_bank_accounts_owner')) {
         throw new HttpError(400, 'This bank account is already linked to another TaskPulse account.');
       }
       throw new HttpError(500, `Failed to save bank account: ${msg || 'unknown error'}`);
     }
 
+    // 8. Apply the identity result (server-only RPC, service role).
+    let kycStatus: string | null = null;
+    const { data: idResult, error: idErr } = await client.rpc('record_bank_identity_check', {
+      p_user_id: user.id,
+      p_bank_account_id: (savedBank as any).id,
+      p_bank_account_name: resolvedName,
+      p_profile_name: profileNameForCheck,
+      p_matched: nameCheck.match,
+      p_reason: nameCheck.reason,
+      p_detail: { matched: nameCheck.matched, required: nameCheck.required, profile: nameCheck.profileUnits, bank: nameCheck.bankUnits },
+      p_source: 'bank_link',
+    });
+    if (idErr) {
+      // The bank is saved; the admin backfill (or saving again) re-runs the check.
+      console.error('[link-bank] record_bank_identity_check failed', user.id, idErr);
+    } else {
+      kycStatus = (idResult as any)?.kyc_status ?? null;
+    }
+
     return res.status(200).json({
       status: true,
-      message: 'Bank account linked successfully to Paystack.',
+      message:
+        kycStatus === 'verified'
+          ? 'Bank account saved. Your ID is verified.'
+          : kycStatus === 'pending'
+            ? "Bank account saved. We're checking your account name. This usually takes a few hours."
+            : 'Bank account saved.',
       data: savedBank,
+      identity: { kyc_status: kycStatus, name_match: nameCheck.match },
     });
   } catch (err: any) {
     return handleApiError(res, err);

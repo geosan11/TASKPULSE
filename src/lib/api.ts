@@ -163,6 +163,8 @@ export async function linkBankAccount(params: {
       status: boolean;
       message: string;
       data: any;
+      /** Bank-name identity check (012): 'verified', 'pending' (queued for review), or null if not recorded. */
+      identity?: { kyc_status: string | null; name_match: boolean };
     }>('/api/link-bank', {
       method: 'POST',
       body: JSON.stringify(params),
@@ -222,4 +224,51 @@ export async function requestDisbursement(params: {
     }
     throw err;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Admin: identity review queue + backfill (server checks profiles.role = 'admin')
+// ---------------------------------------------------------------------------
+export type IdentityReviewItem = {
+  review_id: string;
+  user_id: string;
+  username: string;
+  profile_name: string | null;
+  current_profile_name: string | null;
+  bank_account_name: string | null;
+  bank_name: string | null;
+  account_masked: string;
+  reason: 'name_mismatch' | 'no_profile_name' | 'shared_bank_account';
+  source: string;
+  kyc_status: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export async function fetchIdentityReviews() {
+  return await apiFetch<{ status: boolean; data: { items: IdentityReviewItem[] } }>('/api/admin-identity');
+}
+
+export async function decideIdentityReview(reviewId: string, approve: boolean, note?: string) {
+  return await apiFetch<{ status: boolean; data: any }>('/api/admin-identity', {
+    method: 'POST',
+    body: JSON.stringify({ action: approve ? 'approve' : 'reject', reviewId, note }),
+  });
+}
+
+export type BackfillPage = {
+  dryRun: boolean;
+  processed: number;
+  verified: number;
+  pending: number;
+  failed: number;
+  results: { user_id: string; account: string; outcome: string; matched?: boolean }[];
+  nextCursor: string | null;
+};
+
+export async function runIdentityBackfill(params: { after?: string | null; limit?: number; dryRun?: boolean }) {
+  return await apiFetch<{ status: boolean; data: BackfillPage }>('/api/admin-identity', {
+    method: 'POST',
+    body: JSON.stringify({ action: 'backfill', ...params }),
+  });
 }

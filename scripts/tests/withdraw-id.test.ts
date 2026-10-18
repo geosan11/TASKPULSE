@@ -5,7 +5,16 @@
  * The database behaviour itself is covered by supabase/tests/70_withdraw_id_012.sql.
  */
 import { readFileSync } from 'node:fs';
-import { ID_REQUIRED_CODE, ID_REQUIRED_PROMPT, isIdRequiredError, withdrawIdPrompt } from '../../src/lib/withdrawId';
+import {
+  ADD_BANK_PROMPT,
+  bankSavedNotice,
+  CHECK_BANK_PROMPT,
+  ID_REQUIRED_CODE,
+  isIdRequiredError,
+  PENDING_PROMPT,
+  REJECTED_PROMPT,
+  withdrawIdPrompt,
+} from '../../src/lib/withdrawId';
 
 let failed = 0;
 const check = (name: string, ok: boolean, info?: unknown) => {
@@ -14,13 +23,16 @@ const check = (name: string, ok: boolean, info?: unknown) => {
 };
 
 // What the app shows when Withdraw is tapped
-check('verified: no prompt', withdrawIdPrompt('verified') === null);
-check('unverified: verify prompt with button', withdrawIdPrompt('unverified') === ID_REQUIRED_PROMPT && !!ID_REQUIRED_PROMPT.action);
-check('rejected: verify prompt with button', withdrawIdPrompt('rejected') === ID_REQUIRED_PROMPT);
-check('missing status: verify prompt', withdrawIdPrompt(undefined) === ID_REQUIRED_PROMPT && withdrawIdPrompt('') === ID_REQUIRED_PROMPT);
-const pending = withdrawIdPrompt('pending');
-check('pending: "we are checking" with no button', !!pending && pending.action === null && pending !== ID_REQUIRED_PROMPT);
-check('copy is the agreed line', ID_REQUIRED_PROMPT.body === "Verify your ID to withdraw. It's a one-time check that keeps payouts safe.");
+check('verified: no prompt', withdrawIdPrompt('verified', true) === null && withdrawIdPrompt('verified', false) === null);
+check('unverified, no bank: add bank', withdrawIdPrompt('unverified', false) === ADD_BANK_PROMPT && ADD_BANK_PROMPT.action === 'add_bank');
+check('unverified, bank saved: check it', withdrawIdPrompt('unverified', true) === CHECK_BANK_PROMPT && CHECK_BANK_PROMPT.action === 'check_bank');
+check('missing status: add bank', withdrawIdPrompt(undefined, false) === ADD_BANK_PROMPT && withdrawIdPrompt('', false) === ADD_BANK_PROMPT);
+check('pending: agreed copy, no button', withdrawIdPrompt('pending', true) === PENDING_PROMPT && PENDING_PROMPT.action === null
+  && PENDING_PROMPT.body === "We're checking your account name. This usually takes a few hours.");
+check('rejected: contact support, no button', withdrawIdPrompt('rejected', true) === REJECTED_PROMPT && REJECTED_PROMPT.action === null);
+check('copy keeps the one-time line', ADD_BANK_PROMPT.body.includes("It's a one-time check that keeps payouts safe."));
+check('bank saved notice: verified', bankSavedNotice('verified').subtitle.includes('verified'));
+check('bank saved notice: pending', bankSavedNotice('pending').subtitle === PENDING_PROMPT.body);
 
 // Mapping the server error (shape of lib/api's ApiError: message + code)
 const apiError = (message: string, code?: string) => Object.assign(new Error(message), { status: 403, code });
@@ -34,7 +46,6 @@ const idCheck = api.indexOf(".select('kyc_status')");
 check('API reads kyc_status', idCheck > 0);
 check('API checks ID before request_cashout and Paystack', idCheck > 0 && idCheck < api.indexOf("rpc('request_cashout'") && idCheck < api.indexOf("'/transfer'"));
 check('API returns the code the app maps', api.includes(`'${ID_REQUIRED_CODE}'`) && api.includes('ID_REQUIRED_MESSAGE, ID_REQUIRED_CODE'));
-check('API copy matches the app', api.includes(ID_REQUIRED_PROMPT.body));
 const sql = readFileSync(new URL('../../supabase/012_withdraw_requires_id.sql', import.meta.url), 'utf8');
 const mirror = readFileSync(new URL('../../supabase/migrations/20261018000012_withdraw_requires_id.sql', import.meta.url), 'utf8');
 check('012 and its migrations/ copy are identical', sql === mirror);
@@ -83,7 +94,7 @@ const noMoney = () => !calls.some(c => c.includes('/rpc/') || c.includes('paysta
 for (const st of ['unverified', 'pending', 'rejected', null]) {
   kycStatus = st;
   const r = await call();
-  check(`handler refuses ${st ?? 'missing'} ID with 403 + code`, r.statusCode === 403 && r.payload?.code === ID_REQUIRED_CODE && r.payload?.message === ID_REQUIRED_PROMPT.body, r.payload);
+  check(`handler refuses ${st ?? 'missing'} ID with 403 + code`, r.statusCode === 403 && r.payload?.code === ID_REQUIRED_CODE && /bank account/.test(r.payload?.message || ''), r.payload);
   check(`handler (${st ?? 'missing'}) calls no money RPC or Paystack`, noMoney(), calls);
 }
 profileFails = true;

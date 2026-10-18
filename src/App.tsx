@@ -55,8 +55,6 @@ export default function App() {
   const [submissions, setSubmissions] = useState<MySubmission[]>([]);
   const [referrals, setReferrals] = useState<ReferralItem[]>([]);
   const [banks, setBanks] = useState<SavedBank[]>([]);
-  // Wallet > "Verify identity" opens Profile with the Verify identity sheet up.
-  const [openKycSheet, setOpenKycSheet] = useState(false);
 
   const [authOpen, setAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>('signup');
@@ -486,18 +484,7 @@ export default function App() {
               <TasksTab user={user} tasks={tasks} submissions={submissions} selected={selectedTask} onSelect={setSelectedTask} onSubmitted={refreshAll} />
             )
           ) : activeTab === 'wallet' ? (
-            <WalletTab
-              user={user}
-              settings={settings}
-              banks={banks}
-              transactions={transactions}
-              onChanged={refreshUserData}
-              notify={notify}
-              onVerifyId={() => {
-                setOpenKycSheet(true);
-                goto('profile');
-              }}
-            />
+            <WalletTab user={user} settings={settings} banks={banks} transactions={transactions} onChanged={refreshUserData} notify={notify} />
           ) : (
             <ProfileTab
               user={user}
@@ -513,8 +500,7 @@ export default function App() {
               onChanged={refreshUserData}
               onOpenTerms={() => setTermsOpen('terms')}
               onSignOut={handleSignOut}
-              openKycSheet={openKycSheet}
-              onKycSheetOpened={() => setOpenKycSheet(false)}
+              onGoWallet={() => goto('wallet')}
               notify={notify}
             />
           )}
