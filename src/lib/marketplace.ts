@@ -27,7 +27,9 @@ export async function fetchMarketplaceSettings(): Promise<MarketplaceSettings> {
       refundFeeOnUnused: data.refund_fee_on_unused ?? DEFAULT_MARKETPLACE_SETTINGS.refundFeeOnUnused,
       referralRequireFeeCover: data.referral_require_fee_cover ?? DEFAULT_MARKETPLACE_SETTINGS.referralRequireFeeCover,
       // Columns added in 011.
-      reviewWindowHours: Number(data.review_window_hours ?? DEFAULT_MARKETPLACE_SETTINGS.reviewWindowHours),
+      reviewWindowAutoHours: Number(data.review_window_auto_hours ?? DEFAULT_MARKETPLACE_SETTINGS.reviewWindowAutoHours),
+      reviewWindowHumanHours: Number(data.review_window_human_hours ?? DEFAULT_MARKETPLACE_SETTINGS.reviewWindowHumanHours),
+      holdFlaggedForReview: Boolean(data.hold_flagged_for_review ?? DEFAULT_MARKETPLACE_SETTINGS.holdFlaggedForReview),
       trustedAfterTasks: Number(data.trusted_after_tasks ?? DEFAULT_MARKETPLACE_SETTINGS.trustedAfterTasks),
       humanReviewRewardAbove: Number(data.human_review_reward_above ?? DEFAULT_MARKETPLACE_SETTINGS.humanReviewRewardAbove),
       minTaskSeconds: Number(data.min_task_seconds ?? DEFAULT_MARKETPLACE_SETTINGS.minTaskSeconds),

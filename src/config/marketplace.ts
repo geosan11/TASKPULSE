@@ -25,8 +25,16 @@ export interface MarketplaceSettings {
   refundFeeOnUnused: boolean;
   /** Referral bonus only once the referee's third-party work generated enough fee (009). */
   referralRequireFeeCover: boolean;
-  /** Hours an approved reward stays pending (and rejectable) before it is withdrawable (011). */
-  reviewWindowHours: number;
+  /**
+   * Review windows (011). Each submission stores its own deadline at submit time.
+   * Auto: verified and approved instantly by the system (code matched or link check passed, no flags).
+   * Human: everything a person should look at (screenshot proof, Product Feedback, Field Audits,
+   * Other, high rewards, a worker's first tasks, flagged items, auto/manual campaigns).
+   */
+  reviewWindowAutoHours: number;
+  reviewWindowHumanHours: number;
+  /** When true, flagged submissions are never auto-approved; they wait for a person (011). */
+  holdFlaggedForReview: boolean;
   /** A worker's first N approved tasks are always reviewed by a person (011). */
   trustedAfterTasks: number;
   /** Rewards above this are always reviewed by a person (011). */
@@ -51,7 +59,9 @@ export const DEFAULT_MARKETPLACE_SETTINGS: MarketplaceSettings = {
   maxCampaignSlots: 10000,
   refundFeeOnUnused: true,
   referralRequireFeeCover: true,
-  reviewWindowHours: 24,
+  reviewWindowAutoHours: 24,
+  reviewWindowHumanHours: 48,
+  holdFlaggedForReview: false,
   trustedAfterTasks: 3,
   humanReviewRewardAbove: 1000,
   minTaskSeconds: 60,
@@ -142,35 +152,53 @@ export type ProofType = (typeof PROOF_TYPES)[number]['id'];
 // submit_task() in supabase/011_fast_approvals.sql. These mirror them for
 // display and form defaults only.
 // =========================================================================
-export type ApprovalMode = 'instant' | 'auto_24h' | 'manual';
+export type ApprovalMode = 'instant' | 'auto' | 'manual';
+export interface ReviewWindows {
+  autoHours: number;
+  humanHours: number;
+  holdFlagged: boolean;
+}
+export const reviewWindowsFrom = (s: Pick<MarketplaceSettings, 'reviewWindowAutoHours' | 'reviewWindowHumanHours' | 'holdFlaggedForReview'>): ReviewWindows => ({
+  autoHours: s.reviewWindowAutoHours,
+  humanHours: s.reviewWindowHumanHours,
+  holdFlagged: s.holdFlaggedForReview,
+});
 export type CodeMode = 'shared' | 'unique';
 
 /** Categories that may use instant approval. Everything else is always reviewed by a person. */
 export const INSTANT_CATEGORIES: readonly TaskCategory[] = ['Surveys', 'App Tests', 'Community & Content'];
 
-export function approvalModeCopy(mode: ApprovalMode, windowHours: number) {
-  const h = `${windowHours}h`;
+export function approvalModeCopy(mode: ApprovalMode, w: ReviewWindows) {
+  const a = `${w.autoHours}h`;
+  const h = `${w.humanHours}h`;
+  const flagged = w.holdFlagged
+    ? 'Flagged submissions are never approved automatically; they wait for you.'
+    : `Flagged submissions show their warnings to you, but are also approved after ${h} if you don't act.`;
   switch (mode) {
     case 'instant':
       return {
         label: 'Instant',
         title: 'Instant (automatic checks)',
-        body: `Approved the moment the automatic checks pass (completion code or link). You can still reject within ${h}; until then the worker's reward stays pending.`,
+        body: `Approved the moment the automatic checks pass (completion code or link). The reward stays pending for ${a} (${h} for screenshot proof) and you can reject it during that time. Anything that needs a person comes to you, with ${h} to review it.`,
       };
-    case 'auto_24h':
+    case 'auto':
       return {
-        label: `Review, auto ${h}`,
+        label: 'You review, auto-approve',
         title: `You review, auto-approve after ${h}`,
-        body: `You approve or reject each submission. TaskPulse runs its automatic checks and shows any flags. Anything you haven't reviewed after ${h} is approved and paid automatically.`,
+        body: `You approve or reject each submission, with flagged items listed first. Anything you haven't reviewed within ${h} is approved automatically. ${flagged}`,
       };
     case 'manual':
       return {
         label: 'Manual',
         title: 'Manual review',
-        body: `Same ${h} rule as "Review, auto ${h}": anything unreviewed after ${h} is still approved so workers aren't stuck. The only difference is the default checks: submissions are listed plainly in the order they arrive instead of being sorted by the automatic checks (flags still show).`,
+        body: `Same ${h} rule as "You review, auto-approve": anything unreviewed after ${h} is still approved so workers aren't stuck. The only difference is the default handling of checks: submissions are listed plainly in the order they arrive instead of flagged-first (flags still show). ${flagged}`,
       };
   }
 }
+
+/** Hours the worker's reward stays pending for an instant approval on this proof type. */
+export const instantWindowHours = (proofType: ProofType, w: Pick<ReviewWindows, 'autoHours' | 'humanHours'>) =>
+  proofType === 'screenshot' ? w.humanHours : w.autoHours;
 
 /**
  * Which modes a business may pick, and the default (mirror of resolve_approval_mode()).
@@ -180,8 +208,8 @@ export function approvalModeOptions(params: { category: TaskCategory; proofType:
   const { category, proofType, hasCode, hasTargetUrl } = params;
   const instantCategory = INSTANT_CATEGORIES.includes(category);
   const hasCheck = hasCode || (proofType === 'link' && hasTargetUrl);
-  const allowed: ApprovalMode[] = instantCategory && hasCheck ? ['instant', 'auto_24h', 'manual'] : ['auto_24h', 'manual'];
-  const defaultMode: ApprovalMode = (category === 'Surveys' || category === 'App Tests') && hasCode ? 'instant' : 'auto_24h';
+  const allowed: ApprovalMode[] = instantCategory && hasCheck ? ['instant', 'auto', 'manual'] : ['auto', 'manual'];
+  const defaultMode: ApprovalMode = (category === 'Surveys' || category === 'App Tests') && hasCode ? 'instant' : 'auto';
   let instantBlockedReason: string | null = null;
   if (!instantCategory) instantBlockedReason = `${category} is always reviewed by a person.`;
   else if (!hasCheck) instantBlockedReason = 'Add a completion code (or use link proof with a task link) to allow instant approval.';

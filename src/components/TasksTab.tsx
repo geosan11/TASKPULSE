@@ -145,7 +145,9 @@ function SubmissionPayoutLine({ s }: { s: MySubmission }) {
   }
   if (s.status === 'pending' && s.reviewDeadlineAt) {
     const left = timeLeftLabel(s.reviewDeadlineAt);
-    return <p className="text-sm text-zinc-500">{left && left !== 'now' ? `Approved automatically in ${left} if not reviewed` : 'Being approved now'}</p>;
+    // Past the deadline but still pending: being processed, or (if the platform
+    // holds flagged items) waiting for a person.
+    return <p className="text-sm text-zinc-500">{left && left !== 'now' ? `Approved automatically in ${left} if not reviewed` : 'Waiting for review'}</p>;
   }
   return null;
 }
@@ -200,7 +202,9 @@ function TaskWorkspace({
   }, [task.id, alreadySubmitted, isOwnTask]);
 
   const needsCode = Boolean(start?.needs_code);
-  const windowHours = start?.review_window_hours ?? 24;
+  // The human window applies to anything a person reviews; the shorter auto
+  // window only to instant, system-verified approvals (not screenshot proof).
+  const humanHours = start?.review_window_human_hours ?? 48;
 
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -250,10 +254,10 @@ function TaskWorkspace({
         completionCode: code.trim() || undefined,
       });
       if (res?.instant) {
-        const left = timeLeftLabel(res.release_at) || `${windowHours}h`;
+        const left = timeLeftLabel(res.release_at) || `${res.review_window_kind === 'auto' ? start?.review_window_auto_hours ?? 24 : humanHours}h`;
         celebrate('Approved!', `${formatNaira(res.credited ?? task.reward)} pending, withdrawable in ${left}.`);
       } else {
-        celebrate('Proof sent!', `${task.company} reviews it within ${windowHours}h. If they don't, it's approved automatically.`);
+        celebrate('Proof sent!', `${task.company} reviews it within ${humanHours}h. If they don't, it's approved automatically.`);
       }
       await onDone();
     } catch (err: any) {

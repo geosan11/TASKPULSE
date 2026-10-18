@@ -80,13 +80,18 @@ GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA pg_temp TO PUBLIC;
 -- =========================================================================
 -- 0. Migration shape, defaults, existing data, privileges
 -- =========================================================================
-SELECT pg_temp.ok((SELECT review_window_hours = 24 AND trusted_after_tasks = 3 AND human_review_reward_above = 1000
-                     AND min_task_seconds = 60 FROM marketplace_settings), 'settings defaults 24h / 3 / N1000 / 60s');
+SELECT pg_temp.ok((SELECT review_window_auto_hours = 24 AND review_window_human_hours = 48 AND NOT hold_flagged_for_review
+                     AND trusted_after_tasks = 3 AND human_review_reward_above = 1000
+                     AND min_task_seconds = 60 FROM marketplace_settings), 'settings defaults 24h auto / 48h human / no hold / 3 / N1000 / 60s');
+SELECT pg_temp.ok(NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'marketplace_settings' AND column_name = 'review_window_hours'),
+                  'single review_window_hours setting replaced');
+SELECT pg_temp.ok(resolve_approval_mode('Surveys', 'text', FALSE, NULL, 'auto_24h') = 'auto', 'old auto_24h value from old app builds maps to auto');
 SELECT pg_temp.ok((SELECT count(*) FROM task_completions WHERE lower(status) = 'approved' AND payout_status IS DISTINCT FROM 'released') = 0,
                   'pre-011 approved rows marked released');
 SELECT pg_temp.ok((SELECT count(*) FROM task_completions WHERE lower(status) = 'pending'
-                     AND (review_deadline_at IS NULL OR review_deadline_at < NOW() + interval '23 hours')) = 0,
-                  'pre-011 pending rows get a full 24h window from migration time');
+                     AND (review_deadline_at IS NULL OR review_deadline_at < NOW() + interval '47 hours'
+                          OR review_window_kind IS DISTINCT FROM 'human')) = 0,
+                  'pre-011 pending rows get a full 48h human window from migration time');
 SELECT pg_temp.ok((SELECT bool_and(approval_mode = 'manual') FROM campaigns), 'existing campaigns become manual');
 SELECT pg_temp.ok((SELECT count(*) FROM campaign_ledger_check()) = 0, 'ledger reconciles right after migration');
 SELECT pg_temp.ok((SELECT count(*) FROM pending_hold_check()) = 0, 'pending balances reconcile right after migration');
@@ -130,10 +135,10 @@ SELECT pg_temp.fails(:W1, 'authenticated', $q$UPDATE profiles SET pending_balanc
 -- =========================================================================
 SELECT pg_temp.ok(resolve_approval_mode('Surveys', 'text', TRUE, NULL, NULL) = 'instant', 'Surveys + code defaults to instant');
 SELECT pg_temp.ok(resolve_approval_mode('App Tests', 'text', TRUE, NULL, NULL) = 'instant', 'App Tests + code defaults to instant');
-SELECT pg_temp.ok(resolve_approval_mode('Surveys', 'text', FALSE, NULL, NULL) = 'auto_24h', 'Surveys without code -> auto_24h');
-SELECT pg_temp.ok(resolve_approval_mode('App Tests', 'screenshot', FALSE, NULL, NULL) = 'auto_24h', 'App Tests screenshot -> auto_24h');
-SELECT pg_temp.ok(resolve_approval_mode('Community & Content', 'link', FALSE, 'https://x.com', NULL) = 'auto_24h', 'C&C link -> auto_24h');
-SELECT pg_temp.ok(resolve_approval_mode('Product Feedback', 'text', TRUE, NULL, NULL) = 'auto_24h', 'Product Feedback forced to auto_24h');
+SELECT pg_temp.ok(resolve_approval_mode('Surveys', 'text', FALSE, NULL, NULL) = 'auto', 'Surveys without code -> auto');
+SELECT pg_temp.ok(resolve_approval_mode('App Tests', 'screenshot', FALSE, NULL, NULL) = 'auto', 'App Tests screenshot -> auto');
+SELECT pg_temp.ok(resolve_approval_mode('Community & Content', 'link', FALSE, 'https://x.com', NULL) = 'auto', 'C&C link -> auto');
+SELECT pg_temp.ok(resolve_approval_mode('Product Feedback', 'text', TRUE, NULL, NULL) = 'auto', 'Product Feedback forced to auto');
 SELECT pg_temp.ok(resolve_approval_mode('Field Audits', 'screenshot', FALSE, NULL, 'manual') = 'manual', 'Field Audits may be manual');
 SELECT pg_temp.fails(:BIZ, 'authenticated',
   $q$SELECT create_campaign('Store audit','Visit the store, check the shelf prices and send a photo','Field Audits','screenshot',300,10,NULL,'instant','CODE1',NULL)$q$,
@@ -168,8 +173,8 @@ SELECT pg_temp.campaign('r2', :BIZ, 'Referral work 2', 'Community & Content', 't
 SELECT pg_temp.campaign('r3', :BIZ, 'Referral work 3', 'Community & Content', 'text', 300, NULL, NULL, NULL);
 
 SELECT pg_temp.ok((SELECT approval_mode FROM campaigns WHERE id = pg_temp.g('s1')::uuid) = 'instant', 's1 is instant');
-SELECT pg_temp.ok((SELECT approval_mode FROM campaigns WHERE id = pg_temp.g('sc')::uuid) = 'auto_24h', 'sc is auto_24h');
-SELECT pg_temp.ok((SELECT approval_mode FROM campaigns WHERE id = pg_temp.g('fb')::uuid) = 'auto_24h', 'fb is auto_24h');
+SELECT pg_temp.ok((SELECT approval_mode FROM campaigns WHERE id = pg_temp.g('sc')::uuid) = 'auto', 'sc is auto');
+SELECT pg_temp.ok((SELECT approval_mode FROM campaigns WHERE id = pg_temp.g('fb')::uuid) = 'auto', 'fb is auto');
 SELECT pg_temp.ok((SELECT approval_mode FROM campaigns WHERE id = pg_temp.g('ln')::uuid) = 'instant', 'link+target campaign may be instant');
 SELECT pg_temp.ok((SELECT code_hash <> 'Blue42' AND code_hash !~* 'blue' AND length(code_hash) = 64 FROM campaign_secrets
                     WHERE campaign_id = pg_temp.g('s1')::uuid), 'code stored only as salted sha256');
@@ -187,7 +192,16 @@ SELECT pg_temp.ok(pg_temp.start(:W1, 's1') ? 'start_ref' AND NOT (pg_temp.start(
 SELECT pg_temp.ok(pg_temp.submit(:W1, 's1', NULL, NULL, 'blue42 ')->>'status' = 'pending', 'task 1 (new worker) not instant');
 SELECT pg_temp.ok((pg_temp.sub(:W1, 's1')).review_reasons = ARRAY['new_worker'] AND (pg_temp.sub(:W1, 's1')).check_flags = '{}'
                   AND (pg_temp.sub(:W1, 's1')).code_status = 'match', 'reason new_worker, code matched (case-insensitive), no flags');
+-- 48h path: anything a person must look at gets the human window, fixed at submit time
+SELECT pg_temp.ok((pg_temp.sub(:W1, 's1')).review_window_kind = 'human'
+                  AND (pg_temp.sub(:W1, 's1')).review_deadline_at BETWEEN NOW() + interval '47 hours 59 minutes' AND NOW() + interval '48 hours 1 minute',
+                  'new-worker submission: 48h human window');
+INSERT INTO k VALUES ('s1_deadline', (pg_temp.sub(:W1, 's1')).review_deadline_at::text);
 SELECT pg_temp.review(:BIZ, :W1, 's1', TRUE);
+SELECT pg_temp.ok((pg_temp.sub(:W1, 's1')).review_deadline_at = pg_temp.g('s1_deadline')::timestamptz,
+                  'business approval keeps the stored 48h deadline (pending hold + reject window)');
+SELECT pg_temp.ok((SELECT (metadata->>'release_at')::timestamptz FROM transactions WHERE reference = 'task_' || (pg_temp.sub(:W1, 's1')).id)
+                  = pg_temp.g('s1_deadline')::timestamptz, 'payout tx release_at = stored deadline');
 SELECT pg_temp.ok((pg_temp.sub(:W1, 's1')).payout_status = 'held' AND (pg_temp.sub(:W1, 's1')).approval_source = 'business', 'business approval -> held');
 SELECT pg_temp.ok((pg_temp.bal(:W1)).pending_balance = 300 AND (pg_temp.bal(:W1)).withdrawable_balance = 0, 'approved = pending, not withdrawable');
 SELECT pg_temp.ok((SELECT status FROM transactions WHERE reference = 'task_' || (pg_temp.sub(:W1, 's1')).id) = 'pending', 'task_payout tx pending');
@@ -205,6 +219,7 @@ SELECT pg_temp.ok((pg_temp.sub(:W1, 's4')).status = 'approved' AND (pg_temp.sub(
                   AND (pg_temp.sub(:W1, 's4')).payout_status = 'held'
                   AND (pg_temp.sub(:W1, 's4')).review_deadline_at BETWEEN NOW() + interval '23 hours 59 minutes' AND NOW() + interval '24 hours 1 minute',
                   'instant approval is held for 24h');
+SELECT pg_temp.ok((pg_temp.sub(:W1, 's4')).review_window_kind = 'auto', '24h path: verified + instant -> auto window');
 SELECT pg_temp.ok((pg_temp.bal(:W1)).pending_balance = 1200 AND (pg_temp.bal(:W1)).withdrawable_balance = 0, 'pending N1,200 after 4 approvals');
 SELECT pg_temp.ok(jsonb_array_length(pg_temp.run(:BIZ, format($q$SELECT COALESCE(jsonb_agg(to_jsonb(x)), '[]') FROM list_review_submissions(%L, 'held', 50) x$q$, pg_temp.g('s4')))) = 1,
                   'instant item listed for the business in the held (reject-within) list');
@@ -215,6 +230,8 @@ SELECT pg_temp.ok(jsonb_array_length(pg_temp.run(:BIZ, format($q$SELECT COALESCE
 SELECT pg_temp.start(:W1, 's5');
 SELECT pg_temp.ok(pg_temp.submit(:W1, 's5', NULL, NULL, 'RED99')->>'status' = 'pending', 'wrong code not instant');
 SELECT pg_temp.ok((pg_temp.sub(:W1, 's5')).check_flags = ARRAY['wrong_code'] AND (pg_temp.sub(:W1, 's5')).code_status = 'mismatch', 'wrong_code flag');
+SELECT pg_temp.ok((pg_temp.sub(:W1, 's5')).review_window_kind = 'human'
+                  AND (pg_temp.sub(:W1, 's5')).review_deadline_at > NOW() + interval '47 hours 59 minutes', 'flagged submission: 48h window');
 SELECT pg_temp.start(:W1, 's7');
 SELECT pg_temp.ok(pg_temp.submit(:W1, 's7', 'I did it', NULL, NULL)->>'status' = 'pending', 'missing code not instant');
 SELECT pg_temp.ok((pg_temp.sub(:W1, 's7')).check_flags @> ARRAY['missing_code'], 'missing_code flag');
@@ -225,6 +242,8 @@ SELECT pg_temp.ok((pg_temp.sub(:W1, 's7')).check_flags @> ARRAY['missing_code'],
 SELECT pg_temp.start(:W1, 'hi');
 SELECT pg_temp.ok(pg_temp.submit(:W1, 'hi', NULL, NULL, 'BLUE42')->>'status' = 'pending', 'N1,500 task not instant');
 SELECT pg_temp.ok((pg_temp.sub(:W1, 'hi')).review_reasons = ARRAY['high_reward'] AND (pg_temp.sub(:W1, 'hi')).check_flags = '{}', 'high_reward reason');
+SELECT pg_temp.ok((pg_temp.sub(:W1, 'hi')).review_window_kind = 'human'
+                  AND (pg_temp.sub(:W1, 'hi')).review_deadline_at > NOW() + interval '47 hours 59 minutes', 'high reward: 48h window');
 
 -- =========================================================================
 -- 6. Too fast / never started
@@ -240,6 +259,8 @@ SELECT pg_temp.ok((pg_temp.sub(:W2, 's6')).check_flags @> ARRAY['not_started'], 
 -- =========================================================================
 SELECT pg_temp.start(:W1, 'ln');
 SELECT pg_temp.ok((pg_temp.submit(:W1, 'ln', 'https://forms.example.com/r/abc123', NULL, NULL)->>'instant')::boolean, 'valid matching link -> instant');
+SELECT pg_temp.ok((pg_temp.sub(:W1, 'ln')).review_window_kind = 'auto'
+                  AND (pg_temp.sub(:W1, 'ln')).review_deadline_at < NOW() + interval '24 hours 1 minute', 'link check passed: 24h auto window');
 SELECT pg_temp.start(:W2, 'ln');
 SELECT pg_temp.submit(:W2, 'ln', 'HTTPS://www.Forms.Example.com/r/abc123/#done', NULL, NULL);
 SELECT pg_temp.ok((pg_temp.sub(:W2, 'ln')).check_flags @> ARRAY['duplicate_link'], 'same link (case/www/fragment/slash) -> duplicate_link');
@@ -277,6 +298,9 @@ SELECT pg_temp.ok((pg_temp.sub(:W1, 'm1')).status = 'pending' AND (pg_temp.sub(:
 SELECT pg_temp.start(:W1, 'fb');
 SELECT pg_temp.submit(:W1, 'fb', 'The checkout button is hard to find on mobile', NULL, NULL);
 SELECT pg_temp.ok((pg_temp.sub(:W1, 'fb')).review_reasons @> ARRAY['category_review'], 'Product Feedback -> category_review');
+SELECT pg_temp.ok((pg_temp.sub(:W1, 'fb')).review_window_kind = 'human'
+                  AND (pg_temp.sub(:W1, 'fb')).review_deadline_at > NOW() + interval '47 hours 59 minutes', 'Product Feedback: 48h window');
+SELECT pg_temp.ok((pg_temp.sub(:W1, 'sc')).review_window_kind = 'human', 'screenshot proof: 48h window');
 
 -- =========================================================================
 -- 9. Per-worker unique codes
@@ -379,6 +403,64 @@ SET ROLE service_role; SELECT process_review_windows(100); RESET ROLE;
 SELECT pg_temp.ok((SELECT bonus_status = 'paid' AND bonus_referrer_amount = 200 FROM referrals WHERE referee_id = :FF), 'bonus paid after third release');
 SELECT pg_temp.ok((SELECT withdrawable_balance FROM profiles WHERE id = :RR) = 200, 'referrer got N200');
 SELECT pg_temp.ok((SELECT withdrawable_balance = 900 AND pending_balance = 0 FROM profiles WHERE id = :FF), 'referee: 3 x N300 withdrawable');
+
+-- =========================================================================
+-- 15. Split windows end to end + hold_flagged_for_review toggle
+-- =========================================================================
+SELECT pg_temp.campaign('a2', :BIZ, 'Screenshot app test', 'App Tests', 'screenshot', 300, NULL, NULL, 'Blue42');
+SELECT pg_temp.campaign('a3', :BIZ, 'Code survey a3', 'Surveys', 'text', 300, NULL, NULL, 'Blue42');
+SELECT pg_temp.campaign('h2', :BIZ, 'Auto community', 'Community & Content', 'text', 200, NULL, 'auto', NULL);
+SELECT pg_temp.campaign('h3', :BIZ, 'Code survey h3', 'Surveys', 'text', 300, NULL, NULL, 'Blue42');
+SELECT pg_temp.ok((SELECT approval_mode FROM campaigns WHERE id = pg_temp.g('a2')::uuid) = 'instant'
+                  AND (SELECT approval_mode FROM campaigns WHERE id = pg_temp.g('h2')::uuid) = 'auto', 'modes instant / auto');
+
+-- Screenshot proof with a matching code: instantly credited, but a person
+-- should look at the screenshot, so it keeps the 48h window.
+INSERT INTO storage.objects (bucket_id, name, metadata) VALUES
+ ('taskpulse-proofs', 'd1000000-0000-0000-0000-000000000001/a2.png', '{"eTag":"\"aa11\"","size":4096}');
+SELECT pg_temp.start(:W1, 'a2');
+SELECT pg_temp.ok((pg_temp.submit(:W1, 'a2', NULL, 'd1000000-0000-0000-0000-000000000001/a2.png', 'BLUE42')->>'instant')::boolean,
+                  'screenshot + code from a trusted worker: instant');
+SELECT pg_temp.ok((pg_temp.sub(:W1, 'a2')).review_window_kind = 'human' AND (pg_temp.sub(:W1, 'a2')).payout_status = 'held'
+                  AND (pg_temp.sub(:W1, 'a2')).review_deadline_at > NOW() + interval '47 hours 59 minutes', 'screenshot proof held 48h');
+
+-- The auto window follows the setting; changing it only affects new submissions.
+UPDATE marketplace_settings SET review_window_auto_hours = 12 WHERE id = 1;
+SELECT pg_temp.start(:W1, 'a3');
+SELECT pg_temp.ok((pg_temp.submit(:W1, 'a3', NULL, NULL, 'BLUE42')->>'instant')::boolean, 'a3 instant');
+SELECT pg_temp.ok((pg_temp.sub(:W1, 'a3')).review_deadline_at < NOW() + interval '12 hours 1 minute'
+                  AND (pg_temp.sub(:W1, 'a3')).review_deadline_at > NOW() + interval '11 hours 59 minutes', 'auto window read from the setting (12h)');
+SELECT pg_temp.ok((pg_temp.sub(:W1, 'a2')).review_deadline_at > NOW() + interval '47 hours', 'existing deadlines unchanged by a settings edit');
+UPDATE marketplace_settings SET review_window_auto_hours = 24 WHERE id = 1;
+-- business can reject an instant item inside its window
+SELECT pg_temp.ok(pg_temp.review(:BIZ, :W1, 'a3', FALSE, 'Shared code')->>'status' = 'rejected', 'reject inside the 24h auto window');
+
+-- Flagged path, toggle OFF (default): auto-approved at its 48h deadline
+SELECT pg_temp.expire(:W1, 's5');
+SET ROLE service_role; SELECT process_review_windows(100); RESET ROLE;
+SELECT pg_temp.ok((pg_temp.sub(:W1, 's5')).status = 'approved' AND (pg_temp.sub(:W1, 's5')).approval_source = 'auto_timeout'
+                  AND (pg_temp.sub(:W1, 's5')).payout_status = 'released', 'flagged item auto-approved at deadline when the toggle is off');
+SELECT pg_temp.ok((pg_temp.sub(:W1, 's5')).review_note LIKE '%48h review window%', 'auto-approve note names the 48h window');
+
+-- Toggle ON: flagged items wait for a person; unflagged ones still auto-approve
+UPDATE marketplace_settings SET hold_flagged_for_review = TRUE WHERE id = 1;
+SELECT pg_temp.start(:W1, 'h3'); SELECT pg_temp.submit(:W1, 'h3', NULL, NULL, 'WRONG1');
+SELECT pg_temp.start(:W1, 'h2'); SELECT pg_temp.submit(:W1, 'h2', 'Introduced myself in the community as fwone today', NULL, NULL);
+SELECT pg_temp.ok((pg_temp.sub(:W1, 'h3')).check_flags = ARRAY['wrong_code'] AND (pg_temp.sub(:W1, 'h2')).check_flags = '{}', 'h3 flagged, h2 clean');
+SELECT pg_temp.expire(:W1, 'h3'); SELECT pg_temp.expire(:W1, 'h2'); SELECT pg_temp.expire(:W1, 's6');
+SET ROLE service_role; SELECT process_review_windows(100); RESET ROLE;
+SELECT pg_temp.ok((pg_temp.sub(:W1, 'h3')).status = 'pending', 'toggle on: flagged h3 NOT auto-approved');
+SELECT pg_temp.ok((pg_temp.sub(:W1, 's6')).status = 'pending', 'toggle on: flagged s6 NOT auto-approved');
+SELECT pg_temp.ok((pg_temp.sub(:W1, 'h2')).status = 'approved' AND (pg_temp.sub(:W1, 'h2')).approval_source = 'auto_timeout',
+                  'toggle on: unflagged h2 still auto-approved');
+SELECT pg_temp.ok((pg_temp.run(:W1, 'SELECT process_my_review_windows()')->>'auto_approved')::int = 0, 'user-triggered processing honours the toggle');
+-- the business keeps the decision on held flagged items after the deadline
+SELECT pg_temp.ok(pg_temp.review(:BIZ, :W1, 'h3', TRUE)->>'status' = 'approved', 'business approves held flagged item after deadline');
+SELECT pg_temp.ok((pg_temp.sub(:W1, 'h3')).payout_status = 'released', 'late approval releases at once (deadline passed)');
+SELECT pg_temp.ok(pg_temp.review(:BIZ, :W1, 's6', FALSE, 'Too fast to be real')->>'status' = 'rejected', 'business rejects held flagged item after deadline');
+-- unflagged items keep the normal rule: business can't reject after the deadline
+SELECT pg_temp.fails(:BIZ, 'authenticated', format($q$SELECT review_submission(%L, false, 'late')$q$, (pg_temp.sub(:W1, 'h2')).id), 'review_window_closed');
+UPDATE marketplace_settings SET hold_flagged_for_review = FALSE WHERE id = 1;
 
 -- =========================================================================
 -- 14. Final reconciliation

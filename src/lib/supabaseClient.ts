@@ -386,6 +386,8 @@ export interface SubmitResult {
   instant?: boolean;
   credited?: number;
   release_at?: string;
+  /** 'auto' = system-verified (short window), 'human' = needs a person (long window). */
+  review_window_kind?: 'auto' | 'human';
   review_deadline_at?: string;
 }
 
@@ -394,9 +396,10 @@ export interface TaskStart {
   start_ref: string;
   needs_code: boolean;
   code_mode: 'shared' | 'unique' | null;
-  approval_mode: 'instant' | 'auto_24h' | 'manual' | null;
+  approval_mode: 'instant' | 'auto' | 'manual' | null;
   min_seconds: number;
-  review_window_hours: number;
+  review_window_auto_hours: number;
+  review_window_human_hours: number;
 }
 
 /**

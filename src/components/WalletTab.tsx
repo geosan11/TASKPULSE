@@ -91,7 +91,8 @@ export function WalletTab({
           </p>
           {user.pendingBalance > 0 && (
             <p className="text-xs text-zinc-500 mt-1">
-              Approved rewards stay pending for the {settings.reviewWindowHours}h review window, then move to Available automatically.
+              Approved rewards stay pending while the business can still check them ({settings.reviewWindowAutoHours}h for automatically
+              checked tasks, {settings.reviewWindowHumanHours}h for ones a person reviews), then move to Available automatically.
             </p>
           )}
         </div>

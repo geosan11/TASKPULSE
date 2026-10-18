@@ -11,22 +11,37 @@
 --      * Approving a submission takes the reward out of campaign escrow (as
 --        before) but credits the worker's PENDING balance, not withdrawable.
 --        The task_payout transaction is written with status 'pending'.
---      * Every submission has a review window (review_deadline_at =
---        submitted + review_window_hours, default 24h, one platform setting).
+--      * Every submission has its own review window, fixed when it is
+--        submitted and stored as review_deadline_at (+ review_window_kind):
+--          - 'auto'  = review_window_auto_hours (default 24h): the system
+--            verified it itself and approved it instantly (completion code
+--            matched or link check passed, no flags, no human-review reason,
+--            not screenshot proof).
+--          - 'human' = review_window_human_hours (default 48h): everything a
+--            person should look at (screenshot proof, Product Feedback,
+--            Field Audits, Other, rewards above the threshold, a worker's
+--            first tasks, flagged submissions, auto/manual campaigns).
+--        The pending hold, reject window, auto-approve-at-deadline, release
+--        job and UI countdowns all read review_deadline_at.
 --        While it is open, the business (or an admin) can still reject an
 --        approved submission: the pending credit is reversed and the reward
 --        goes back to campaign escrow ('payout_reversal' ledger entry).
 --      * When the window closes, release moves the reward pending ->
 --        withdrawable (transaction 'pending' -> 'settled'). Release is
 --        idempotent and row-locked. Anything still unreviewed when the window
---        closes is auto-approved and released at once.
+--        closes is auto-approved and released at once. Flagged items too,
+--        unless hold_flagged_for_review (default FALSE) is switched on: then
+--        flagged items are never auto-approved and wait for a person (the
+--        business can still review them after the deadline). It is a pure
+--        settings flag: UPDATE marketplace_settings SET
+--        hold_flagged_for_review = TRUE WHERE id = 1; no code change needed.
 --      * Processing: process_review_windows() (service_role) is scheduled
 --        with pg_cron when available, the Vercel cron route
 --        /api/process-review-windows is a backstop, and the app calls
 --        process_my_review_windows() for the signed-in user's own items.
 --      * The 48h first-payout wait (payout_cooldown_hours) is unchanged.
---   2. Per-campaign approval_mode: 'instant' | 'auto_24h' | 'manual'.
---      'auto_24h' and 'manual' use the same mechanism (business reviews,
+--   2. Per-campaign approval_mode: 'instant' | 'auto' | 'manual'.
+--      'auto' and 'manual' use the same mechanism (business reviews,
 --      auto-approve when the window closes); they differ only in how the
 --      automatic checks are presented. 'instant' auto-approves (into the
 --      pending hold) when every automatic check passes.
@@ -57,14 +72,19 @@ BEGIN;
 -- 1. SETTINGS
 -- -------------------------------------------------------------------------
 ALTER TABLE public.marketplace_settings
-    ADD COLUMN IF NOT EXISTS review_window_hours INT NOT NULL DEFAULT 24
-        CHECK (review_window_hours BETWEEN 1 AND 168),
+    ADD COLUMN IF NOT EXISTS review_window_auto_hours INT NOT NULL DEFAULT 24
+        CHECK (review_window_auto_hours BETWEEN 1 AND 168),
+    ADD COLUMN IF NOT EXISTS review_window_human_hours INT NOT NULL DEFAULT 48
+        CHECK (review_window_human_hours BETWEEN 1 AND 168),
+    ADD COLUMN IF NOT EXISTS hold_flagged_for_review BOOLEAN NOT NULL DEFAULT FALSE,
     ADD COLUMN IF NOT EXISTS trusted_after_tasks INT NOT NULL DEFAULT 3
         CHECK (trusted_after_tasks >= 0),
     ADD COLUMN IF NOT EXISTS human_review_reward_above NUMERIC(14,2) NOT NULL DEFAULT 1000
         CHECK (human_review_reward_above >= 0),
     ADD COLUMN IF NOT EXISTS min_task_seconds INT NOT NULL DEFAULT 60
         CHECK (min_task_seconds >= 0);
+-- An earlier draft of this migration used one review_window_hours setting.
+ALTER TABLE public.marketplace_settings DROP COLUMN IF EXISTS review_window_hours;
 
 -- -------------------------------------------------------------------------
 -- 2. CAMPAIGNS: approval mode + completion code (secret lives elsewhere)
@@ -73,12 +93,14 @@ ALTER TABLE public.campaigns
     ADD COLUMN IF NOT EXISTS approval_mode VARCHAR(12) NOT NULL DEFAULT 'manual',
     ADD COLUMN IF NOT EXISTS completion_code_mode VARCHAR(10);
 
+-- Mode list (re-created every run; an earlier draft called 'auto' 'auto_24h').
+ALTER TABLE public.campaigns DROP CONSTRAINT IF EXISTS chk_campaign_approval_mode;
+UPDATE public.campaigns SET approval_mode = 'auto' WHERE approval_mode = 'auto_24h';
+ALTER TABLE public.campaigns ADD CONSTRAINT chk_campaign_approval_mode
+    CHECK (approval_mode IN ('instant', 'auto', 'manual'));
+
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_campaign_approval_mode') THEN
-        ALTER TABLE public.campaigns ADD CONSTRAINT chk_campaign_approval_mode
-            CHECK (approval_mode IN ('instant', 'auto_24h', 'manual'));
-    END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_campaign_code_mode') THEN
         ALTER TABLE public.campaigns ADD CONSTRAINT chk_campaign_code_mode
             CHECK (completion_code_mode IS NULL OR completion_code_mode IN ('shared', 'unique'));
@@ -137,6 +159,7 @@ ALTER TABLE public.task_completions
     ADD COLUMN IF NOT EXISTS approval_source VARCHAR(16),
     ADD COLUMN IF NOT EXISTS payout_status VARCHAR(10),
     ADD COLUMN IF NOT EXISTS review_deadline_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS review_window_kind VARCHAR(8),
     ADD COLUMN IF NOT EXISTS released_at TIMESTAMPTZ,
     ADD COLUMN IF NOT EXISTS reversed_at TIMESTAMPTZ,
     ADD COLUMN IF NOT EXISTS check_flags TEXT[] NOT NULL DEFAULT '{}',
@@ -156,6 +179,10 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_tc_payout_status') THEN
         ALTER TABLE public.task_completions ADD CONSTRAINT chk_tc_payout_status
             CHECK (payout_status IS NULL OR payout_status IN ('held', 'released', 'reversed'));
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_tc_review_window_kind') THEN
+        ALTER TABLE public.task_completions ADD CONSTRAINT chk_tc_review_window_kind
+            CHECK (review_window_kind IS NULL OR review_window_kind IN ('auto', 'human'));
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_tc_code_status') THEN
         ALTER TABLE public.task_completions ADD CONSTRAINT chk_tc_code_status
@@ -178,9 +205,10 @@ UPDATE public.task_completions
        released_at = COALESCE(released_at, reviewed_at, completed_at)
  WHERE lower(status) = 'approved' AND payout_status IS NULL;
 
--- Pending rows get a full window from now: nothing auto-approves on day one.
+-- Pending rows get a full human window from now: nothing auto-approves on day one.
 UPDATE public.task_completions
-   SET review_deadline_at = NOW() + make_interval(hours => (SELECT review_window_hours FROM public.marketplace_settings WHERE id = 1))
+   SET review_deadline_at = NOW() + make_interval(hours => (SELECT review_window_human_hours FROM public.marketplace_settings WHERE id = 1)),
+       review_window_kind = 'human'
  WHERE lower(status) = 'pending' AND review_deadline_at IS NULL;
 
 -- -------------------------------------------------------------------------
@@ -251,13 +279,14 @@ DECLARE
     v_req TEXT := NULLIF(lower(trim(COALESCE(p_requested, ''))), '');
     v_has_link_check BOOLEAN := p_proof_type = 'link' AND NULLIF(trim(COALESCE(p_target_url, '')), '') IS NOT NULL;
 BEGIN
-    IF v_req IS NOT NULL AND v_req NOT IN ('instant', 'auto_24h', 'manual') THEN
+    IF v_req = 'auto_24h' THEN v_req := 'auto'; END IF;   -- old app builds
+    IF v_req IS NOT NULL AND v_req NOT IN ('instant', 'auto', 'manual') THEN
         RAISE EXCEPTION 'invalid_approval_mode';
     END IF;
     IF p_category NOT IN ('Surveys', 'App Tests', 'Community & Content') THEN
         -- Product Feedback, Field Audits, Other: always human review.
         IF v_req = 'instant' THEN RAISE EXCEPTION 'instant_not_allowed_for_category'; END IF;
-        RETURN COALESCE(v_req, 'auto_24h');
+        RETURN COALESCE(v_req, 'auto');
     END IF;
     IF v_req = 'instant' THEN
         IF NOT COALESCE(p_has_code, FALSE) AND NOT v_has_link_check THEN
@@ -267,7 +296,7 @@ BEGIN
     END IF;
     IF v_req IS NOT NULL THEN RETURN v_req; END IF;
     IF p_category IN ('Surveys', 'App Tests') AND COALESCE(p_has_code, FALSE) THEN RETURN 'instant'; END IF;
-    RETURN 'auto_24h';
+    RETURN 'auto';
 END;
 $$;
 
@@ -420,7 +449,8 @@ BEGIN
         'needs_code', v_campaign.completion_code_mode IS NOT NULL,
         'approval_mode', v_campaign.approval_mode,
         'min_seconds', v_cfg.min_task_seconds,
-        'review_window_hours', v_cfg.review_window_hours
+        'review_window_auto_hours', v_cfg.review_window_auto_hours,
+        'review_window_human_hours', v_cfg.review_window_human_hours
     );
 END;
 $$;
@@ -608,8 +638,9 @@ BEGIN
         v_reward := LEAST(v_task.reward, v_sub.reward_amount);
     END IF;
 
+    -- The window was fixed at submit time; legacy rows get the human window.
     v_deadline := COALESCE(v_sub.review_deadline_at,
-                           v_sub.completed_at + make_interval(hours => v_cfg.review_window_hours));
+                           v_sub.completed_at + make_interval(hours => v_cfg.review_window_human_hours));
 
     PERFORM 1 FROM public.profiles WHERE id = v_sub.user_id FOR UPDATE;
 
@@ -631,6 +662,7 @@ BEGIN
        SET status = 'approved', review_note = left(p_note, 500), paid_amount = v_reward,
            reviewed_by = p_reviewer, reviewed_at = NOW(),
            approval_source = p_source, payout_status = 'held', review_deadline_at = v_deadline,
+           review_window_kind = COALESCE(review_window_kind, 'human'),
            sla_time = 'Approved'
      WHERE id = v_sub.id;
 
@@ -780,6 +812,7 @@ DECLARE
     v_sub public.task_completions%ROWTYPE;
     v_campaign public.campaigns%ROWTYPE;
     v_is_admin BOOLEAN := FALSE;
+    v_held_flagged BOOLEAN;
 BEGIN
     SELECT * INTO v_sub FROM public.task_completions WHERE id = p_completion_id FOR UPDATE;
     IF NOT FOUND THEN RAISE EXCEPTION 'completion_not_found'; END IF;
@@ -810,8 +843,13 @@ BEGIN
                 p_reviewer, p_note);
         END IF;
         -- After the window closes the worker is owed the auto-approval;
-        -- only an admin can still reject.
-        IF v_sub.review_deadline_at IS NOT NULL AND v_sub.review_deadline_at <= NOW() AND NOT v_is_admin THEN
+        -- only an admin can still reject. Exception: with
+        -- hold_flagged_for_review on, a flagged item is never auto-approved,
+        -- so the business keeps the decision.
+        SELECT hold_flagged_for_review AND cardinality(v_sub.check_flags) > 0 INTO v_held_flagged
+          FROM public.marketplace_settings WHERE id = 1;
+        IF v_sub.review_deadline_at IS NOT NULL AND v_sub.review_deadline_at <= NOW()
+           AND NOT v_is_admin AND NOT COALESCE(v_held_flagged, FALSE) THEN
             RAISE EXCEPTION 'review_window_closed';
         END IF;
         RETURN public._reject_pending(v_sub.id, p_reviewer, p_note);
@@ -894,17 +932,19 @@ BEGIN
     END IF;
 
     SELECT * INTO v_start FROM public.task_starts WHERE user_id = v_uid AND task_id = v_task.id;
-    v_deadline := NOW() + make_interval(hours => v_cfg.review_window_hours);
+    -- Default: the human window. Shortened to the auto window below only
+    -- when the system verifies and approves it itself.
+    v_deadline := NOW() + make_interval(hours => v_cfg.review_window_human_hours);
 
     BEGIN
         INSERT INTO public.task_completions (
             user_id, task_id, task_title, company, reward_amount, category,
             proof_text, proof_screenshot_url, status, sla_time, campaign_id,
-            started_at, review_deadline_at
+            started_at, review_deadline_at, review_window_kind
         ) VALUES (
             v_uid, v_task.id, v_task.title, v_task.company, v_task.reward, v_task.category,
             v_text, v_url, 'pending', 'Awaiting review', v_task.campaign_id,
-            v_start.started_at, v_deadline
+            v_start.started_at, v_deadline, 'human'
         ) RETURNING id INTO v_completion_id;
     EXCEPTION
         WHEN unique_violation THEN RAISE EXCEPTION 'already_submitted';
@@ -1010,15 +1050,25 @@ BEGIN
      WHERE id = v_completion_id;
 
     IF cardinality(v_flags) = 0 AND cardinality(v_reasons) = 0 THEN
+        -- Verified by the system itself (code matched or link check passed).
+        -- Screenshot proof is still something a person should look at, so it
+        -- keeps the human window even when a code matched.
+        IF v_task.proof_type <> 'screenshot' THEN
+            v_deadline := NOW() + make_interval(hours => v_cfg.review_window_auto_hours);
+            UPDATE public.task_completions
+               SET review_deadline_at = v_deadline, review_window_kind = 'auto'
+             WHERE id = v_completion_id;
+        END IF;
         v_res := public._approve_submission(v_completion_id, 'instant', NULL, 'Passed automatic checks');
         RETURN jsonb_build_object('success', true, 'completion_id', v_completion_id, 'status', 'approved',
                                   'instant', true, 'payout_status', v_res->>'payout_status',
                                   'credited', (v_res->>'credited')::numeric,
-                                  'release_at', v_res->'release_at');
+                                  'release_at', v_res->'release_at',
+                                  'review_window_kind', CASE WHEN v_task.proof_type <> 'screenshot' THEN 'auto' ELSE 'human' END);
     END IF;
 
     RETURN jsonb_build_object('success', true, 'completion_id', v_completion_id, 'status', 'pending',
-                              'instant', false, 'review_deadline_at', v_deadline);
+                              'instant', false, 'review_deadline_at', v_deadline, 'review_window_kind', 'human');
 END;
 $$;
 
@@ -1042,10 +1092,12 @@ BEGIN
     -- Unreviewed campaign submissions whose window closed: auto-approve
     -- (and, because the window is closed, release in the same step).
     FOR r IN
-        SELECT tc.id FROM public.task_completions tc
+        SELECT tc.id, tc.review_window_kind FROM public.task_completions tc
           JOIN public.campaigns c ON c.id = tc.campaign_id
          WHERE lower(tc.status) = 'pending'
            AND tc.review_deadline_at <= NOW()
+           -- Settings toggle: flagged items wait for a person instead.
+           AND NOT (v_cfg.hold_flagged_for_review AND cardinality(tc.check_flags) > 0)
            AND (p_user IS NULL OR tc.user_id = p_user OR c.business_id = p_user)
          ORDER BY tc.review_deadline_at
          LIMIT v_lim
@@ -1053,7 +1105,9 @@ BEGIN
     LOOP
         BEGIN
             PERFORM public._approve_submission(r.id, 'auto_timeout', NULL,
-                'Auto-approved: not reviewed within ' || v_cfg.review_window_hours || 'h');
+                'Auto-approved: not reviewed within the '
+                || CASE WHEN r.review_window_kind = 'auto' THEN v_cfg.review_window_auto_hours
+                        ELSE v_cfg.review_window_human_hours END || 'h review window');
             v_auto := v_auto + 1;
         EXCEPTION WHEN OTHERS THEN
             v_errors := v_errors + 1;
@@ -1303,7 +1357,10 @@ COMMIT;
 --   SELECT * FROM public.pending_hold_check();      -- expect 0 rows
 --   SELECT jobname, schedule FROM cron.job;         -- if pg_cron is enabled
 -- Settings (single row):
---   UPDATE public.marketplace_settings SET review_window_hours = 24,
+--   UPDATE public.marketplace_settings SET review_window_auto_hours = 24,
+--          review_window_human_hours = 48, hold_flagged_for_review = FALSE,
 --          trusted_after_tasks = 3, human_review_reward_above = 1000,
 --          min_task_seconds = 60 WHERE id = 1;
+--   Changing a window only affects NEW submissions (each one stores its
+--   own review_deadline_at at submit time).
 -- =========================================================================

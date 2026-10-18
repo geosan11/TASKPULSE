@@ -6,10 +6,13 @@ import {
   approvalModeOptions,
   CATEGORY_HINTS,
   CHECK_FLAG_LABELS,
+  instantWindowHours,
   REVIEW_REASON_LABELS,
+  reviewWindowsFrom,
   timeLeftLabel,
   type ApprovalMode,
   type CodeMode,
+  type ReviewWindows,
   computeCampaignCost,
   computeCancelRefund,
   formatNaira,
@@ -73,7 +76,7 @@ export function BusinessTab({
       <ReviewPanel
         campaignId={reviewing.campaignId}
         title={reviewing.title}
-        windowHours={settings.reviewWindowHours}
+        windows={reviewWindowsFrom(settings)}
         onBack={() => {
           setReviewing(null);
           load();
@@ -245,7 +248,7 @@ function CampaignCard({
         <div className="min-w-0">
           <p className="text-[15px] font-bold text-ink dark:text-white leading-snug">{c.title}</p>
           <p className="text-sm text-zinc-500 mt-0.5">
-            {formatNaira(c.rewardPerCompletion)} × {c.slots} · {approvalModeCopy(c.approvalMode, settings.reviewWindowHours).label}
+            {formatNaira(c.rewardPerCompletion)} × {c.slots} · {approvalModeCopy(c.approvalMode, reviewWindowsFrom(settings)).label}
             {c.completionCodeMode ? ' · code check' : ''}
           </p>
         </div>
@@ -361,7 +364,7 @@ function CreateCampaignModal({
   const hasCode = completionCode.trim().length > 0;
   const modeOptions = approvalModeOptions({ category, proofType, hasCode, hasTargetUrl: /^https?:\/\//i.test(targetUrl.trim()) });
   const approvalMode: ApprovalMode = modeChoice && modeOptions.allowed.includes(modeChoice) ? modeChoice : modeOptions.defaultMode;
-  const windowH = settings.reviewWindowHours;
+  const windows = reviewWindowsFrom(settings);
 
   const validate = () => {
     if (title.trim().length < 5) return 'Title must be at least 5 characters.';
@@ -493,8 +496,8 @@ function CreateCampaignModal({
       <div>
         <Label>How submissions are approved</Label>
         <div className="space-y-2">
-          {(['instant', 'auto_24h', 'manual'] as ApprovalMode[]).map(m => {
-            const copy = approvalModeCopy(m, windowH);
+          {(['instant', 'auto', 'manual'] as ApprovalMode[]).map(m => {
+            const copy = approvalModeCopy(m, windows);
             const allowed = modeOptions.allowed.includes(m);
             const selected = approvalMode === m;
             return (
@@ -519,7 +522,13 @@ function CreateCampaignModal({
         <p className="text-xs text-zinc-500 mt-2 px-1">
           Always sent to you, in every mode: a worker's first {settings.trustedAfterTasks} approved tasks, rewards above{' '}
           {formatNaira(settings.humanReviewRewardAbove)}, Product Feedback and Field Audits, and anything our checks flag (reused answers, links or
-          screenshots, wrong codes, submitting too fast). Every approved reward stays pending for {windowH}h so you can still reject it.
+          screenshots, wrong codes, submitting too fast). You have {windows.humanHours}h to review those.{' '}
+          {approvalMode === 'instant'
+            ? `Instantly approved rewards stay pending for ${instantWindowHours(proofType, windows)}h so you can still reject them.`
+            : `Rewards you approve stay pending until ${windows.humanHours}h after submission, so you can still reject them.`}{' '}
+          {windows.holdFlagged
+            ? 'Flagged items are never approved automatically.'
+            : `Flagged items are also approved after ${windows.humanHours}h if you don't act.`}
         </p>
       </div>
 
@@ -570,13 +579,13 @@ function CreateCampaignModal({
 function ReviewPanel({
   campaignId,
   title,
-  windowHours,
+  windows,
   onBack,
   notify,
 }: {
   campaignId: string | null;
   title: string;
-  windowHours: number;
+  windows: ReviewWindows;
   onBack: () => void;
   notify: (t: string, s: string) => void;
 }) {
@@ -614,16 +623,18 @@ function ReviewPanel({
         onChange={setStatus}
         options={[
           { id: 'pending', label: 'To review' },
-          { id: 'held', label: `Last ${windowHours}h` },
+          { id: 'held', label: 'Can still reject' },
           { id: 'approved', label: 'Approved' },
           { id: 'rejected', label: 'Rejected' },
         ]}
       />
       <p className="text-xs text-zinc-500 px-1">
         {status === 'pending'
-          ? `Anything you don't review within ${windowHours}h of submission is approved automatically.`
+          ? windows.holdFlagged
+            ? `Anything you don't review within ${windows.humanHours}h of submission is approved automatically, except flagged items, which wait for you.`
+            : `Anything you don't review within ${windows.humanHours}h of submission is approved automatically, flagged items included.`
           : status === 'held'
-            ? `Approved work (by you or automatically) whose ${windowHours}h window is still open. The worker's reward is pending; rejecting returns it to your campaign budget.`
+            ? `Approved work (by you or automatically) whose review window is still open: ${windows.autoHours}h for instantly checked items, ${windows.humanHours}h for everything else. The worker's reward is pending; rejecting returns it to your campaign budget.`
             : null}
       </p>
       {loading ? (
@@ -635,7 +646,7 @@ function ReviewPanel({
       ) : (
         <div className="space-y-3">
           {items.map(s => (
-            <SubmissionCard key={s.id} item={s} onReviewed={load} notify={notify} />
+            <SubmissionCard key={s.id} item={s} holdFlagged={windows.holdFlagged} onReviewed={load} notify={notify} />
           ))}
         </div>
       )}
@@ -643,7 +654,17 @@ function ReviewPanel({
   );
 }
 
-function SubmissionCard({ item, onReviewed, notify }: { item: ReviewSubmission; onReviewed: () => Promise<void>; notify: (t: string, s: string) => void }) {
+function SubmissionCard({
+  item,
+  holdFlagged,
+  onReviewed,
+  notify,
+}: {
+  item: ReviewSubmission;
+  holdFlagged: boolean;
+  onReviewed: () => Promise<void>;
+  notify: (t: string, s: string) => void;
+}) {
   const [imgUrl, setImgUrl] = useState<string | null>(null);
   const [loadingImg, setLoadingImg] = useState(false);
   const [note, setNote] = useState('');
@@ -705,9 +726,11 @@ function SubmissionCard({ item, onReviewed, notify }: { item: ReviewSubmission; 
             ? windowOpen
               ? `${item.approvalSource === 'instant' ? 'Auto-approved by checks' : 'Approved'} · reject within ${left}`
               : 'Window closed, reward being released'
-            : windowOpen
-              ? `Auto-approves in ${left}`
-              : 'Auto-approving now'}
+            : holdFlagged && item.checkFlags.length > 0
+              ? 'Flagged: waits for your decision (not auto-approved)'
+              : windowOpen
+                ? `Auto-approves in ${left}`
+                : 'Auto-approving now'}
         </p>
       )}
       {item.checkFlags.length > 0 && (
