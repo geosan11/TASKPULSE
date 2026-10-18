@@ -1,5 +1,7 @@
 import React from 'react';
 import { X, Check, AlertCircle } from 'lucide-react';
+import { useAnimatedIncrease } from '../lib/motion';
+import { PulseEmote, type EmoteAnimation, type EmoteName } from './PulseEmote';
 
 /* ------------------------------------------------------------------ */
 /* Class tokens                                                        */
@@ -74,6 +76,11 @@ export function Mascot({
 }) {
   const src = pose === 'default' ? '/brand/mascot.png' : `/brand/mascot-${pose}.png`;
   return <img src={src} alt="" aria-hidden="true" draggable={false} className={`object-contain select-none ${bob ? 'animate-bob' : ''} ${className}`} />;
+}
+
+/** ₦ figure that counts up when it grows (e.g. a reward lands). */
+export function AnimatedNaira({ value, format }: { value: number; format: (n: number) => string }) {
+  return <>{format(useAnimatedIncrease(value))}</>;
 }
 
 /* ------------------------------------------------------------------ */
@@ -209,17 +216,24 @@ export function EmptyState({
   subtitle,
   icon,
   mascot = 'thinking',
+  emote,
+  emoteAnimate = 'bob',
   action,
 }: {
   title: string;
   subtitle?: string;
   icon?: React.ReactNode;
   mascot?: 'thinking' | 'happy' | 'default' | null;
+  /** Pulse emote; takes precedence over the legacy mascot pose. */
+  emote?: EmoteName;
+  emoteAnimate?: EmoteAnimation;
   action?: React.ReactNode;
 }) {
   return (
     <div className="py-10 px-6 text-center space-y-3">
-      {mascot ? (
+      {emote ? (
+        <PulseEmote name={emote} size={112} animate={emoteAnimate} alt="" className="mx-auto" />
+      ) : mascot ? (
         <Mascot pose={mascot} className="w-28 h-28 mx-auto" />
       ) : (
         <div className="mx-auto w-14 h-14 rounded-2xl bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center text-zinc-400">{icon}</div>
@@ -227,6 +241,45 @@ export function EmptyState({
       <p className="text-base font-bold text-ink dark:text-white">{title}</p>
       {subtitle && <p className="text-sm text-zinc-500 dark:text-zinc-400 max-w-[260px] mx-auto">{subtitle}</p>}
       {action && <div className="pt-2">{action}</div>}
+    </div>
+  );
+}
+
+/** Timeouts, rate limits and daily limits get the tired emote; everything else is sad. */
+export function emoteForError(message: string | null | undefined): EmoteName {
+  return /too many|rate limit|timed? ?out|timeout|try again later|limit reached|reached today|daily limit|withdrawal limit/i.test(message || '') ? 'tired' : 'sad';
+}
+
+/**
+ * A failed action, in plain words: Pulse (sad or tired, never shaking),
+ * the reason, and one clear next step.
+ */
+export function ErrorPanel({
+  title,
+  message,
+  actionLabel,
+  onAction,
+  emote,
+}: {
+  title?: string;
+  message: string;
+  actionLabel?: string;
+  onAction?: () => void;
+  emote?: EmoteName;
+}) {
+  const e = emote || emoteForError(message);
+  return (
+    <div role="alert" className="flex items-start gap-3 p-4 rounded-3xl bg-zinc-100 dark:bg-zinc-900 text-left">
+      <PulseEmote name={e} size={56} alt="" className="shrink-0" />
+      <div className="min-w-0 flex-1 space-y-1">
+        <p className="text-sm font-bold text-ink dark:text-white">{title || (e === 'tired' ? 'Let\'s take a breather' : 'That didn\'t work')}</p>
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">{message}</p>
+        {actionLabel && onAction && (
+          <button type="button" onClick={onAction} className="tactile mt-1 h-9 px-4 rounded-full bg-ink text-white dark:bg-white dark:text-ink text-sm font-bold cursor-pointer">
+            {actionLabel}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

@@ -29,6 +29,8 @@ import {
 } from '../lib/marketplace';
 import { initializeCampaignFunding, verifyPayment } from '../lib/api';
 import { formatDateTime, type UserProfile } from '../types';
+import { celebrate } from '../lib/celebrate';
+import { PulseEmote } from './PulseEmote';
 
 export function BusinessTab({
   user,
@@ -190,7 +192,8 @@ function CampaignCard({
         try {
           const v = await verifyPayment(earlierRef);
           if (v?.status) {
-            notify('Payment found', 'Your earlier payment went through. Your task is live.');
+            if (!celebrate('Your task is live!', 'Your earlier payment went through. People can start now.', { emote: 'clap', effect: 'confetti', id: `campaign-live:${c.id}` }))
+              notify('Payment found', 'Your earlier payment went through. Your task is live.');
             await onChanged();
             setBusy(null);
             return;
@@ -317,7 +320,7 @@ function CampaignCard({
   );
 }
 
-function CreateCampaignModal({
+export function CreateCampaignModal({
   open,
   settings,
   onClose,
@@ -397,6 +400,10 @@ function CreateCampaignModal({
 
   return (
     <Modal open={open} onClose={onClose} title="Post a task" wide>
+      <div className="flex items-center gap-3 -mt-1 p-3 rounded-2xl bg-pulse-500/10">
+        <PulseEmote name="idea" size={48} animate="blink" alt="" className="shrink-0" />
+        <p className="text-sm text-zinc-700 dark:text-zinc-300">Short, clear steps and an easy proof get more people finishing your task.</p>
+      </div>
       <div>
         <Label>Title</Label>
         <input className={inputClass} value={title} onChange={e => setTitle(e.target.value)} maxLength={120} placeholder="Install our app and sign up" />
