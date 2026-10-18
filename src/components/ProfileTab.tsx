@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { ChoiceButtons } from './Select';
 import { Briefcase, ChevronRight, Copy, FileText, IdCard, Loader2, LogOut, Moon, Share2, Sun } from 'lucide-react';
 import { Card, ErrorText, inputClass, Label, Modal, primaryButtonClass, secondaryButtonClass, StatusBadge } from './ui';
 import { submitKycRpc, updateProfileFullName } from '../lib/supabaseClient';
@@ -6,7 +7,7 @@ import { becomeBusinessRpc } from '../lib/marketplace';
 import { formatNaira, referralOffer, type MarketplaceSettings } from '../config/marketplace';
 import type { ReferralItem, UserProfile } from '../types';
 
-const KYC_TYPES = [
+const KYC_TYPES: { id: string; label: string }[] = [
   { id: 'nin', label: 'NIN' },
   { id: 'bvn', label: 'BVN' },
   { id: 'voters_card', label: "Voter's card" },
@@ -77,7 +78,8 @@ export function ProfileTab({
 }) {
   const [sheet, setSheet] = useState<null | 'name' | 'kyc' | 'business'>(null);
   const [fullName, setFullName] = useState(user.fullName);
-  const [kycType, setKycType] = useState('nin');
+  const [kycType, setKycType] = useState('');
+  const [kycTried, setKycTried] = useState(false);
   const [kycNumber, setKycNumber] = useState('');
   const [businessName, setBusinessName] = useState('');
   const [busy, setBusy] = useState(false);
@@ -217,19 +219,18 @@ export function ProfileTab({
       <Modal open={sheet === 'kyc'} onClose={() => setSheet(null)} title="Verify identity">
         {user.kycStatus === 'unverified' || user.kycStatus === 'rejected' ? (
           <>
+            <ChoiceButtons
+              label="ID type"
+              value={kycType}
+              onChange={setKycType}
+              options={KYC_TYPES}
+              columns={2}
+              required
+              error={kycTried && !kycType ? 'Choose your ID type.' : undefined}
+            />
             <div>
-              <Label>ID type</Label>
-              <select className={inputClass} value={kycType} onChange={e => setKycType(e.target.value)}>
-                {KYC_TYPES.map(k => (
-                  <option key={k.id} value={k.id}>
-                    {k.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <Label>ID number</Label>
-              <input className={inputClass} inputMode="numeric" value={kycNumber} onChange={e => setKycNumber(e.target.value.replace(/\D/g, ''))} />
+              <Label hint="Numbers only">ID number</Label>
+              <input className={inputClass} type="text" inputMode="numeric" autoComplete="off" aria-label="ID number" value={kycNumber} onChange={e => setKycNumber(e.target.value.replace(/\D/g, ''))} />
             </div>
             <p className="text-xs text-zinc-500 px-1">We only keep the ID type and last 4 digits.</p>
             <ErrorText>{error}</ErrorText>
@@ -237,7 +238,11 @@ export function ProfileTab({
               type="button"
               className={primaryButtonClass}
               disabled={busy || kycNumber.length < 8}
-              onClick={() => run(() => submitKycRpc(kycType, kycNumber), 'Sent for review', "We'll check your details.")}
+              onClick={() => {
+                setKycTried(true);
+                if (!kycType) return;
+                run(() => submitKycRpc(kycType, kycNumber), 'Sent for review', "We'll check your details.");
+              }}
             >
               {busy && <Loader2 className="w-5 h-5 animate-spin" />} Submit
             </button>

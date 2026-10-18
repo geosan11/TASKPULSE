@@ -4,6 +4,7 @@ export const PAYSTACK_BANKS = [
   { code: '999992', name: 'OPay Digital Services' },
   { code: '999991', name: 'PalmPay' },
   { code: '50211', name: 'Kuda Bank' },
+  { code: '51318', name: 'FairMoney Microfinance Bank' },
   { code: '044', name: 'Access Bank PLC' },
   { code: '058', name: 'Guaranty Trust Bank (GTB)' },
   { code: '057', name: 'Zenith Bank' },
@@ -18,4 +19,7 @@ export const PAYSTACK_BANKS = [
   { code: '050', name: 'Ecobank Nigeria' },
   { code: '076', name: 'Polaris Bank' },
   { code: '082', name: 'Keystone Bank' },
+  { code: '101', name: 'Providus Bank' },
+  { code: '566', name: 'VFD Microfinance Bank' },
+  { code: '565', name: 'Carbon' },
 ] as const;

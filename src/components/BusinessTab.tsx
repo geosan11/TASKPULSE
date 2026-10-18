@@ -334,6 +334,11 @@ function CreateCampaignModal({
   const [instructions, setInstructions] = useState('');
   const [category, setCategory] = useState<TaskCategory>(TASK_CATEGORIES[0]);
   const [proofType, setProofType] = useState<ProofType>('screenshot');
+  // Category and proof start unselected: the values above are placeholders
+  // and can't be submitted until the business picks each one.
+  const [categoryChosen, setCategoryChosen] = useState(false);
+  const [proofChosen, setProofChosen] = useState(false);
+  const [tried, setTried] = useState(false);
   const [reward, setReward] = useState('');
   const [slots, setSlots] = useState('');
   const [targetUrl, setTargetUrl] = useState('');
@@ -347,6 +352,9 @@ function CreateCampaignModal({
   const prohibited = prohibitedTaskReason(title, instructions);
 
   const validate = () => {
+    if (!categoryChosen && !proofChosen) return 'Choose a task category and how workers send proof.';
+    if (!categoryChosen) return 'Choose a task category.';
+    if (!proofChosen) return 'Choose how workers send proof.';
     if (title.trim().length < 5) return 'Title must be at least 5 characters.';
     if (instructions.trim().length < 20) return 'Add clear steps (at least 20 characters).';
     if (!Number.isInteger(rewardNum) || rewardNum < settings.minRewardPerTask || rewardNum > settings.maxRewardPerTask)
@@ -359,6 +367,7 @@ function CreateCampaignModal({
   };
 
   const submit = async (payNow: boolean) => {
+    setTried(true);
     const v = validate();
     if (v) {
       setError(v);
@@ -417,25 +426,46 @@ function CreateCampaignModal({
       </div>
       <div>
         <Label>Proof</Label>
-        <Segmented value={proofType} onChange={setProofType} options={PROOF_TYPES.map(p => ({ id: p.id, label: p.label.replace(' answer', '') }))} />
+        <Segmented
+          value={(proofChosen ? proofType : '') as ProofType}
+          onChange={v => {
+            setProofType(v);
+            setProofChosen(true);
+          }}
+          options={PROOF_TYPES.map(p => ({ id: p.id, label: p.label.replace(' answer', '') }))}
+        />
+        {tried && !proofChosen && <p className="text-[13px] font-medium text-red-600 dark:text-red-400 px-1 mt-1.5">Choose how workers send proof.</p>}
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div>
           <Label>Category</Label>
-          <select className={inputClass} value={category} onChange={e => setCategory(e.target.value as TaskCategory)}>
+          <select
+            className={`${inputClass} ${categoryChosen ? '' : 'text-zinc-400 dark:text-zinc-500'} ${tried && !categoryChosen ? 'border-red-500/70' : ''}`}
+            value={categoryChosen ? category : ''}
+            required
+            aria-invalid={tried && !categoryChosen ? true : undefined}
+            onChange={e => {
+              setCategory(e.target.value as TaskCategory);
+              setCategoryChosen(true);
+            }}
+          >
+            <option value="" disabled>
+              Choose one
+            </option>
             {TASK_CATEGORIES.map(c => (
-              <option key={c} value={c}>
+              <option key={c} value={c} className="text-ink dark:text-white">
                 {c}
               </option>
             ))}
           </select>
+          {tried && !categoryChosen && <p className="text-[13px] font-medium text-red-600 dark:text-red-400 px-1 mt-1.5">Choose a task category.</p>}
         </div>
         <div>
           <Label hint="Optional">Link</Label>
           <input className={inputClass} value={targetUrl} onChange={e => setTargetUrl(e.target.value)} placeholder="https://" inputMode="url" />
         </div>
       </div>
-      <p className="text-xs text-zinc-500 -mt-1 px-1">{CATEGORY_HINTS[category]}</p>
+      {categoryChosen && <p className="text-xs text-zinc-500 -mt-1 px-1">{CATEGORY_HINTS[category]}</p>}
       {prohibited && <ErrorText>{PROHIBITED_MESSAGES[prohibited]}</ErrorText>}
 
       <div className="p-4 rounded-2xl border border-zinc-200 dark:border-zinc-800 space-y-1.5 text-xs text-zinc-600 dark:text-zinc-400">

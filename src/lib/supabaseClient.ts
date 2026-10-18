@@ -43,6 +43,8 @@ export interface AuthUserSignup {
   referralCode?: string;
   /** Optional "How did you hear about us?" answer, stored on profiles.heard_about_us */
   heardAboutUs?: string;
+  /** Optional signup answers kept in auth user metadata only (school, school_level, state). */
+  profileExtras?: Record<string, string>;
   /** 'worker' (default) earns from tasks; 'business' posts and funds tasks */
   accountType?: 'worker' | 'business';
   businessName?: string;
@@ -160,6 +162,7 @@ export async function signUpUser(params: AuthUserSignup) {
             full_name: fullName.trim(),
             phone: phone.trim(),
             referred_by_code: referralCode ? referralCode.trim() : null,
+            ...(params.profileExtras || {}),
             heard_about_us: heardAboutUs ? heardAboutUs.trim().slice(0, 120) : null,
             account_type: accountType === 'business' ? 'business' : 'worker',
             business_name: accountType === 'business' && businessName ? businessName.trim().slice(0, 100) : null,
