@@ -9,12 +9,16 @@ export function Landing({
   onStartEarning,
   onPostTasks,
   onSignIn,
+  onSeePricing,
+  onOpenTerms,
 }: {
   settings: MarketplaceSettings;
   tasks: DbTask[];
   onStartEarning: () => void;
   onPostTasks: () => void;
   onSignIn: () => void;
+  onSeePricing: () => void;
+  onOpenTerms: (tab: 'terms' | 'privacy') => void;
 }) {
   return (
     <div className="space-y-8 pb-10">
@@ -75,14 +79,36 @@ export function Landing({
 
       <Card className="!bg-ink !border-ink dark:!bg-zinc-900 dark:!border-zinc-800 text-white">
         <p className="text-sm font-semibold text-pulse-400">For businesses</p>
-        <h2 className="text-xl font-extrabold leading-tight">Real people. Real actions. Pay only for approved work.</h2>
+        <h2 className="text-xl font-extrabold leading-tight">Real Nigerian people. Real actions. Pay only for approved work.</h2>
         <p className="text-sm text-zinc-400">
           Reward × slots + {Math.round(settings.platformFeeRate * 100)}% fee, paid once via Paystack.
         </p>
         <button type="button" onClick={onPostTasks} className={`${inkButtonClass} !bg-white !text-ink hover:!bg-zinc-200`}>
           Post tasks
         </button>
+        <a
+          href="/business"
+          onClick={e => {
+            e.preventDefault();
+            onSeePricing();
+          }}
+          className="block text-center text-sm font-bold text-pulse-400 underline-offset-2 hover:underline"
+        >
+          See pricing and how it works
+        </a>
       </Card>
+
+      <footer className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs font-semibold text-zinc-500">
+        <a href="/business" onClick={e => { e.preventDefault(); onSeePricing(); }} className="hover:text-ink dark:hover:text-white">
+          For businesses
+        </a>
+        <a href="/terms" onClick={e => { e.preventDefault(); onOpenTerms('terms'); }} className="hover:text-ink dark:hover:text-white">
+          Terms
+        </a>
+        <a href="/privacy" onClick={e => { e.preventDefault(); onOpenTerms('privacy'); }} className="hover:text-ink dark:hover:text-white">
+          Privacy
+        </a>
+      </footer>
     </div>
   );
 }

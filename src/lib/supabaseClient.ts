@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { normalizeCategory } from '../config/marketplace';
 
 // Retrieve credentials from environment variables
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
@@ -556,7 +557,7 @@ export async function fetchActiveTasks(): Promise<DbTask[]> {
         title: t.title,
         company: t.company,
         reward: Number(t.reward),
-        category: t.category,
+        category: normalizeCategory(t.category),
         time: t.time_estimate || '5m',
         SLA: t.sla || 'Reviewed by business',
         spotsLeft: t.spots_left,

@@ -23,3 +23,7 @@ run 009_business_payments.sql
 run 009_business_payments.sql   # must be safe to re-run
 echo "== tests/40_business_flow.sql"
 sudo -u postgres psql -q -v ON_ERROR_STOP=1 -d "$DB" -f tests/40_business_flow.sql 2>&1 | grep -E 'PASS|ERROR|FAILED'
+run 010_task_categories_policy.sql
+run 010_task_categories_policy.sql   # must be safe to re-run
+echo "== tests/50_categories_010.sql"
+sudo -u postgres psql -q -v ON_ERROR_STOP=1 -d "$DB" -f tests/50_categories_010.sql 2>&1 | grep -E 'PASS|ERROR|FAILED'

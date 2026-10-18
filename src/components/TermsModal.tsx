@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Modal } from './ui';
-import { formatNaira, type MarketplaceSettings } from '../config/marketplace';
+import { formatNaira, NOT_ALLOWED_TASKS, type MarketplaceSettings } from '../config/marketplace';
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -79,7 +79,22 @@ export function TermsModal({
               {settings.refundFeeOnUnused ? ' and their share of the platform fee are' : ' are'} refunded to the card or account
               used to pay. Tasks must be lawful and must not ask workers for passwords, payments or personal data.
             </Section>
-            <Section title="6. Paystack">
+            <div className="space-y-1">
+              <h4 className="font-bold text-ink dark:text-white text-sm">6. Tasks that are not allowed</h4>
+              <p>
+                TaskPulse pays real people for honest work. Feedback tasks collect private, honest opinions for the business;
+                they are never public reviews. Businesses may not post, and workers must not complete:
+              </p>
+              <ul className="list-disc pl-5 space-y-0.5">
+                {NOT_ALLOWED_TASKS.map(t => (
+                  <li key={t}>{t}</li>
+                ))}
+              </ul>
+              <p>
+                We remove campaigns that break these rules, refund the unused budget, and may suspend the account.
+              </p>
+            </div>
+            <Section title="7. Paystack">
               All card payments and bank payouts run on Paystack. TaskPulse never sees or stores card numbers, CVVs or online
               banking passwords.
             </Section>
