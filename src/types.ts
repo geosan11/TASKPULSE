@@ -45,6 +45,10 @@ export interface MySubmission {
   status: 'pending' | 'approved' | 'rejected';
   reviewNote: string | null;
   completedAt: string;
+  /** 011: 'held' = approved, reward pending until reviewDeadlineAt; 'released' = withdrawable. */
+  payoutStatus: 'held' | 'released' | 'reversed' | null;
+  reviewDeadlineAt: string | null;
+  approvalSource: string | null;
 }
 
 export interface ReferralItem {

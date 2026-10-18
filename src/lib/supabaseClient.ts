@@ -378,6 +378,60 @@ export async function submitKycRpc(idType: string, idNumber: string) {
   return data;
 }
 
+export interface SubmitResult {
+  success: boolean;
+  completion_id: string;
+  status: 'pending' | 'approved';
+  /** True when the automatic checks approved it on the spot (reward is pending until release_at). */
+  instant?: boolean;
+  credited?: number;
+  release_at?: string;
+  review_deadline_at?: string;
+}
+
+export interface TaskStart {
+  started_at: string;
+  start_ref: string;
+  needs_code: boolean;
+  code_mode: 'shared' | 'unique' | null;
+  approval_mode: 'instant' | 'auto_24h' | 'manual' | null;
+  min_seconds: number;
+  review_window_hours: number;
+}
+
+/**
+ * Record that the worker started a task (idempotent; the first start wins).
+ * Used for the minimum-time check and per-worker completion codes.
+ * Returns null if it fails (e.g. migration 011 not applied yet).
+ */
+export async function startTaskRpc(taskId: string): Promise<TaskStart | null> {
+  if (!supabase) return null;
+  const { data, error } = await supabase.rpc('start_task', { p_task_id: taskId });
+  if (error || !data) return null;
+  return data as TaskStart;
+}
+
+/**
+ * Ask the server to fingerprint an uploaded proof screenshot (sha256 computed
+ * server-side from the stored file) so duplicates can be flagged. Best effort:
+ * if it fails, the database falls back to the storage ETag + size.
+ */
+export async function requestProofHash(path: string): Promise<void> {
+  if (!supabase) return;
+  try {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) return;
+    await fetch('/api/proof-hash', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ path }),
+    });
+  } catch {
+    // ignore: fallback fingerprint is used
+  }
+}
+
 const SUBMIT_ERRORS: Record<string, string> = {
   already_submitted: 'You have already submitted proof for this task.',
   task_not_available: 'This task is no longer available.',
@@ -397,12 +451,14 @@ export async function submitTaskProofRpc(params: {
   taskId: string;
   proofText?: string;
   proofScreenshotPath?: string;
-}) {
+  completionCode?: string;
+}): Promise<SubmitResult> {
   if (!supabase) throw new Error('Database is not connected.');
   const { data, error } = await supabase.rpc('submit_task', {
     p_task_id: params.taskId,
     p_proof_text: params.proofText || null,
     p_proof_url: params.proofScreenshotPath || null,
+    p_completion_code: params.completionCode || null,
   });
   if (error) {
     const key = Object.keys(SUBMIT_ERRORS).find(k => error.message.includes(k));
@@ -490,7 +546,7 @@ export async function fetchTaskCompletionsHistory(userId: string, limit: number 
 
   return await supabase
     .from('task_completions')
-    .select('id, task_id, task_title, company, reward_amount, paid_amount, category, status, sla_time, completed_at, review_note, campaign_id')
+    .select('id, task_id, task_title, company, reward_amount, paid_amount, category, status, sla_time, completed_at, review_note, campaign_id, payout_status, review_deadline_at, approval_source')
     .eq('user_id', userId)
     .order('completed_at', { ascending: false })
     .limit(limit);

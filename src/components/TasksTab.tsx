@@ -1,8 +1,8 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Clock, ExternalLink, ImagePlus, Loader2, Users } from 'lucide-react';
 import { Card, EmptyState, ErrorText, inputClass, Label, primaryButtonClass, Segmented, StatusPill, textareaClass } from './ui';
-import { formatNaira } from '../config/marketplace';
-import { submitTaskProofRpc, uploadTaskProofImage, type DbTask } from '../lib/supabaseClient';
+import { formatNaira, timeLeftLabel } from '../config/marketplace';
+import { requestProofHash, startTaskRpc, submitTaskProofRpc, uploadTaskProofImage, type DbTask, type TaskStart } from '../lib/supabaseClient';
 import { celebrate } from '../lib/celebrate';
 import { formatDateTime, type MySubmission, type UserProfile } from '../types';
 
@@ -119,6 +119,7 @@ export function TasksTab({
                 <p className="text-xs text-zinc-500">{formatDateTime(s.completedAt)}</p>
                 <StatusPill status={s.status} kind="submission" />
               </div>
+              <SubmissionPayoutLine s={s} />
               {s.reviewNote && <p className="text-sm text-zinc-500">“{s.reviewNote}”</p>}
             </div>
           ))}
@@ -126,6 +127,39 @@ export function TasksTab({
       )}
     </div>
   );
+}
+
+/** "Approved, ₦X pending, withdrawable in Xh" and friends. */
+function SubmissionPayoutLine({ s }: { s: MySubmission }) {
+  const amount = formatNaira(s.paidAmount ?? s.reward);
+  if (s.status === 'approved' && s.payoutStatus === 'held') {
+    const left = timeLeftLabel(s.reviewDeadlineAt);
+    return (
+      <p className="text-sm font-semibold text-pulse-700 dark:text-pulse-400">
+        Approved, {amount} pending{left && left !== 'now' ? `, withdrawable in ${left}` : ', withdrawable shortly'}
+      </p>
+    );
+  }
+  if (s.status === 'approved' && s.payoutStatus === 'released') {
+    return <p className="text-sm text-zinc-500">{amount} is in your withdrawable balance</p>;
+  }
+  if (s.status === 'pending' && s.reviewDeadlineAt) {
+    const left = timeLeftLabel(s.reviewDeadlineAt);
+    return <p className="text-sm text-zinc-500">{left && left !== 'now' ? `Approved automatically in ${left} if not reviewed` : 'Being approved now'}</p>;
+  }
+  return null;
+}
+
+/** Task link with the worker's TaskPulse reference added (per-worker completion codes). */
+function taskLinkWithRef(url: string, ref: string | undefined) {
+  if (!ref) return url;
+  try {
+    const u = new URL(url);
+    u.searchParams.set('tp_ref', ref);
+    return u.toString();
+  } catch {
+    return url;
+  }
 }
 
 function TaskWorkspace({
@@ -142,11 +176,31 @@ function TaskWorkspace({
   onDone: () => Promise<void>;
 }) {
   const [proofText, setProofText] = useState('');
+  const [code, setCode] = useState('');
+  const [start, setStart] = useState<TaskStart | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const isOwnTask = Boolean(task.company && user.businessName && task.company === user.businessName && user.role === 'business');
+
+  // Opening a task counts as starting it (used for the minimum-time check
+  // and per-worker completion codes). Idempotent on the server.
+  useEffect(() => {
+    if (alreadySubmitted || isOwnTask) return;
+    let cancelled = false;
+    startTaskRpc(task.id).then(r => {
+      if (!cancelled) setStart(r);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [task.id, alreadySubmitted, isOwnTask]);
+
+  const needsCode = Boolean(start?.needs_code);
+  const windowHours = start?.review_window_hours ?? 24;
 
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -174,16 +228,33 @@ function TaskWorkspace({
       setError('Please paste a link that starts with https://');
       return;
     }
-    if (task.proofType === 'text' && proofText.trim().length < 2) {
+    if (task.proofType === 'text' && proofText.trim().length < 2 && !(needsCode && code.trim())) {
       setError('Please type your answer.');
+      return;
+    }
+    if (needsCode && !code.trim()) {
+      setError('Please enter the completion code shown at the end of the task.');
       return;
     }
     setSubmitting(true);
     try {
       let path: string | undefined;
-      if (file) path = await uploadTaskProofImage(file, user.id);
-      await submitTaskProofRpc({ taskId: task.id, proofText: proofText.trim() || undefined, proofScreenshotPath: path });
-      celebrate('Proof sent!', `You'll get ${formatNaira(task.reward)} once ${task.company} approves it.`);
+      if (file) {
+        path = await uploadTaskProofImage(file, user.id);
+        await requestProofHash(path);
+      }
+      const res = await submitTaskProofRpc({
+        taskId: task.id,
+        proofText: proofText.trim() || undefined,
+        proofScreenshotPath: path,
+        completionCode: code.trim() || undefined,
+      });
+      if (res?.instant) {
+        const left = timeLeftLabel(res.release_at) || `${windowHours}h`;
+        celebrate('Approved!', `${formatNaira(res.credited ?? task.reward)} pending, withdrawable in ${left}.`);
+      } else {
+        celebrate('Proof sent!', `${task.company} reviews it within ${windowHours}h. If they don't, it's approved automatically.`);
+      }
       await onDone();
     } catch (err: any) {
       setError(err.message || 'Could not submit proof.');
@@ -192,7 +263,8 @@ function TaskWorkspace({
     }
   };
 
-  const isOwn = Boolean(task.company && user.businessName && task.company === user.businessName && user.role === 'business');
+  const isOwn = isOwnTask;
+  const linkHref = task.targetUrl ? taskLinkWithRef(task.targetUrl, start?.code_mode === 'unique' ? start.start_ref : undefined) : null;
 
   return (
     <div className="space-y-5 pb-8">
@@ -228,8 +300,8 @@ function TaskWorkspace({
             ))}
           </ol>
         )}
-        {task.targetUrl && (
-          <a href={task.targetUrl} target="_blank" rel="noopener noreferrer nofollow" className="inline-flex items-center gap-1.5 text-sm font-bold text-pulse-700 dark:text-pulse-400">
+        {linkHref && (
+          <a href={linkHref} target="_blank" rel="noopener noreferrer nofollow" className="inline-flex items-center gap-1.5 text-sm font-bold text-pulse-700 dark:text-pulse-400">
             Open task link <ExternalLink className="w-4 h-4" />
           </a>
         )}
@@ -260,8 +332,17 @@ function TaskWorkspace({
               </button>
             </div>
           )}
+          {needsCode && (
+            <div>
+              <Label hint="Shown at the end of the task">Completion code</Label>
+              <input className={inputClass} value={code} onChange={e => setCode(e.target.value)} maxLength={128} autoComplete="off" placeholder="e.g. BLUE42" />
+              {start?.code_mode === 'unique' && (
+                <p className="text-xs text-zinc-500 mt-1.5 px-1">Open the task with the link above: your code is unique to you.</p>
+              )}
+            </div>
+          )}
           <div>
-            <Label hint={task.proofType === 'screenshot' ? 'Optional' : undefined}>
+            <Label hint={task.proofType === 'screenshot' || (task.proofType === 'text' && needsCode) ? 'Optional' : undefined}>
               {task.proofType === 'link' ? 'Link to your proof' : task.proofType === 'text' ? 'Your answer' : 'Note'}
             </Label>
             {task.proofType === 'link' ? (

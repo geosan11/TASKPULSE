@@ -1,5 +1,5 @@
 import { supabase } from './supabaseClient';
-import { DEFAULT_MARKETPLACE_SETTINGS, normalizeCategory, PROHIBITED_MESSAGES, type MarketplaceSettings, type ProofType } from '../config/marketplace';
+import { DEFAULT_MARKETPLACE_SETTINGS, normalizeCategory, PROHIBITED_MESSAGES, type ApprovalMode, type CodeMode, type MarketplaceSettings, type ProofType } from '../config/marketplace';
 
 // =========================================================================
 // SETTINGS (single row in public.marketplace_settings)
@@ -26,6 +26,11 @@ export async function fetchMarketplaceSettings(): Promise<MarketplaceSettings> {
       // Columns added in 009; default to the 009 behaviour if not there yet.
       refundFeeOnUnused: data.refund_fee_on_unused ?? DEFAULT_MARKETPLACE_SETTINGS.refundFeeOnUnused,
       referralRequireFeeCover: data.referral_require_fee_cover ?? DEFAULT_MARKETPLACE_SETTINGS.referralRequireFeeCover,
+      // Columns added in 011.
+      reviewWindowHours: Number(data.review_window_hours ?? DEFAULT_MARKETPLACE_SETTINGS.reviewWindowHours),
+      trustedAfterTasks: Number(data.trusted_after_tasks ?? DEFAULT_MARKETPLACE_SETTINGS.trustedAfterTasks),
+      humanReviewRewardAbove: Number(data.human_review_reward_above ?? DEFAULT_MARKETPLACE_SETTINGS.humanReviewRewardAbove),
+      minTaskSeconds: Number(data.min_task_seconds ?? DEFAULT_MARKETPLACE_SETTINGS.minTaskSeconds),
     };
   } catch {
     return DEFAULT_MARKETPLACE_SETTINGS;
@@ -69,6 +74,8 @@ export interface Campaign {
   status: 'pending_payment' | 'active' | 'paused' | 'completed' | 'cancelled';
   createdAt: string;
   fundedAt: string | null;
+  approvalMode: ApprovalMode;
+  completionCodeMode: CodeMode | null;
 }
 
 const CAMPAIGN_ERRORS: Record<string, string> = {
@@ -88,6 +95,13 @@ const CAMPAIGN_ERRORS: Record<string, string> = {
   campaigns_target_url_check: 'Link must start with http:// or https://',
   not_campaign_owner: 'You can only manage your own campaigns.',
   invalid_status_change: 'That status change is not allowed.',
+  instant_not_allowed_for_category: 'This category is always reviewed by a person, so it cannot be instant.',
+  instant_needs_check: 'Instant approval needs a completion code (or link proof with a task link).',
+  invalid_approval_mode: 'Choose how submissions are approved.',
+  invalid_completion_code: 'Completion code must be 4 to 64 characters.',
+  invalid_code_secret: 'The secret for per-worker codes must be 16 to 128 characters.',
+  invalid_code_mode: 'Choose a completion code type.',
+  unique_code_needs_link: 'Per-worker codes need a task link (we add the worker reference to it).',
 };
 
 function friendly(message: string, map: Record<string, string>) {
@@ -141,6 +155,8 @@ export async function fetchMyCampaigns(): Promise<Campaign[]> {
     status: c.status,
     createdAt: c.created_at,
     fundedAt: c.funded_at,
+    approvalMode: (c.approval_mode || 'manual') as ApprovalMode,
+    completionCodeMode: (c.completion_code_mode || null) as CodeMode | null,
   }));
 }
 
@@ -152,7 +168,11 @@ export async function createCampaignRpc(params: {
   reward: number;
   slots: number;
   targetUrl?: string;
-}): Promise<{ campaign_id: string; total_charge: number; reward_budget: number; platform_fee: number }> {
+  approvalMode?: ApprovalMode;
+  /** Sent once to the server, which stores only a salted hash (shared) or keeps the secret server-side (unique). */
+  completionCode?: string;
+  codeMode?: CodeMode;
+}): Promise<{ campaign_id: string; total_charge: number; reward_budget: number; platform_fee: number; approval_mode: ApprovalMode }> {
   if (!supabase) throw new Error('Database is not connected.');
   const { data, error } = await supabase.rpc('create_campaign', {
     p_title: params.title,
@@ -162,6 +182,9 @@ export async function createCampaignRpc(params: {
     p_reward: params.reward,
     p_slots: params.slots,
     p_target_url: params.targetUrl || null,
+    p_approval_mode: params.approvalMode || null,
+    p_completion_code: params.completionCode || null,
+    p_code_mode: params.completionCode ? params.codeMode || 'shared' : null,
   });
   if (error) throw new Error(friendly(error.message, CAMPAIGN_ERRORS));
   return data;
@@ -190,11 +213,23 @@ export interface ReviewSubmission {
   reviewNote: string | null;
   completedAt: string;
   reviewedAt: string | null;
+  approvalMode: ApprovalMode | null;
+  approvalSource: 'business' | 'admin' | 'instant' | 'auto_timeout' | 'legacy' | null;
+  payoutStatus: 'held' | 'released' | 'reversed' | null;
+  /** End of the review window: auto-approve time (pending) or release time (approved). */
+  reviewDeadlineAt: string | null;
+  checkFlags: string[];
+  reviewReasons: string[];
+  codeStatus: 'match' | 'mismatch' | 'missing' | null;
+  startedAt: string | null;
 }
+
+/** 'held' = approved but still inside the review window (can still be rejected). */
+export type ReviewListStatus = 'pending' | 'held' | 'approved' | 'rejected';
 
 export async function fetchReviewSubmissions(
   campaignId: string | null,
-  status: 'pending' | 'approved' | 'rejected' | null = 'pending'
+  status: ReviewListStatus | null = 'pending'
 ): Promise<ReviewSubmission[]> {
   if (!supabase) return [];
   const { data, error } = await supabase.rpc('list_review_submissions', {
@@ -216,7 +251,29 @@ export async function fetchReviewSubmissions(
     reviewNote: r.review_note,
     completedAt: r.completed_at,
     reviewedAt: r.reviewed_at,
+    approvalMode: r.approval_mode ?? null,
+    approvalSource: r.approval_source ?? null,
+    payoutStatus: r.payout_status ?? null,
+    reviewDeadlineAt: r.review_deadline_at ?? null,
+    checkFlags: Array.isArray(r.check_flags) ? r.check_flags : [],
+    reviewReasons: Array.isArray(r.review_reasons) ? r.review_reasons : [],
+    codeStatus: r.code_status ?? null,
+    startedAt: r.started_at ?? null,
   }));
+}
+
+/**
+ * Apply anything the review-window scheduler would do for the signed-in
+ * user's own submissions and campaigns (auto-approve unreviewed items and
+ * release closed windows). Safe and idempotent; ignored if 011 isn't applied.
+ */
+export async function processMyReviewWindows(): Promise<void> {
+  if (!supabase) return;
+  try {
+    await supabase.rpc('process_my_review_windows');
+  } catch {
+    // Best effort: the scheduler does the same work.
+  }
 }
 
 const REVIEW_ERRORS: Record<string, string> = {
@@ -224,6 +281,8 @@ const REVIEW_ERRORS: Record<string, string> = {
   admin_required: 'Only an admin can review this submission.',
   escrow_insufficient: 'Campaign escrow is too low to pay this reward.',
   cannot_review_own_submission: 'You cannot review your own submission.',
+  review_window_closed: 'The review window has closed, so this can no longer be rejected.',
+  not_reversible: 'This submission can no longer be changed.',
 };
 
 export async function reviewSubmissionRpc(completionId: string, approve: boolean, note?: string) {
