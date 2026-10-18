@@ -1,12 +1,14 @@
-import React, { useState } from 'react';
+import React, { Suspense, lazy, useState } from 'react';
 import { ChoiceButtons } from './Select';
-import { Briefcase, ChevronRight, Copy, FileText, IdCard, Loader2, LogOut, Moon, Share2, ShieldCheck, Sun } from 'lucide-react';
+import { Briefcase, ChevronRight, Copy, FileText, IdCard, Landmark, Loader2, LogOut, Moon, Share2, ShieldCheck, Sun } from 'lucide-react';
 import { Card, ErrorText, inputClass, Label, Modal, primaryButtonClass, secondaryButtonClass, StatusBadge } from './ui';
 import { submitKycRpc, updateProfileFullName } from '../lib/supabaseClient';
 import { becomeBusinessRpc } from '../lib/marketplace';
 import { formatNaira, referralOffer, type MarketplaceSettings } from '../config/marketplace';
 import type { ReferralItem, UserProfile } from '../types';
 import { AdminReviews } from './AdminReviews';
+// Admin-only screen: loaded on first open so it never ships in the main bundle.
+const AdminMoney = lazy(() => import('./AdminMoney'));
 
 const KYC_TYPES: { id: string; label: string }[] = [
   { id: 'nin', label: 'NIN' },
@@ -83,6 +85,7 @@ export function ProfileTab({
   const [sheet, setSheet] = useState<null | 'name' | 'kyc' | 'business'>(null);
   const [showIdForm, setShowIdForm] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
+  const [moneyOpen, setMoneyOpen] = useState(false);
   const [fullName, setFullName] = useState(user.fullName);
   const [kycType, setKycType] = useState('');
   const [kycTried, setKycTried] = useState(false);
@@ -199,9 +202,17 @@ export function ProfileTab({
         {user.role === 'admin' && (
           <Row icon={<ShieldCheck className="w-4 h-4" />} label="Review accounts" value="Bank name checks" onClick={() => setAdminOpen(true)} />
         )}
+        {user.role === 'admin' && (
+          <Row icon={<Landmark className="w-4 h-4" />} label="Money" value="Deposits, payouts, revenue" onClick={() => setMoneyOpen(true)} />
+        )}
       </div>
 
       {user.role === 'admin' && <AdminReviews open={adminOpen} onClose={() => setAdminOpen(false)} notify={notify} />}
+      {user.role === 'admin' && moneyOpen && (
+        <Suspense fallback={null}>
+          <AdminMoney open onClose={() => setMoneyOpen(false)} />
+        </Suspense>
+      )}
 
       <div className="px-1 text-sm text-zinc-500 space-y-1">
         <p>{user.email}</p>
