@@ -31,8 +31,8 @@ export function WalletTab({
   transactions: TxItem[];
   onChanged: () => Promise<void>;
   notify: (title: string, subtitle: string) => void;
-  /** Open Profile > Verify identity. */
-  onVerifyId: () => void;
+  /** Open Profile > Verify identity. Optional so previews can render the tab. */
+  onVerifyId?: () => void;
 }) {
   const bank = banks[0];
   // Withdrawals need a verified ID (the server enforces it; this is the friendly prompt).
@@ -258,7 +258,7 @@ export function WalletTab({
             className={primaryButtonClass}
             onClick={() => {
               setIdGate(null);
-              onVerifyId();
+              onVerifyId?.();
             }}
           >
             {idGate.action}
