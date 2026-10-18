@@ -1,8 +1,7 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { ArrowLeft, Briefcase, ChevronDown, Eye, EyeOff, Loader2, Smartphone, X } from 'lucide-react';
 import { ErrorText, Mascot } from './ui';
-import { ChoiceButtons, Combobox, type ComboOption } from './Select';
-import { HEARD_ABOUT_OPTIONS, NIGERIAN_STATES, OTHER_SCHOOL, SCHOOLS, STUDY_LEVELS, type HeardAboutId } from '../config/signupOptions';
+import { HEARD_ABOUT_US_OPTIONS } from '../config/marketplace';
 import {
   checkDuplicateUser,
   resendVerificationEmail,
@@ -11,6 +10,11 @@ import {
   supabase,
 } from '../lib/supabaseClient';
 import { celebrate } from '../lib/celebrate';
+import { ChoiceButtons, Combobox, type ComboOption } from './Select';
+import { HEARD_ABOUT_OPTIONS, NIGERIAN_STATES, OTHER_SCHOOL, SCHOOLS, STUDY_LEVELS, type HeardAboutId } from '../config/signupOptions';
+
+// Old list kept importable until #13/#14 land (they edit the lines around it); the form now uses HEARD_ABOUT_OPTIONS.
+void HEARD_ABOUT_US_OPTIONS;
 
 export type AuthMode = 'signin' | 'signup' | 'verify_email' | 'forgot' | 'reset';
 export type AccountType = 'worker' | 'business';
