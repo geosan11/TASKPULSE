@@ -231,6 +231,12 @@ async function paystackRequest<T = any>(
 // =========================================================================
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  const action = adminActionOf(req);
+  if (action !== null) return adminHandler(req, res, action);
+  return linkBankHandler(req, res);
+}
+
+async function linkBankHandler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ status: false, message: 'Method Not Allowed' });
   }
@@ -412,6 +418,178 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       data: savedBank,
       identity: { kyc_status: kycStatus, name_match: nameCheck.match },
     });
+  } catch (err: any) {
+    return handleApiError(res, err);
+  }
+}
+
+// =========================================================================
+// ADMIN ACTIONS: IDENTITY REVIEW + BACKFILL (same function as link-bank, so
+// they cost no extra Vercel function; dispatched on `action`)
+// =========================================================================
+// Admins only (profiles.role = 'admin', which can only be granted in SQL).
+// Everyone else gets 404 for any request that carries an `action`, so the
+// admin actions do not advertise themselves. Plain bank linking (POST without
+// `action`) is unchanged.
+//
+//   GET  ?action=reviews                  -> open review items
+//   POST { action: 'approve' | 'reject', reviewId, note? }
+//   POST { action: 'set_name', username, fullName }   (support: change a
+//        verified user's locked name; the DB lets service_role through)
+//   POST { action: 'backfill', after?, limit?, dryRun? }
+//        Resolves saved bank accounts of users who are not verified yet with
+//        Paystack and applies the same name check as linking a bank. Paged:
+//        call again with after = nextCursor until nextCursor is null.
+
+const BACKFILL_BUDGET_MS = 7000; // stay inside the serverless time limit
+
+async function requireAdmin(req: VercelRequest): Promise<{ user: User; client: SupabaseClient }> {
+  let user: User;
+  try {
+    ({ user } = await requireUser(req));
+  } catch (err) {
+    if (err instanceof HttpError) throw new HttpError(404, 'Not found');
+    throw err;
+  }
+  const client = getSupabaseClient();
+  const { data: me, error } = await client.from('profiles').select('role').eq('id', user.id).maybeSingle();
+  if (error) throw new HttpError(503, 'Could not check access. Try again.');
+  if (me?.role !== 'admin') throw new HttpError(404, 'Not found');
+  return { user, client };
+}
+
+function isPlaceholderName(name: string | null | undefined) {
+  return !name || ['user', 'new user', 'guest'].includes(name.trim().toLowerCase());
+}
+
+async function resolveAccountName(accountNumber: string, bankCode: string): Promise<string | null> {
+  const query = new URLSearchParams({ account_number: accountNumber, bank_code: bankCode });
+  const r = await paystackRequest<{ status: boolean; data?: { account_name?: string } }>(`/bank/resolve?${query.toString()}`);
+  const name = r.ok && r.data?.status ? String(r.data.data?.account_name || '').trim() : '';
+  return name || null;
+}
+
+/** The admin action named by the request, or null for a normal bank-link call. */
+function adminActionOf(req: VercelRequest): string | null {
+  const raw = req.method === 'GET' ? (req.query || {}).action : (req.body || {}).action;
+  const action = Array.isArray(raw) ? raw[0] : raw;
+  return typeof action === 'string' && action.length > 0 ? action : null;
+}
+
+async function adminHandler(req: VercelRequest, res: VercelResponse, action: string) {
+  try {
+    if (req.method !== 'GET' && req.method !== 'POST') throw new HttpError(404, 'Not found');
+    const { user, client } = await requireAdmin(req);
+
+    if (req.method === 'GET') {
+      if (action !== 'reviews') throw new HttpError(400, 'Unknown action.');
+      const { data, error } = await client.rpc('list_identity_reviews', { p_limit: 200 });
+      if (error) throw new HttpError(500, `Could not load reviews: ${error.message}`);
+      return res.status(200).json({ status: true, data: { items: data || [] } });
+    }
+
+    const body = req.body || {};
+
+    if (action === 'approve' || action === 'reject') {
+      const reviewId = String(body.reviewId || '');
+      if (!/^[0-9a-f-]{36}$/i.test(reviewId)) throw new HttpError(400, 'reviewId is required.');
+      const { data, error } = await client.rpc('decide_identity_review', {
+        p_review_id: reviewId,
+        p_approve: action === 'approve',
+        p_admin: user.id,
+        p_note: body.note ? String(body.note).slice(0, 500) : null,
+      });
+      if (error) {
+        if (error.message.includes('review_not_found')) throw new HttpError(404, 'Review not found.');
+        throw new HttpError(500, `Could not save the decision: ${error.message}`);
+      }
+      return res.status(200).json({ status: true, data });
+    }
+
+    if (action === 'set_name') {
+      const username = String(body.username || '').trim().replace(/^@/, '').toLowerCase();
+      const fullName = String(body.fullName || '').trim().replace(/\s+/g, ' ');
+      if (!username) throw new HttpError(400, 'username is required.');
+      if (fullName.length < 2 || fullName.length > 100) throw new HttpError(400, 'Enter a name of 2 to 100 characters.');
+      const { data, error } = await client
+        .from('profiles')
+        .update({ full_name: fullName })
+        .eq('username', username)
+        .select('id, username, full_name, kyc_status');
+      if (error) throw new HttpError(500, `Could not change the name: ${error.message}`);
+      if (!data || data.length === 0) throw new HttpError(404, 'No user with that username.');
+      console.log('[link-bank admin] name changed', { by: user.id, user: data[0].id });
+      return res.status(200).json({ status: true, data: data[0] });
+    }
+
+    if (action === 'backfill') {
+      const dryRun = body.dryRun === true;
+      const limit = Math.min(Math.max(Number(body.limit) || 20, 1), 50);
+      const after = body.after && /^[0-9a-f-]{36}$/i.test(String(body.after)) ? String(body.after) : null;
+      const { data: rows, error } = await client.rpc('list_identity_backfill_candidates', { p_after: after, p_limit: limit });
+      if (error) throw new HttpError(500, `Could not load accounts: ${error.message}`);
+
+      const started = Date.now();
+      const results: { user_id: string; account: string; outcome: string; matched?: boolean }[] = [];
+      let lastId: string | null = after;
+      let stoppedEarly = false;
+      for (const row of (rows || []) as any[]) {
+        if (Date.now() - started > BACKFILL_BUDGET_MS) {
+          stoppedEarly = true;
+          break;
+        }
+        lastId = row.bank_account_id;
+        const masked = `******${String(row.account_number).slice(-4)}`;
+        let resolved: string | null = null;
+        try {
+          resolved = await resolveAccountName(row.account_number, row.bank_code);
+        } catch {
+          resolved = null;
+        }
+        if (!resolved) {
+          results.push({ user_id: row.user_id, account: masked, outcome: 'resolve_failed' });
+          continue;
+        }
+        const profileName = isPlaceholderName(row.full_name) ? '' : String(row.full_name);
+        const check = matchNames(profileName, resolved);
+        if (dryRun) {
+          results.push({ user_id: row.user_id, account: masked, outcome: check.match ? 'would_verify' : 'would_queue', matched: check.match });
+          continue;
+        }
+        const { data: applied, error: applyErr } = await client.rpc('record_bank_identity_check', {
+          p_user_id: row.user_id,
+          p_bank_account_id: row.bank_account_id,
+          p_bank_account_name: resolved,
+          p_profile_name: profileName,
+          p_matched: check.match,
+          p_reason: check.reason,
+          p_detail: { matched: check.matched, required: check.required, profile: check.profileUnits, bank: check.bankUnits },
+          p_source: 'backfill',
+        });
+        if (applyErr) {
+          console.error('[link-bank admin] backfill apply failed', row.user_id, applyErr);
+          results.push({ user_id: row.user_id, account: masked, outcome: 'error', matched: check.match });
+        } else {
+          results.push({ user_id: row.user_id, account: masked, outcome: (applied as any)?.kyc_status || 'unknown', matched: check.match });
+        }
+      }
+      const more = stoppedEarly || (rows || []).length === limit;
+      const count = (o: string) => results.filter(r => r.outcome === o).length;
+      return res.status(200).json({
+        status: true,
+        data: {
+          dryRun,
+          processed: results.length,
+          verified: count('verified') + count('would_verify'),
+          pending: count('pending') + count('would_queue'),
+          failed: count('resolve_failed') + count('error'),
+          results,
+          nextCursor: more ? lastId : null,
+        },
+      });
+    }
+
+    throw new HttpError(400, 'Unknown action.');
   } catch (err: any) {
     return handleApiError(res, err);
   }

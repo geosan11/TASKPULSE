@@ -1,6 +1,6 @@
 /**
- * /api/link-bank (bank-name identity check) and /api/admin-identity (admin
- * review + backfill) with Supabase and Paystack mocked. No network, no secrets.
+ * /api/link-bank: bank-name identity check, plus its admin actions (review +
+ * backfill + name change, dispatched on `action`) with Supabase and Paystack mocked. No network, no secrets.
  * Run: npm run test:bank-identity
  */
 let failed = 0;
@@ -91,7 +91,7 @@ const run = async (h: any, req: any) => {
 };
 
 const linkBank = (await import('../../api/link-bank.ts')).default;
-const admin = (await import('../../api/admin-identity.ts')).default;
+const admin = linkBank; // admin actions live in the same function (no extra Vercel function)
 const linkBody = { accountNumber: '0123456789', bankCode: '058', bankName: 'GTBank', accountName: 'CLIENT SAYS SO' };
 
 // ---- link-bank -----------------------------------------------------------
@@ -137,21 +137,25 @@ for (const err of [{ message: 'bank_linked_to_other_user' }, { message: 'duplica
 }
 state.saveError = null;
 
-// ---- admin-identity ------------------------------------------------------
+// ---- admin actions (same function) ---------------------------------------
+r = await run(linkBank, { method: 'GET' });
+check('link: GET without action is still 405', r.statusCode === 405, r.payload);
 state.role = 'worker';
-r = await run(admin, { method: 'GET' });
+r = await run(admin, { method: 'GET', query: { action: 'reviews' } });
 check('admin: non-admin gets 404', r.statusCode === 404 && !calls.some(c => c.url.includes('/rpc/')), r.payload);
 r = await run(admin, { method: 'POST', body: { action: 'backfill' } });
+r = await run(admin, { method: 'POST', body: { action: 'whatever' } });
+check('admin: non-admin with any unknown action gets 404', r.statusCode === 404, r.payload);
 r = await run(admin, { method: 'POST', body: { action: 'set_name', username: 'someone', fullName: 'New Name' } });
 check('admin: non-admin cannot change names (404, no write)', r.statusCode === 404 && !calls.some(c => c.method === 'PATCH'), r.payload);
 r = await run(admin, { method: 'POST', body: { action: 'backfill' } });
 check('admin: non-admin backfill 404, no Paystack', r.statusCode === 404 && !calls.some(c => c.url.includes('paystack')), r.payload);
 state.authUser = null;
-r = await run(admin, { method: 'GET', headers: {} });
+r = await run(admin, { method: 'GET', headers: {}, query: { action: 'reviews' } });
 check('admin: signed out gets 404', r.statusCode === 404, r.payload);
 state.authUser = ADMIN;
 state.role = 'admin';
-r = await run(admin, { method: 'GET' });
+r = await run(admin, { method: 'GET', query: { action: 'reviews' } });
 check('admin: lists open reviews', r.statusCode === 200 && r.payload?.data?.items?.length === 1, r.payload);
 r = await run(admin, { method: 'POST', body: { action: 'approve', reviewId: '11111111-2222-4333-8444-555555555555' } });
 const dec = rpcBodies('decide_identity_review')[0];

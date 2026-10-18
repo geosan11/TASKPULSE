@@ -246,11 +246,11 @@ export type IdentityReviewItem = {
 };
 
 export async function fetchIdentityReviews() {
-  return await apiFetch<{ status: boolean; data: { items: IdentityReviewItem[] } }>('/api/admin-identity');
+  return await apiFetch<{ status: boolean; data: { items: IdentityReviewItem[] } }>('/api/link-bank?action=reviews');
 }
 
 export async function decideIdentityReview(reviewId: string, approve: boolean, note?: string) {
-  return await apiFetch<{ status: boolean; data: any }>('/api/admin-identity', {
+  return await apiFetch<{ status: boolean; data: any }>('/api/link-bank', {
     method: 'POST',
     body: JSON.stringify({ action: approve ? 'approve' : 'reject', reviewId, note }),
   });
@@ -258,7 +258,7 @@ export async function decideIdentityReview(reviewId: string, approve: boolean, n
 
 /** Support: change a user's (possibly locked) profile name. Admin only. */
 export async function adminSetFullName(username: string, fullName: string) {
-  return await apiFetch<{ status: boolean; data: { id: string; username: string; full_name: string; kyc_status: string } }>('/api/admin-identity', {
+  return await apiFetch<{ status: boolean; data: { id: string; username: string; full_name: string; kyc_status: string } }>('/api/link-bank', {
     method: 'POST',
     body: JSON.stringify({ action: 'set_name', username, fullName }),
   });
@@ -275,7 +275,7 @@ export type BackfillPage = {
 };
 
 export async function runIdentityBackfill(params: { after?: string | null; limit?: number; dryRun?: boolean }) {
-  return await apiFetch<{ status: boolean; data: BackfillPage }>('/api/admin-identity', {
+  return await apiFetch<{ status: boolean; data: BackfillPage }>('/api/link-bank', {
     method: 'POST',
     body: JSON.stringify({ action: 'backfill', ...params }),
   });

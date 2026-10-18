@@ -62,7 +62,7 @@ const block = (file: string) => {
   return a >= 0 && z > a ? t.slice(a, z) : null;
 };
 const canonical = block('../../src/lib/nameMatch.ts');
-for (const f of ['../../api/link-bank.ts', '../../api/admin-identity.ts']) {
+for (const f of ['../../api/link-bank.ts']) {
   check(`${f.replace('../../', '')} matcher copy is identical`, canonical !== null && block(f) === canonical);
 }
 

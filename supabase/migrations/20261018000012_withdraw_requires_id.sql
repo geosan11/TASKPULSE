@@ -38,7 +38,7 @@
 --      user stays rejected; a user in a shared-account review stays pending.
 --   6. list_identity_reviews() / decide_identity_review() /
 --      list_identity_backfill_candidates(): server-only, used by
---      api/admin-identity.ts (admins = profiles.role 'admin').
+--      the admin actions of api/link-bank.ts (admins = profiles.role 'admin').
 --   7. save_verified_bank_account(): also refuses an account that another
 --      user holds even if that row is inactive (unique index backs it up).
 --   9. Name lock: once kyc_status = 'verified', a user can no longer change
@@ -396,7 +396,7 @@ END;
 $$;
 
 -- -------------------------------------------------------------------------
--- 7. ADMIN REVIEW (called by api/admin-identity.ts after it checks the admin)
+-- 7. ADMIN REVIEW (called by api/link-bank.ts admin actions after it checks the admin)
 -- -------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.list_identity_reviews(p_limit INT DEFAULT 100)
 RETURNS TABLE (

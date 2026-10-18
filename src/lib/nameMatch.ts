@@ -1,7 +1,7 @@
 // Forgiving match between a TaskPulse profile name and the account name a
 // bank returns for a NUBAN (via Paystack /bank/resolve). Pure, no imports.
 //
-// KEEP IN SYNC: api/link-bank.ts and api/admin-identity.ts carry a verbatim
+// KEEP IN SYNC: api/link-bank.ts carries a verbatim
 // copy of the block between the <name-match> markers (Vercel handlers here
 // are self-contained; see the header of api/link-bank.ts).
 // scripts/tests/name-match.test.ts fails if the copies drift.
