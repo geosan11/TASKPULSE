@@ -17,7 +17,7 @@ const TEXT: Record<SpotsTone, string> = {
 
 /**
  * Slim "spots taken" bar with a plain label: "33 of 50 spots left",
- * "Only 4 left", "Full". Fills by spots taken.
+ * "Only 4 left", "All spots taken". Fills by spots taken.
  */
 export function SpotsBar({
   left,
@@ -144,7 +144,7 @@ export function AcceptTaskPanel({ task }: { task: DbTask }) {
         }}
       >
         {busy && <Loader2 className="w-5 h-5 animate-spin" />}
-        {full ? 'Full' : 'Accept task'}
+        {full ? 'All spots taken' : 'Accept task'}
       </button>
       <p className="text-xs text-zinc-400 text-center">
         {full ? 'All spots are taken. A spot opens again if someone gives theirs up.' : 'Accepting holds a spot for you while you do the task.'}

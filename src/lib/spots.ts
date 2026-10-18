@@ -21,7 +21,7 @@ export function spotsState(left: number, total: number): { left: number; total: 
   const t = Math.max(0, Math.floor(total || 0));
   const l = Math.min(t, Math.max(0, Math.floor(left || 0)));
   const tone: SpotsTone = l <= 0 ? 'full' : l < LOW_SPOTS ? 'low' : 'normal';
-  const label = tone === 'full' ? 'Full' : tone === 'low' ? `Only ${l} left` : `${l} of ${t} spots left`;
+  const label = tone === 'full' ? 'All spots taken' : tone === 'low' ? `Only ${l} left` : `${l} of ${t} spots left`;
   return { left: l, total: t, taken: t - l, tone, label };
 }
 

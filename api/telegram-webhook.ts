@@ -83,7 +83,7 @@ export interface OpenTask { id: string; title: string; company: string; reward: 
 
 /** Same wording as the app (src/lib/spots.ts): "33 of 50 spots left", "Only 4 left". */
 export function spotsText(left: number, total: number) {
-  if (left <= 0) return 'Full';
+  if (left <= 0) return 'All spots taken';
   if (left < 10) return `Only ${left} left`;
   return total >= left ? `${left} of ${total} spots left` : `${left} spots left`;
 }
