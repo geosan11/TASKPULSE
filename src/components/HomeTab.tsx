@@ -3,6 +3,7 @@ import { Card, Mascot, primaryButtonClass } from './ui';
 import { formatNaira, referralOffer, type MarketplaceSettings } from '../config/marketplace';
 import type { DbTask } from '../lib/supabaseClient';
 import type { UserProfile } from '../types';
+import { IntlNote } from './IntlNote';
 
 function greeting() {
   const h = Number(new Date().toLocaleString('en-GB', { hour: '2-digit', hour12: false, timeZone: 'Africa/Lagos' }));
@@ -51,6 +52,7 @@ export function HomeTab({
           {user.streakDays}
         </button>
       </div>
+      {!businessMode && <IntlNote audience="worker" className="-mt-3 mb-3" />}
 
       <div className="rounded-[28px] bg-ink dark:bg-zinc-900 dark:border dark:border-zinc-800 text-white p-6 space-y-5">
         <div>
