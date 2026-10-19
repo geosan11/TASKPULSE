@@ -2,7 +2,7 @@
  * TaskPulse: free-to-join micro-task marketplace.
  * Businesses fund campaigns via Paystack; workers earn from approved tasks.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { Analytics } from '@vercel/analytics/react';
 import { CheckSquare, Home, Moon, Sun, User, Wallet, WifiOff } from 'lucide-react';
 import { celebrate } from './lib/celebrate';
@@ -23,7 +23,11 @@ import { verifyPayment } from './lib/api';
 import { fetchMarketplaceSettings, fetchMyCampaigns, processMyReviewWindows } from './lib/marketplace';
 import { DEFAULT_MARKETPLACE_SETTINGS, formatNaira, type MarketplaceSettings } from './config/marketplace';
 import type { MySubmission, ReferralItem, SavedBank, TxItem, UserProfile } from './types';
-import { Toast } from './components/ui';
+import { ErrorPanel, Toast } from './components/ui';
+import { PulseEmote } from './components/PulseEmote';
+import { RewardToast } from './components/RewardToast';
+import { useMoments, useNewTaskCount } from './lib/useMoments';
+import { useChangeKey } from './lib/motion';
 import { Landing } from './components/Landing';
 import { AuthModal, lastAuthTab, type AccountType, type AuthMode } from './components/AuthModal';
 import { TermsModal } from './components/TermsModal';
@@ -39,6 +43,24 @@ import { applyRouteHead } from './lib/seo';
 
 type Tab = 'home' | 'tasks' | 'wallet' | 'profile';
 
+// Dev-only component gallery at /__preview (also in a build made with
+// VITE_UI_PREVIEW=1 for screenshots). Compiled out of normal production builds.
+const UI_PREVIEW = import.meta.env.DEV || import.meta.env.VITE_UI_PREVIEW === '1';
+const EmotePreview = UI_PREVIEW ? lazy(() => import('./dev/EmotePreview')) : null;
+
+/** Nav badge that does a small bounce when its count changes (not on first render). */
+function NavBadge({ text }: { text: string }) {
+  const k = useChangeKey(text);
+  return (
+    <span
+      key={k}
+      className={`absolute -top-1.5 left-[60%] min-w-[20px] h-5 px-1.5 rounded-full bg-pulse-500 text-white text-[11px] font-bold leading-5 text-center ring-2 ring-white dark:ring-zinc-900 ${k > 0 ? 'badge-bounce' : ''}`}
+    >
+      {text}
+    </span>
+  );
+}
+
 const lagosToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Lagos' });
 
 export default function App() {
@@ -48,6 +70,8 @@ export default function App() {
   const [settings, setSettings] = useState<MarketplaceSettings>(DEFAULT_MARKETPLACE_SETTINGS);
   const [activeTab, setActiveTab] = useState<Tab>('home');
   const [booting, setBooting] = useState(true);
+  const [tasksLoaded, setTasksLoaded] = useState(false);
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
 
   const [user, setUser] = useState<UserProfile | null>(null);
   const [tasks, setTasks] = useState<DbTask[]>([]);
@@ -112,6 +136,7 @@ export default function App() {
 
   const loadTasks = useCallback(async () => {
     setTasks(await fetchActiveTasks());
+    setTasksLoaded(true);
   }, []);
 
   const refreshUserData = useCallback(async () => {
@@ -211,6 +236,7 @@ export default function App() {
         accountNumber: b.account_number,
       }))
     );
+    setLoadedFor(authUser.id);
   }, []);
 
   useEffect(() => {
@@ -279,7 +305,11 @@ export default function App() {
                   : 'This campaign was already funded. The extra payment is listed for a full refund.'
               );
             } else {
-              celebrate('Your task is live!', `${formatNaira(res.data.amount)} received. People can start now.`);
+              celebrate('Your task is live!', `${formatNaira(res.data.amount)} received. People can start now.`, {
+                emote: 'clap',
+                effect: 'confetti',
+                id: `campaign-live:${payRef}`,
+              });
             }
             setBusinessMode(true);
             setActiveTab('tasks');
@@ -373,8 +403,17 @@ export default function App() {
     };
   }, [user, businessMode, activeTab]);
 
+  const { rejected, dismissRejected } = useMoments({
+    userId: user?.id ?? null,
+    ready: Boolean(user && loadedFor === user.id),
+    submissions,
+    transactions,
+  });
+  const [newTaskCount, clearNewTasks] = useNewTaskCount(user?.id ?? null, tasksLoaded, tasks);
+
   const goto = (tab: Tab) => {
     if (tab !== 'tasks') setSelectedTask(null);
+    if (tab === 'tasks') clearNewTasks();
     setActiveTab(tab);
   };
 
@@ -393,7 +432,11 @@ export default function App() {
 
   return (
     <div className={`h-[100dvh] w-full overflow-hidden flex justify-center ${isDarkMode ? 'dark bg-ink' : 'bg-zinc-100'}`}>
-      {path === '/business' ? (
+      {EmotePreview && path === '/__preview' ? (
+        <Suspense fallback={null}>
+          <EmotePreview isDarkMode={isDarkMode} onToggleTheme={() => setIsDarkMode(d => !d)} />
+        </Suspense>
+      ) : path === '/business' ? (
         <BusinessPage
           settings={settings}
           isDarkMode={isDarkMode}
@@ -459,7 +502,10 @@ export default function App() {
           }`}
         >
           {booting ? (
-            <div className="h-full flex items-center justify-center text-sm text-zinc-400">Loading…</div>
+            <div className="h-full flex flex-col items-center justify-center gap-2 text-sm text-zinc-400" role="status">
+              <PulseEmote name="determined" size={88} animate="pop" eager alt="" />
+              Loading…
+            </div>
           ) : !user ? (
             <Landing
               settings={settings}
@@ -470,12 +516,30 @@ export default function App() {
               onSeePricing={() => navigate('/business')}
               onOpenTerms={tab => setTermsOpen(tab)}
             />
-          ) : activeTab === 'home' ? (
+          ) : (
+            <div key={activeTab} className="tab-enter">
+            {!businessMode && (activeTab === 'home' || activeTab === 'tasks') && rejected[0] && !selectedTask && (
+              <div className="mb-5">
+                <ErrorPanel
+                  emote="sad"
+                  title={`Proof not accepted: ${rejected[0].taskTitle}`}
+                  message={rejected[0].reviewNote ? `Reason: “${rejected[0].reviewNote}”` : 'The business did not accept this proof. Read the steps carefully on your next task.'}
+                  actionLabel="Find another task"
+                  onAction={() => {
+                    dismissRejected(rejected[0].id);
+                    goto('tasks');
+                  }}
+                />
+              </div>
+            )}
+            {activeTab === 'home' ? (
             <HomeTab
               user={user}
               settings={settings}
               tasks={tasks}
               businessMode={businessMode}
+              hasSubmissions={submissions.length > 0}
+              newTaskCount={newTaskCount}
               onCheckIn={handleCheckIn}
               onOpenTask={t => {
                 setSelectedTask(t);
@@ -510,6 +574,8 @@ export default function App() {
               notify={notify}
             />
           )}
+            </div>
+          )}
         </main>
 
         {user && (
@@ -540,11 +606,7 @@ export default function App() {
                   >
                     <span className="relative">
                       {t.icon}
-                      {badge && (
-                        <span className="absolute -top-1.5 left-[60%] min-w-[20px] h-5 px-1.5 rounded-full bg-pulse-500 text-white text-[11px] font-bold leading-5 text-center ring-2 ring-white dark:ring-zinc-900">
-                          {badge}
-                        </span>
-                      )}
+                      {badge && <NavBadge text={badge} />}
                     </span>
                     <span className={`text-xs ${active ? 'font-bold' : 'font-semibold'}`}>{t.label}</span>
                   </button>
@@ -577,6 +639,7 @@ export default function App() {
       {termsOpen && <TermsModal key={termsOpen} open onClose={closeTerms} initialTab={termsOpen} settings={settings} />}
       <Toast show={toast.show} title={toast.title} subtitle={toast.subtitle} onClose={() => setToast(t => ({ ...t, show: false }))} />
       <Celebration />
+      <RewardToast />
       <Analytics />
     </div>
   );

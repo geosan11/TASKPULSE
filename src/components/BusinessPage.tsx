@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ArrowRight, Ban, Check, ChevronDown, ClipboardCheck, CreditCard, Mail, Megaphone, ShieldCheck, Sparkles, Users } from 'lucide-react';
 import { Mascot } from './ui';
+import { PulseEmote } from './PulseEmote';
 import { CATEGORY_HINTS, computeCampaignCost, formatNaira, NOT_ALLOWED_TASKS, TASK_CATEGORIES, type MarketplaceSettings } from '../config/marketplace';
 import { navigate } from '../lib/router';
 import { IntlNote } from './IntlNote';
@@ -167,7 +168,7 @@ export function BusinessPage({
 
             {/* Worked example card */}
             <div className="relative">
-              <Mascot pose="happy" className="hidden sm:block absolute -top-14 -right-2 w-28 h-28 z-10" bob />
+              <PulseEmote name="wink" size={112} animate="pop" eager alt="" className="hidden sm:block absolute -top-14 -right-2 z-10" />
               <div className="rounded-[28px] bg-ink text-white p-6 sm:p-8 shadow-[0_20px_60px_rgba(0,0,0,0.25)] border border-zinc-800">
                 <p className="text-sm font-bold text-pulse-400">Worked example</p>
                 <p className="mt-1 text-xl font-extrabold">

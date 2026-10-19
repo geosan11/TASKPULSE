@@ -1,5 +1,6 @@
 import { ArrowRight, Flame, Gift, Plus } from 'lucide-react';
-import { Card, Mascot, primaryButtonClass } from './ui';
+import { AnimatedNaira, Card, Mascot, primaryButtonClass } from './ui';
+import { PulseEmote } from './PulseEmote';
 import { formatNaira, referralOffer, type MarketplaceSettings } from '../config/marketplace';
 import type { DbTask } from '../lib/supabaseClient';
 import { spotsState } from '../lib/spots';
@@ -18,6 +19,8 @@ export function HomeTab({
   settings,
   tasks,
   businessMode,
+  hasSubmissions,
+  newTaskCount,
   onCheckIn,
   onOpenTask,
   onGoto,
@@ -26,6 +29,9 @@ export function HomeTab({
   settings: MarketplaceSettings;
   tasks: DbTask[];
   businessMode: boolean;
+  hasSubmissions: boolean;
+  /** Open tasks that appeared since the last visit (0 on the very first one). */
+  newTaskCount: number;
   onCheckIn: () => Promise<void>;
   onOpenTask: (task: DbTask | null) => void;
   onGoto: (tab: 'tasks' | 'wallet' | 'profile') => void;
@@ -58,7 +64,9 @@ export function HomeTab({
       <div className="rounded-[28px] bg-ink dark:bg-zinc-900 dark:border dark:border-zinc-800 text-white p-6 space-y-5">
         <div>
           <p className="text-sm text-zinc-400">Available to withdraw</p>
-          <p className="text-[40px] leading-none font-extrabold tracking-tight mt-2">{formatNaira(user.withdrawableBalance)}</p>
+          <p data-coin-target className="inline-block origin-left text-[40px] leading-none font-extrabold tracking-tight mt-2 tabular-nums">
+            <AnimatedNaira value={user.withdrawableBalance} format={formatNaira} />
+          </p>
         </div>
         <div className="flex items-center justify-between text-sm">
           <span className="text-zinc-400">
@@ -74,9 +82,39 @@ export function HomeTab({
         <button type="button" className={primaryButtonClass} onClick={() => onGoto('tasks')}>
           <Plus className="w-5 h-5" /> Post a task
         </button>
+      ) : user.approvedTaskCount === 0 && !hasSubmissions && tasks.length > 0 ? (
+        <div className="flex items-center gap-4 p-4 rounded-3xl bg-pulse-500/10 dark:bg-pulse-500/10 border border-pulse-500/20">
+          <PulseEmote name="determined" size={72} alt="" className="shrink-0" />
+          <div className="min-w-0 flex-1 space-y-2">
+            <div>
+              <p className="text-[15px] font-extrabold text-ink dark:text-white">Do your first task</p>
+              <p className="text-sm text-zinc-600 dark:text-zinc-400">Takes a few minutes. Your first approval unlocks withdrawals.</p>
+            </div>
+            <button type="button" className="tactile h-10 px-5 rounded-full bg-pulse-500 hover:bg-pulse-600 text-ink text-sm font-bold cursor-pointer" onClick={() => onOpenTask(tasks[0])}>
+              Start a task
+            </button>
+          </div>
+        </div>
       ) : (
         <button type="button" className={primaryButtonClass} onClick={() => onOpenTask(tasks[0] || null)}>
           Start a task
+        </button>
+      )}
+
+      {!businessMode && newTaskCount > 0 && (
+        <button
+          type="button"
+          onClick={() => onGoto('tasks')}
+          className="tactile pe-pop w-full flex items-center gap-3 p-3 pr-4 rounded-3xl bg-white dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 text-left cursor-pointer"
+        >
+          <PulseEmote name="idea" size={52} animate="blink" alt="" className="shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="text-[15px] font-bold text-ink dark:text-white">
+              {newTaskCount === 1 ? 'A new task just landed' : `${newTaskCount} new tasks just landed`}
+            </p>
+            <p className="text-xs text-zinc-500">Grab a slot before they fill up.</p>
+          </div>
+          <ArrowRight className="w-4 h-4 text-zinc-400 shrink-0" />
         </button>
       )}
 
@@ -92,8 +130,11 @@ export function HomeTab({
           </div>
           {tasks.length === 0 ? (
             <div className="flex items-center gap-3 p-4 rounded-3xl bg-zinc-100 dark:bg-zinc-900">
-              <Mascot pose="thinking" className="w-12 h-12 shrink-0" />
-              <p className="text-sm text-zinc-500 dark:text-zinc-400">No tasks right now. New ones appear as businesses post them.</p>
+              <PulseEmote name="wink" size={64} animate="bob" alt="" className="shrink-0" />
+              <div className="min-w-0">
+                <p className="text-[15px] font-bold text-ink dark:text-white">Be first in line for paid tasks.</p>
+                <p className="text-sm text-zinc-500 dark:text-zinc-400">New ones appear here as businesses post them.</p>
+              </div>
             </div>
           ) : (
             <div className="rounded-3xl border border-zinc-200 dark:border-zinc-800 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">

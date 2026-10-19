@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Clock, ExternalLink, ImagePlus, Loader2, Users } from 'lucide-react';
-import { Card, EmptyState, ErrorText, inputClass, Label, primaryButtonClass, Segmented, StatusPill, textareaClass } from './ui';
+import { Card, EmptyState, ErrorPanel, ErrorText, inputClass, Label, primaryButtonClass, Segmented, StatusPill, textareaClass } from './ui';
 import { formatNaira, timeLeftLabel } from '../config/marketplace';
 import { requestProofHash, startTaskRpc, submitTaskProofRpc, uploadTaskProofImage, type DbTask, type TaskStart } from '../lib/supabaseClient';
 import { celebrate } from '../lib/celebrate';
+import { markSeen } from '../lib/motion';
+import { PulseEmote } from './PulseEmote';
 import { formatDateTime, type MySubmission, type UserProfile } from '../types';
 import { AcceptTaskPanel, isTaskFull, TaskSpotsBar, TaskSpotsStatus, useHasSpot } from './SpotsBar';
 import { useTaskFeed } from '../lib/spots';
@@ -15,7 +17,9 @@ export function TasksTab({
   selected,
   onSelect,
   onSubmitted,
+  initialView = 'available',
 }: {
+  initialView?: 'available' | 'mine';
   user: UserProfile;
   tasks: DbTask[];
   submissions: MySubmission[];
@@ -23,13 +27,14 @@ export function TasksTab({
   onSelect: (t: DbTask | null) => void;
   onSubmitted: () => Promise<void>;
 }) {
-  const [view, setView] = useState<'available' | 'mine'>('available');
+  const [view, setView] = useState<'available' | 'mine'>(initialView);
   const [category, setCategory] = useState('All');
   // Open tasks + full ones I already hold a spot on, with fresh counts.
   const tasks = useTaskFeed(taskRows);
   const submittedTaskIds = useMemo(() => new Set(submissions.map(s => s.taskId)), [submissions]);
   const categories = useMemo(() => ['All', ...Array.from(new Set(tasks.map(t => t.category)))], [tasks]);
   const visible = tasks.filter(t => category === 'All' || t.category === category);
+  const pendingCount = submissions.filter(s => s.status === 'pending').length;
 
   if (selected) {
     return (
@@ -78,7 +83,7 @@ export function TasksTab({
             </div>
           )}
           {visible.length === 0 ? (
-            <EmptyState mascot="thinking" title="No tasks right now." subtitle="New ones appear as businesses post them." />
+            <EmptyState emote="wink" title="Be first in line for paid tasks." subtitle="No open tasks right now. New ones appear here as businesses post them." />
           ) : (
             <div className="space-y-3">
               {visible.map(t => (
@@ -108,8 +113,32 @@ export function TasksTab({
           )}
         </>
       ) : submissions.length === 0 ? (
-        <EmptyState mascot="thinking" title="Nothing submitted yet." subtitle="Finish a task and send proof to get paid." />
+        <EmptyState
+          emote="determined"
+          emoteAnimate="none"
+          title="Do your first task"
+          subtitle="Finish a task and send proof to get paid."
+          action={
+            tasks.length > 0 ? (
+              <button type="button" className={`${primaryButtonClass} max-w-[220px] mx-auto`} onClick={() => setView('available')}>
+                See open tasks
+              </button>
+            ) : undefined
+          }
+        />
       ) : (
+        <div className="space-y-3">
+        {pendingCount > 0 && (
+          <div className="flex items-center gap-3 p-3 pr-4 rounded-3xl bg-zinc-100 dark:bg-zinc-900">
+            <PulseEmote name="searching" size={56} animate="bob" alt="" className="shrink-0" />
+            <div className="min-w-0">
+              <p className="text-[15px] font-bold text-ink dark:text-white">
+                {pendingCount === 1 ? '1 proof under review' : `${pendingCount} proofs under review`}
+              </p>
+              <p className="text-xs text-zinc-500">The business is checking it. We'll update this list when they do.</p>
+            </div>
+          </div>
+        )}
         <div className="rounded-3xl border border-zinc-200 dark:border-zinc-800 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
           {submissions.map(s => (
             <div key={s.id} className="px-5 py-4 bg-white dark:bg-zinc-900 space-y-1.5">
@@ -125,6 +154,7 @@ export function TasksTab({
               {s.reviewNote && <p className="text-sm text-zinc-500">“{s.reviewNote}”</p>}
             </div>
           ))}
+        </div>
         </div>
       )}
     </div>
@@ -187,6 +217,7 @@ function TaskWorkspace({
   const [preview, setPreview] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const isOwnTask = Boolean(task.company && user.businessName && task.company === user.businessName && user.role === 'business');
@@ -227,6 +258,7 @@ function TaskWorkspace({
 
   const submit = async () => {
     setError(null);
+    setFailed(null);
     if (task.proofType === 'screenshot' && !file) {
       setError('Please attach a screenshot.');
       return;
@@ -258,13 +290,24 @@ function TaskWorkspace({
       });
       if (res?.instant) {
         const left = timeLeftLabel(res.release_at) || `${res.review_window_kind === 'auto' ? start?.review_window_auto_hours ?? 24 : humanHours}h`;
-        celebrate('Approved!', `${formatNaira(res.credited ?? task.reward)} pending, withdrawable in ${left}.`);
+        // This celebration covers the instant approval, so the later
+        // "Task approved!" reward toast for the same submission is skipped.
+        if (res.completion_id) markSeen(`approved:${res.completion_id}`);
+        celebrate('Approved!', `${formatNaira(res.credited ?? task.reward)} pending, withdrawable in ${left}.`, {
+          emote: 'success',
+          effect: 'confetti',
+          id: `approved:${res.completion_id ?? `${task.id}:${user.id}`}`,
+        });
       } else {
-        celebrate('Proof sent!', `${task.company} reviews it within ${humanHours}h. If they don't, it's approved automatically.`);
+        celebrate('Proof sent!', `${task.company} reviews it within ${humanHours}h. If they don't, it's approved automatically.`, {
+          emote: 'searching',
+          effect: 'bob',
+          id: `proof:${task.id}:${user.id}`,
+        });
       }
       await onDone();
     } catch (err: any) {
-      setError(err.message || 'Could not submit proof.');
+      setFailed(err?.message || 'Could not submit proof. Please check your connection.');
     } finally {
       setSubmitting(false);
     }
@@ -313,7 +356,10 @@ function TaskWorkspace({
       </Card>
 
       {alreadySubmitted ? (
-        <p className="text-sm text-zinc-500 text-center px-6">You've already sent proof for this task. Check "My work" for the result.</p>
+        <div className="flex flex-col items-center gap-2 text-center px-6">
+          <PulseEmote name="searching" size={80} alt="" />
+          <p className="text-sm text-zinc-500">You've already sent proof for this task. Check "My work" for the result.</p>
+        </div>
       ) : isOwn ? (
         <p className="text-sm text-zinc-500 text-center px-6">This is your own task, so you can't complete it.</p>
       ) : !hasSpot ? (
@@ -359,6 +405,7 @@ function TaskWorkspace({
             )}
           </div>
           <ErrorText>{error}</ErrorText>
+          {failed && !submitting && <ErrorPanel title="Proof not sent" message={failed} actionLabel="Try again" onAction={submit} />}
           <button type="button" className={primaryButtonClass} onClick={submit} disabled={submitting}>
             {submitting && <Loader2 className="w-5 h-5 animate-spin" />}
             Send proof

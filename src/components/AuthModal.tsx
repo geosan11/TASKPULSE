@@ -1,6 +1,7 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { ArrowLeft, Briefcase, ChevronDown, Eye, EyeOff, Loader2, Smartphone, X } from 'lucide-react';
-import { ErrorText, Mascot } from './ui';
+import { emoteForError, ErrorText, Mascot } from './ui';
+import { PulseEmote } from './PulseEmote';
 import { HEARD_ABOUT_US_OPTIONS } from '../config/marketplace';
 import {
   checkDuplicateUser,
@@ -311,10 +312,20 @@ export function AuthModal({
     if (!res.session && supabase) {
       setModeState('verify_email');
       setResendCooldown(60);
-      celebrate(`You're in, ${first}!`, `Confirm your email (${email.trim()}) to start.`);
+      celebrate(`You're in, ${first}!`, `Confirm your email (${email.trim()}) to start.`, {
+        emote: 'excited',
+        then: 'clap',
+        effect: 'confetti',
+        id: `signup:${email.trim().toLowerCase()}`,
+      });
       return;
     }
-    celebrate(`Welcome, ${first}!`, accountType === 'business' ? 'Post your first task to get started.' : 'Pick a task and start earning.');
+    celebrate(`Welcome, ${first}!`, accountType === 'business' ? 'Post your first task to get started.' : 'Pick a task and start earning.', {
+      emote: 'excited',
+      then: 'clap',
+      effect: 'confetti',
+      id: `signup:${email.trim().toLowerCase()}`,
+    });
     onSignedIn(accountType);
   };
 
@@ -460,7 +471,11 @@ export function AuthModal({
 
           {/* Hero */}
           <div className="flex items-center gap-4 mt-4 mb-6">
-            <Mascot pose={pose} className="w-24 h-24 shrink-0" bob={mode === 'verify_email'} />
+            {error && emoteForError(error) === 'tired' ? (
+              <PulseEmote name="tired" size={96} alt="" className="shrink-0" />
+            ) : (
+              <Mascot pose={pose} className="w-24 h-24 shrink-0" bob={mode === 'verify_email'} />
+            )}
             <div className="min-w-0">
               <h1 id={headingId} className="text-[26px] leading-[1.15] font-extrabold tracking-tight text-ink dark:text-white">
                 {headline}

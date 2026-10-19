@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ArrowDownLeft, ArrowUpRight, ChevronRight, Landmark, Loader2, Lock } from 'lucide-react';
-import { EmptyState, ErrorText, inputClass, Label, Modal, primaryButtonClass, secondaryButtonClass, StatusPill } from './ui';
+import { AnimatedNaira, EmptyState, ErrorPanel, ErrorText, inputClass, Label, Modal, primaryButtonClass, secondaryButtonClass, StatusPill } from './ui';
 import { formatNaira, type MarketplaceSettings } from '../config/marketplace';
 import { PAYSTACK_BANKS } from '../config/banks';
 import { Combobox } from './Select';
@@ -9,6 +9,7 @@ const BANK_OPTIONS = PAYSTACK_BANKS.map(b => ({ value: b.code, label: b.name }))
 import { linkBankAccount, requestDisbursement as requestDisbursementApi, resolveBankAccount, verifyPayment } from '../lib/api';
 import { bankSavedNotice, isIdRequiredError, withdrawIdPrompt, type WithdrawIdPrompt } from '../lib/withdrawId';
 import { celebrate } from '../lib/celebrate';
+import { PulseEmote } from './PulseEmote';
 import { formatDateTime, isDebit, txTypeLabel, type SavedBank, type TxItem, type UserProfile } from '../types';
 
 function startOfLagosDay() {
@@ -107,7 +108,8 @@ export function WalletTab({
   else if (!cooldownDone) blockers.push(`Withdrawals open in about ${hoursLeft}h`);
   if (!bank) blockers.push('Add your bank account');
   if (user.withdrawableBalance < settings.minWithdrawal) blockers.push(`Minimum withdrawal is ${formatNaira(settings.minWithdrawal)}`);
-  if (countLeft === 0 || remainingToday < settings.minWithdrawal) blockers.push("You've reached today's withdrawal limit");
+  const limitReached = countLeft === 0 || remainingToday < settings.minWithdrawal;
+  if (limitReached) blockers.push("You've reached today's withdrawal limit");
   const canWithdraw = blockers.length === 0;
 
   return (
@@ -117,7 +119,9 @@ export function WalletTab({
       <div className="rounded-[28px] bg-ink dark:bg-zinc-900 dark:border dark:border-zinc-800 text-white p-6 space-y-5">
         <div>
           <p className="text-sm text-zinc-400">Available to withdraw</p>
-          <p className="text-[40px] leading-none font-extrabold tracking-tight mt-2">{formatNaira(user.withdrawableBalance)}</p>
+          <p data-coin-target className="inline-block origin-left text-[40px] leading-none font-extrabold tracking-tight mt-2 tabular-nums">
+            <AnimatedNaira value={user.withdrawableBalance} format={formatNaira} />
+          </p>
           <p className="text-sm text-zinc-400 mt-3">
             Pending <span className="text-white font-semibold ml-1">{formatNaira(user.pendingBalance)}</span>
           </p>
@@ -137,13 +141,21 @@ export function WalletTab({
           {!canWithdraw && <Lock className="w-4 h-4" />} Withdraw
         </button>
         {!canWithdraw && (
-          <ul className="space-y-1">
-            {blockers.map(b => (
-              <li key={b} className="text-sm text-zinc-400">
-                • {b}
-              </li>
-            ))}
-          </ul>
+          <div className="flex items-center gap-3">
+            <ul className="space-y-1 flex-1 min-w-0">
+              {blockers.map(b => (
+                <li key={b} className="text-sm text-zinc-400">
+                  • {b}
+                </li>
+              ))}
+            </ul>
+            {limitReached && (
+              <div className="shrink-0 text-center">
+                <PulseEmote name="tired" size={64} alt="" />
+                <p className="text-[11px] font-semibold text-zinc-500">Back tomorrow</p>
+              </div>
+            )}
+          </div>
         )}
       </div>
 
@@ -238,6 +250,8 @@ export function WalletTab({
         balance={user.withdrawableBalance}
         remainingToday={remainingToday}
         settings={settings}
+        firstPayout={user.totalWithdrawnLifetime <= 0 && !transactions.some(t => t.type.toLowerCase() === 'cashout')}
+        userId={user.id}
         onDone={async () => {
           setWithdrawOpen(false);
           await onChanged();
@@ -325,6 +339,8 @@ function WithdrawModal({
   balance,
   remainingToday,
   settings,
+  firstPayout,
+  userId,
   onDone,
 }: {
   open: boolean;
@@ -335,11 +351,14 @@ function WithdrawModal({
   balance: number;
   remainingToday: number;
   settings: MarketplaceSettings;
+  firstPayout: boolean;
+  userId: string;
   onDone: () => Promise<void>;
 }) {
   const [amount, setAmount] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
   const [idemKey, setIdemKey] = useState(() => crypto.randomUUID());
   const max = Math.floor(Math.min(balance, remainingToday));
   const amountNum = Number(amount);
@@ -372,14 +391,23 @@ function WithdrawModal({
     if (!bank) return;
     setSubmitting(true);
     setError(null);
+    setFailed(null);
     try {
       await requestDisbursement({ amount: amountNum, bankAccountId: bank.id, idempotencyKey: idemKey });
-      celebrate('Money on the way!', `${formatNaira(amountNum)} to ${bank.bankName}.`);
+      const bigMoment =
+        firstPayout &&
+        celebrate('Your first payout!', `${formatNaira(amountNum)} is on the way to ${bank.bankName}.`, {
+          emote: 'shocked',
+          then: 'done',
+          effect: 'check',
+          id: `first-payout:${userId}`,
+        });
+      if (!bigMoment) celebrate('Money on the way!', `${formatNaira(amountNum)} to ${bank.bankName}.`, { emote: 'done', effect: 'check', id: `withdraw:${idemKey}` });
       setAmount('');
       setIdemKey(crypto.randomUUID());
       await onDone();
     } catch (err: any) {
-      setError(err.message || 'Withdrawal failed.');
+      setFailed(err?.message || 'Withdrawal failed. Your balance has not changed.');
     } finally {
       setSubmitting(false);
     }
@@ -407,6 +435,7 @@ function WithdrawModal({
         </p>
       )}
       <ErrorText>{error}</ErrorText>
+      {failed && !submitting && <ErrorPanel title="Withdrawal not sent" message={failed} actionLabel="Try again" onAction={submit} />}
       <button type="button" className={primaryButtonClass} disabled={submitting || !amount} onClick={submit}>
         {submitting && <Loader2 className="w-5 h-5 animate-spin" />} Withdraw {amount ? formatNaira(amountNum) : ''}
       </button>

@@ -74,3 +74,73 @@ h1, h2, h3, h4, h5, h6 {
 @media (prefers-reduced-motion: reduce) {
   .animate-bob, .animate-pop-in { animation: none; }
 }
+
+/* ------------------------------------------------------------------ */
+/* Pulse emotes + celebration motion. Everything is short (< ~1s),      */
+/* plays once per event, and is switched off under reduced motion.     */
+/* ------------------------------------------------------------------ */
+
+@keyframes pe-pop {
+  0% { opacity: 0; transform: scale(0.6) translateY(8px); }
+  60% { opacity: 1; transform: scale(1.06) translateY(-2px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+.pe-pop { animation: pe-pop 0.42s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+/* Gentle idle bob: three short cycles, then rest. */
+@keyframes pe-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+.pe-bob { animation: pe-bob 0.9s ease-in-out 3; }
+
+@keyframes pe-draw { to { stroke-dashoffset: 0; } }
+@keyframes pe-fade-in { from { opacity: 0; } to { opacity: 1; } }
+.pe-check circle { animation: pe-fade-in 0.15s ease-out 0.15s both; }
+.pe-check path { stroke-dasharray: 1; stroke-dashoffset: 1; animation: pe-draw 0.45s cubic-bezier(0.65, 0, 0.35, 1) 0.3s forwards; }
+
+@keyframes pe-blink {
+  0%, 100% { opacity: 0; }
+  35% { opacity: 1; }
+}
+.pe-blink { opacity: 0; animation: pe-blink 0.7s ease-out 0.25s 1; }
+
+/* Tab / page change */
+@keyframes tab-enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+/* backwards, not both: no transform is left behind, so fixed-position modals inside a tab still cover the viewport. */
+.tab-enter { animation: tab-enter 0.2s cubic-bezier(0.16, 1, 0.3, 1) backwards; }
+
+/* Nav badge count changed */
+@keyframes badge-bounce {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.35); }
+  65% { transform: scale(0.92); }
+  100% { transform: scale(1); }
+}
+.badge-bounce { animation: badge-bounce 0.45s cubic-bezier(0.34, 1.56, 0.64, 1); }
+
+/* Hearts floating up (referral reward) */
+@keyframes heart-float {
+  0% { opacity: 0; transform: translate(0, 0) scale(0.6); }
+  20% { opacity: 1; }
+  100% { opacity: 0; transform: translate(var(--dx, 0px), -96px) scale(1.1); }
+}
+.heart-float { animation: heart-float 0.9s ease-out both; }
+
+/* Sparkle / coin burst around a point */
+@keyframes sparkle {
+  0% { opacity: 0; transform: translate(0, 0) scale(0.2); }
+  30% { opacity: 1; }
+  100% { opacity: 0; transform: translate(var(--dx, 0px), var(--dy, 0px)) scale(1); }
+}
+.sparkle { animation: sparkle 0.65s ease-out both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pe-pop, .pe-bob, .tab-enter, .badge-bounce, .tactile:active { animation: none; transform: none; }
+  .pe-check circle { animation: none; }
+  .pe-check path { animation: none; stroke-dashoffset: 0; }
+  .pe-blink, .heart-float, .sparkle { animation: none; display: none; }
+}

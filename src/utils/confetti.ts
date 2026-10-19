@@ -1,92 +1,67 @@
-/**
- * Lightweight canvas confetti trigger for celebratory engagement feedback
- */
-export function triggerConfetti() {
-  const canvas = document.createElement('canvas');
-  canvas.style.position = 'fixed';
-  canvas.style.top = '0';
-  canvas.style.left = '0';
-  canvas.style.width = '100vw';
-  canvas.style.height = '100vh';
-  canvas.style.pointerEvents = 'none';
-  canvas.style.zIndex = '99999';
-  document.body.appendChild(canvas);
+import { prefersReducedMotion } from '../lib/motion';
 
+/**
+ * Tiny canvas confetti burst (no dependency). About 0.9s end to end,
+ * Pulse green / black / white. Does nothing under reduced motion.
+ */
+export function triggerConfetti({ x = 0.5, y = 0.4, count = 46 }: { x?: number; y?: number; count?: number } = {}) {
+  if (typeof document === 'undefined' || prefersReducedMotion()) return;
+  const canvas = document.createElement('canvas');
+  canvas.setAttribute('aria-hidden', 'true');
+  Object.assign(canvas.style, { position: 'fixed', inset: '0', width: '100vw', height: '100vh', pointerEvents: 'none', zIndex: '99999' });
+  document.body.appendChild(canvas);
   const ctx = canvas.getContext('2d');
   if (!ctx) {
     canvas.remove();
     return;
   }
-
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-
-  const particles: Array<{
-    x: number;
-    y: number;
-    size: number;
-    color: string;
-    vx: number;
-    vy: number;
-    rotation: number;
-    rotationSpeed: number;
-    opacity: number;
-  }> = [];
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  canvas.width = window.innerWidth * dpr;
+  canvas.height = window.innerHeight * dpr;
+  ctx.scale(dpr, dpr);
 
   const colors = ['#00C853', '#00C853', '#1FCE69', '#0A0A0A', '#FFFFFF'];
+  const ox = window.innerWidth * x;
+  const oy = window.innerHeight * y;
+  const parts = Array.from({ length: count }, () => {
+    const a = Math.random() * Math.PI * 2;
+    const v = 4 + Math.random() * 7;
+    return {
+      x: ox,
+      y: oy,
+      vx: Math.cos(a) * v,
+      vy: Math.sin(a) * v - 4,
+      s: 4 + Math.random() * 6,
+      r: Math.random() * 360,
+      vr: (Math.random() - 0.5) * 14,
+      c: colors[(Math.random() * colors.length) | 0],
+    };
+  });
 
-  for (let i = 0; i < 70; i++) {
-    particles.push({
-      x: canvas.width / 2 + (Math.random() - 0.5) * 200,
-      y: canvas.height * 0.4 + (Math.random() - 0.5) * 100,
-      size: Math.random() * 8 + 4,
-      color: colors[Math.floor(Math.random() * colors.length)],
-      vx: (Math.random() - 0.5) * 12,
-      vy: -Math.random() * 12 - 4,
-      rotation: Math.random() * 360,
-      rotationSpeed: (Math.random() - 0.5) * 10,
-      opacity: 1
-    });
-  }
-
-  let animationFrame: number;
-  let startTime = Date.now();
-
-  function animate() {
-    if (!ctx) return;
-    const elapsed = Date.now() - startTime;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    let alive = false;
-    for (const p of particles) {
+  const DURATION = 900;
+  const start = performance.now();
+  const frame = (now: number) => {
+    const t = now - start;
+    ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+    const alpha = t < 500 ? 1 : Math.max(0, 1 - (t - 500) / (DURATION - 500));
+    for (const p of parts) {
       p.x += p.vx;
       p.y += p.vy;
-      p.vy += 0.35; // gravity
-      p.vx *= 0.98; // air resistance
-      p.rotation += p.rotationSpeed;
-      if (elapsed > 1200) {
-        p.opacity -= 0.025;
-      }
-
-      if (p.opacity > 0 && p.y < canvas.height) {
-        alive = true;
-        ctx.save();
-        ctx.translate(p.x, p.y);
-        ctx.rotate((p.rotation * Math.PI) / 180);
-        ctx.fillStyle = p.color;
-        ctx.globalAlpha = Math.max(0, p.opacity);
-        ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.6);
-        ctx.restore();
-      }
+      p.vy += 0.32;
+      p.vx *= 0.97;
+      p.r += p.vr;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate((p.r * Math.PI) / 180);
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = p.c;
+      ctx.strokeStyle = 'rgba(10,10,10,0.25)';
+      ctx.fillRect(-p.s / 2, -p.s / 2, p.s, p.s * 0.6);
+      if (p.c === '#FFFFFF') ctx.strokeRect(-p.s / 2, -p.s / 2, p.s, p.s * 0.6);
+      ctx.restore();
     }
-
-    if (alive && elapsed < 3000) {
-      animationFrame = requestAnimationFrame(animate);
-    } else {
-      cancelAnimationFrame(animationFrame);
-      canvas.remove();
-    }
-  }
-
-  animationFrame = requestAnimationFrame(animate);
+    if (t < DURATION) requestAnimationFrame(frame);
+    else canvas.remove();
+  };
+  requestAnimationFrame(frame);
 }
