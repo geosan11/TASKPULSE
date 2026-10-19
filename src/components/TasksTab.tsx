@@ -1,15 +1,18 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Clock, ExternalLink, ImagePlus, Loader2, Users } from 'lucide-react';
 import { Card, EmptyState, ErrorPanel, ErrorText, inputClass, Label, primaryButtonClass, Segmented, StatusPill, textareaClass } from './ui';
-import { formatNaira } from '../config/marketplace';
-import { submitTaskProofRpc, uploadTaskProofImage, type DbTask } from '../lib/supabaseClient';
+import { formatNaira, timeLeftLabel } from '../config/marketplace';
+import { requestProofHash, startTaskRpc, submitTaskProofRpc, uploadTaskProofImage, type DbTask, type TaskStart } from '../lib/supabaseClient';
 import { celebrate } from '../lib/celebrate';
+import { markSeen } from '../lib/motion';
 import { PulseEmote } from './PulseEmote';
 import { formatDateTime, type MySubmission, type UserProfile } from '../types';
+import { AcceptTaskPanel, isTaskFull, TaskSpotsBar, TaskSpotsStatus, useHasSpot } from './SpotsBar';
+import { useTaskFeed } from '../lib/spots';
 
 export function TasksTab({
   user,
-  tasks,
+  tasks: taskRows,
   submissions,
   selected,
   onSelect,
@@ -26,6 +29,8 @@ export function TasksTab({
 }) {
   const [view, setView] = useState<'available' | 'mine'>(initialView);
   const [category, setCategory] = useState('All');
+  // Open tasks + full ones I already hold a spot on, with fresh counts.
+  const tasks = useTaskFeed(taskRows);
   const submittedTaskIds = useMemo(() => new Set(submissions.map(s => s.taskId)), [submissions]);
   const categories = useMemo(() => ['All', ...Array.from(new Set(tasks.map(t => t.category)))], [tasks]);
   const visible = tasks.filter(t => category === 'All' || t.category === category);
@@ -86,7 +91,7 @@ export function TasksTab({
                   key={t.id}
                   type="button"
                   onClick={() => onSelect(t)}
-                  className="tactile w-full text-left p-5 rounded-3xl bg-white dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 cursor-pointer"
+                  className={`tactile w-full text-left p-5 rounded-3xl bg-white dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 cursor-pointer ${isTaskFull(t) ? 'opacity-60' : ''}`}
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div className="min-w-0 space-y-1">
@@ -99,11 +104,9 @@ export function TasksTab({
                     <span className="flex items-center gap-1">
                       <Clock className="w-3.5 h-3.5" /> {t.time}
                     </span>
-                    <span className="flex items-center gap-1">
-                      <Users className="w-3.5 h-3.5" /> {t.spotsLeft} slots left
-                    </span>
                     {submittedTaskIds.has(t.id) && <span className="ml-auto text-zinc-400">Submitted</span>}
                   </div>
+                  <TaskSpotsBar task={t} className="mt-3" />
                 </button>
               ))}
             </div>
@@ -147,6 +150,7 @@ export function TasksTab({
                 <p className="text-xs text-zinc-500">{formatDateTime(s.completedAt)}</p>
                 <StatusPill status={s.status} kind="submission" />
               </div>
+              <SubmissionPayoutLine s={s} />
               {s.reviewNote && <p className="text-sm text-zinc-500">“{s.reviewNote}”</p>}
             </div>
           ))}
@@ -155,6 +159,41 @@ export function TasksTab({
       )}
     </div>
   );
+}
+
+/** "Approved, ₦X pending, withdrawable in Xh" and friends. */
+function SubmissionPayoutLine({ s }: { s: MySubmission }) {
+  const amount = formatNaira(s.paidAmount ?? s.reward);
+  if (s.status === 'approved' && s.payoutStatus === 'held') {
+    const left = timeLeftLabel(s.reviewDeadlineAt);
+    return (
+      <p className="text-sm font-semibold text-pulse-700 dark:text-pulse-400">
+        Approved, {amount} pending{left && left !== 'now' ? `, withdrawable in ${left}` : ', withdrawable shortly'}
+      </p>
+    );
+  }
+  if (s.status === 'approved' && s.payoutStatus === 'released') {
+    return <p className="text-sm text-zinc-500">{amount} is in your withdrawable balance</p>;
+  }
+  if (s.status === 'pending' && s.reviewDeadlineAt) {
+    const left = timeLeftLabel(s.reviewDeadlineAt);
+    // Past the deadline but still pending: being processed, or (if the platform
+    // holds flagged items) waiting for a person.
+    return <p className="text-sm text-zinc-500">{left && left !== 'now' ? `Approved automatically in ${left} if not reviewed` : 'Waiting for review'}</p>;
+  }
+  return null;
+}
+
+/** Task link with the worker's TaskPulse reference added (per-worker completion codes). */
+function taskLinkWithRef(url: string, ref: string | undefined) {
+  if (!ref) return url;
+  try {
+    const u = new URL(url);
+    u.searchParams.set('tp_ref', ref);
+    return u.toString();
+  } catch {
+    return url;
+  }
 }
 
 function TaskWorkspace({
@@ -170,13 +209,36 @@ function TaskWorkspace({
   onBack: () => void;
   onDone: () => Promise<void>;
 }) {
+  const hasSpot = useHasSpot(task);
   const [proofText, setProofText] = useState('');
+  const [code, setCode] = useState('');
+  const [start, setStart] = useState<TaskStart | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const isOwnTask = Boolean(task.company && user.businessName && task.company === user.businessName && user.role === 'business');
+
+  // Opening a task counts as starting it (used for the minimum-time check
+  // and per-worker completion codes). Idempotent on the server.
+  useEffect(() => {
+    if (alreadySubmitted || isOwnTask) return;
+    let cancelled = false;
+    startTaskRpc(task.id).then(r => {
+      if (!cancelled) setStart(r);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [task.id, alreadySubmitted, isOwnTask]);
+
+  const needsCode = Boolean(start?.needs_code);
+  // The human window applies to anything a person reviews; the shorter auto
+  // window only to instant, system-verified approvals (not screenshot proof).
+  const humanHours = start?.review_window_human_hours ?? 48;
 
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -205,20 +267,44 @@ function TaskWorkspace({
       setError('Please paste a link that starts with https://');
       return;
     }
-    if (task.proofType === 'text' && proofText.trim().length < 2) {
+    if (task.proofType === 'text' && proofText.trim().length < 2 && !(needsCode && code.trim())) {
       setError('Please type your answer.');
+      return;
+    }
+    if (needsCode && !code.trim()) {
+      setError('Please enter the completion code shown at the end of the task.');
       return;
     }
     setSubmitting(true);
     try {
       let path: string | undefined;
-      if (file) path = await uploadTaskProofImage(file, user.id);
-      await submitTaskProofRpc({ taskId: task.id, proofText: proofText.trim() || undefined, proofScreenshotPath: path });
-      celebrate('Proof sent!', `You'll get ${formatNaira(task.reward)} once ${task.company} approves it.`, {
-        emote: 'searching',
-        effect: 'bob',
-        id: `proof:${task.id}:${user.id}`,
+      if (file) {
+        path = await uploadTaskProofImage(file, user.id);
+        await requestProofHash(path);
+      }
+      const res = await submitTaskProofRpc({
+        taskId: task.id,
+        proofText: proofText.trim() || undefined,
+        proofScreenshotPath: path,
+        completionCode: code.trim() || undefined,
       });
+      if (res?.instant) {
+        const left = timeLeftLabel(res.release_at) || `${res.review_window_kind === 'auto' ? start?.review_window_auto_hours ?? 24 : humanHours}h`;
+        // This celebration covers the instant approval, so the later
+        // "Task approved!" reward toast for the same submission is skipped.
+        if (res.completion_id) markSeen(`approved:${res.completion_id}`);
+        celebrate('Approved!', `${formatNaira(res.credited ?? task.reward)} pending, withdrawable in ${left}.`, {
+          emote: 'success',
+          effect: 'confetti',
+          id: `approved:${res.completion_id ?? `${task.id}:${user.id}`}`,
+        });
+      } else {
+        celebrate('Proof sent!', `${task.company} reviews it within ${humanHours}h. If they don't, it's approved automatically.`, {
+          emote: 'searching',
+          effect: 'bob',
+          id: `proof:${task.id}:${user.id}`,
+        });
+      }
       await onDone();
     } catch (err: any) {
       setFailed(err?.message || 'Could not submit proof. Please check your connection.');
@@ -227,7 +313,8 @@ function TaskWorkspace({
     }
   };
 
-  const isOwn = Boolean(task.company && user.businessName && task.company === user.businessName && user.role === 'business');
+  const isOwn = isOwnTask;
+  const linkHref = task.targetUrl ? taskLinkWithRef(task.targetUrl, start?.code_mode === 'unique' ? start.start_ref : undefined) : null;
 
   return (
     <div className="space-y-5 pb-8">
@@ -243,10 +330,8 @@ function TaskWorkspace({
           <span className="flex items-center gap-1">
             <Clock className="w-4 h-4" /> {task.time}
           </span>
-          <span className="flex items-center gap-1">
-            <Users className="w-4 h-4" /> {task.spotsLeft} left
-          </span>
         </div>
+        <TaskSpotsStatus task={task} />
       </div>
 
       <Card>
@@ -263,8 +348,8 @@ function TaskWorkspace({
             ))}
           </ol>
         )}
-        {task.targetUrl && (
-          <a href={task.targetUrl} target="_blank" rel="noopener noreferrer nofollow" className="inline-flex items-center gap-1.5 text-sm font-bold text-pulse-700 dark:text-pulse-400">
+        {linkHref && (
+          <a href={linkHref} target="_blank" rel="noopener noreferrer nofollow" className="inline-flex items-center gap-1.5 text-sm font-bold text-pulse-700 dark:text-pulse-400">
             Open task link <ExternalLink className="w-4 h-4" />
           </a>
         )}
@@ -277,6 +362,8 @@ function TaskWorkspace({
         </div>
       ) : isOwn ? (
         <p className="text-sm text-zinc-500 text-center px-6">This is your own task, so you can't complete it.</p>
+      ) : !hasSpot ? (
+        <AcceptTaskPanel task={task} />
       ) : (
         <div className="space-y-4">
           {task.proofType === 'screenshot' && (
@@ -298,8 +385,17 @@ function TaskWorkspace({
               </button>
             </div>
           )}
+          {needsCode && (
+            <div>
+              <Label hint="Shown at the end of the task">Completion code</Label>
+              <input className={inputClass} value={code} onChange={e => setCode(e.target.value)} maxLength={128} autoComplete="off" placeholder="e.g. BLUE42" />
+              {start?.code_mode === 'unique' && (
+                <p className="text-xs text-zinc-500 mt-1.5 px-1">Open the task with the link above: your code is unique to you.</p>
+              )}
+            </div>
+          )}
           <div>
-            <Label hint={task.proofType === 'screenshot' ? 'Optional' : undefined}>
+            <Label hint={task.proofType === 'screenshot' || (task.proofType === 'text' && needsCode) ? 'Optional' : undefined}>
               {task.proofType === 'link' ? 'Link to your proof' : task.proofType === 'text' ? 'Your answer' : 'Note'}
             </Label>
             {task.proofType === 'link' ? (

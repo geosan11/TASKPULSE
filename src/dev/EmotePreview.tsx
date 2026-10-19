@@ -61,9 +61,9 @@ const task = (id: string, title: string, company: string, reward: number): DbTas
 const tasks = [task('t1', 'Grocery habits survey', 'FreshCart', 300), task('t2', 'Test our sign-up flow', 'PayLite', 500), task('t3', 'Rate 5 product photos', 'Shoply', 150)];
 
 const subs: MySubmission[] = [
-  { id: 's1', taskId: 't9', taskTitle: 'Grocery habits survey', company: 'FreshCart', reward: 300, paidAmount: null, status: 'pending', reviewNote: null, completedAt: now },
-  { id: 's2', taskId: 't8', taskTitle: 'Test our sign-up flow', company: 'PayLite', reward: 500, paidAmount: null, status: 'pending', reviewNote: null, completedAt: now },
-  { id: 's3', taskId: 't7', taskTitle: 'Rate 5 product photos', company: 'Shoply', reward: 150, paidAmount: 150, status: 'approved', reviewNote: null, completedAt: now },
+  { id: 's1', taskId: 't9', taskTitle: 'Grocery habits survey', company: 'FreshCart', reward: 300, paidAmount: null, status: 'pending', reviewNote: null, completedAt: now, payoutStatus: null, reviewDeadlineAt: new Date(Date.now() + 40 * 3600e3).toISOString(), approvalSource: null },
+  { id: 's2', taskId: 't8', taskTitle: 'Test our sign-up flow', company: 'PayLite', reward: 500, paidAmount: null, status: 'pending', reviewNote: null, completedAt: now, payoutStatus: null, reviewDeadlineAt: new Date(Date.now() + 40 * 3600e3).toISOString(), approvalSource: null },
+  { id: 's3', taskId: 't7', taskTitle: 'Rate 5 product photos', company: 'Shoply', reward: 150, paidAmount: 150, status: 'approved', reviewNote: null, completedAt: now, payoutStatus: 'held', reviewDeadlineAt: new Date(Date.now() + 20 * 3600e3).toISOString(), approvalSource: 'auto' },
 ];
 
 const cashouts: TxItem[] = [1, 2].map(i => ({

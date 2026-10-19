@@ -79,7 +79,14 @@ export function rateLimited(chatId: number, now = Date.now()): boolean {
 export function _resetRateLimit() { hits.clear(); }
 
 // ------------------------------------------------------------------ data
-export interface OpenTask { id: string; title: string; company: string; reward: number; spotsLeft: number }
+export interface OpenTask { id: string; title: string; company: string; reward: number; spotsLeft: number; spotsTotal: number }
+
+/** Same wording as the app (src/lib/spots.ts): "33 of 50 spots left", "Only 4 left". */
+export function spotsText(left: number, total: number) {
+  if (left <= 0) return 'All spots taken';
+  if (left < 10) return `Only ${left} left`;
+  return total >= left ? `${left} of ${total} spots left` : `${left} spots left`;
+}
 
 /** Open, funded tasks: active task, slots left, linked to an ACTIVE (paid) campaign. */
 export async function fetchOpenTasks(limit = 5): Promise<OpenTask[] | null> {
@@ -90,7 +97,7 @@ export async function fetchOpenTasks(limit = 5): Promise<OpenTask[] | null> {
     return null;
   }
   const q = new URLSearchParams({
-    select: 'id,title,company,reward,spots_left,campaigns!inner(status)',
+    select: 'id,title,company,reward,spots_left,spots_total,campaigns!inner(status)',
     is_active: 'eq.true',
     spots_left: 'gt.0',
     'campaigns.status': 'eq.active',
@@ -113,6 +120,7 @@ export async function fetchOpenTasks(limit = 5): Promise<OpenTask[] | null> {
       company: String(r.company || ''),
       reward: Number(r.reward || 0),
       spotsLeft: Number(r.spots_left || 0),
+      spotsTotal: Number(r.spots_total || 0),
     }));
   } catch (e: any) {
     console.warn('[telegram] task query error', e?.message);
@@ -176,7 +184,7 @@ async function sendTasks(chatId: number) {
   const lines = tasks.map(
     (t, i) =>
       `${i + 1}. <b>${escapeHtml(t.title.slice(0, 90))}</b>\n` +
-      `   ${naira(t.reward)} · ${t.spotsLeft} ${t.spotsLeft === 1 ? 'slot' : 'slots'} left${t.company ? ` · ${escapeHtml(t.company.slice(0, 40))}` : ''}`
+      `   ${naira(t.reward)} · ${spotsText(t.spotsLeft, t.spotsTotal)}${t.company ? ` · ${escapeHtml(t.company.slice(0, 40))}` : ''}`
   );
   const keyboard: Button[][] = tasks.map((t, i) => [{ text: `Open ${i + 1} · ${naira(t.reward)}`, url: siteUrl({ task: t.id }) }]);
   keyboard.push([{ text: 'See all tasks', url: siteUrl({ tab: 'tasks' }) }]);

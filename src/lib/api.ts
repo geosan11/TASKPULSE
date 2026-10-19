@@ -1,10 +1,14 @@
 import { supabase } from './supabaseClient';
+import { isIdRequiredError } from './withdrawId';
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  /** Machine-readable reason from the server, e.g. 'identity_not_verified'. */
+  code?: string;
+  constructor(status: number, message: string, code?: string) {
     super(message);
     this.status = status;
+    this.code = code;
     Object.setPrototypeOf(this, ApiError.prototype);
   }
 }
@@ -64,7 +68,7 @@ export async function apiFetch<T = any>(
 
   if (!response.ok) {
     const errorMsg = payload?.message || `Request failed with status ${response.status}`;
-    throw new ApiError(response.status, errorMsg);
+    throw new ApiError(response.status, errorMsg, typeof payload?.code === 'string' ? payload.code : undefined);
   }
 
   return payload as T;
@@ -159,6 +163,8 @@ export async function linkBankAccount(params: {
       status: boolean;
       message: string;
       data: any;
+      /** Bank-name identity check (012): 'verified', 'pending' (queued for review), or null if not recorded. */
+      identity?: { kyc_status: string | null; name_match: boolean };
     }>('/api/link-bank', {
       method: 'POST',
       body: JSON.stringify(params),
@@ -203,7 +209,8 @@ export async function requestDisbursement(params: {
       body: JSON.stringify(params),
     });
   } catch (err: any) {
-    if (!import.meta.env.PROD) {
+    // Never fake success for "verify your ID first", even in dev.
+    if (!import.meta.env.PROD && !isIdRequiredError(err)) {
       return {
         status: true,
         message: 'Withdrawal queued (dev mode).',
@@ -217,4 +224,59 @@ export async function requestDisbursement(params: {
     }
     throw err;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Admin: identity review queue + backfill (server checks profiles.role = 'admin')
+// ---------------------------------------------------------------------------
+export type IdentityReviewItem = {
+  review_id: string;
+  user_id: string;
+  username: string;
+  profile_name: string | null;
+  current_profile_name: string | null;
+  bank_account_name: string | null;
+  bank_name: string | null;
+  account_masked: string;
+  reason: 'name_mismatch' | 'no_profile_name' | 'single_name' | 'shared_bank_account';
+  source: string;
+  kyc_status: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export async function fetchIdentityReviews() {
+  return await apiFetch<{ status: boolean; data: { items: IdentityReviewItem[] } }>('/api/link-bank?action=reviews');
+}
+
+export async function decideIdentityReview(reviewId: string, approve: boolean, note?: string) {
+  return await apiFetch<{ status: boolean; data: any }>('/api/link-bank', {
+    method: 'POST',
+    body: JSON.stringify({ action: approve ? 'approve' : 'reject', reviewId, note }),
+  });
+}
+
+/** Support: change a user's (possibly locked) profile name. Admin only. */
+export async function adminSetFullName(username: string, fullName: string) {
+  return await apiFetch<{ status: boolean; data: { id: string; username: string; full_name: string; kyc_status: string } }>('/api/link-bank', {
+    method: 'POST',
+    body: JSON.stringify({ action: 'set_name', username, fullName }),
+  });
+}
+
+export type BackfillPage = {
+  dryRun: boolean;
+  processed: number;
+  verified: number;
+  pending: number;
+  failed: number;
+  results: { user_id: string; account: string; outcome: string; matched?: boolean }[];
+  nextCursor: string | null;
+};
+
+export async function runIdentityBackfill(params: { after?: string | null; limit?: number; dryRun?: boolean }) {
+  return await apiFetch<{ status: boolean; data: BackfillPage }>('/api/link-bank', {
+    method: 'POST',
+    body: JSON.stringify({ action: 'backfill', ...params }),
+  });
 }

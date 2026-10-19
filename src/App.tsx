@@ -20,7 +20,7 @@ import {
   type DbTask,
 } from './lib/supabaseClient';
 import { verifyPayment } from './lib/api';
-import { fetchMarketplaceSettings, fetchMyCampaigns } from './lib/marketplace';
+import { fetchMarketplaceSettings, fetchMyCampaigns, processMyReviewWindows } from './lib/marketplace';
 import { DEFAULT_MARKETPLACE_SETTINGS, formatNaira, type MarketplaceSettings } from './config/marketplace';
 import type { MySubmission, ReferralItem, SavedBank, TxItem, UserProfile } from './types';
 import { ErrorPanel, Toast } from './components/ui';
@@ -148,6 +148,9 @@ export default function App() {
       setUser(null);
       return;
     }
+    // Release closed review windows / auto-approve overdue items for this
+    // user before reading balances (the scheduler does this too).
+    await processMyReviewWindows();
     const p: any = await getCurrentUserProfile();
     if (!p) {
       // Signed in but the profile could not be read (network, or the
@@ -209,6 +212,9 @@ export default function App() {
         status: c.status,
         reviewNote: c.review_note,
         completedAt: c.completed_at,
+        payoutStatus: c.payout_status ?? null,
+        reviewDeadlineAt: c.review_deadline_at ?? null,
+        approvalSource: c.approval_source ?? null,
       }))
     );
     setReferrals(
@@ -564,6 +570,7 @@ export default function App() {
               onChanged={refreshUserData}
               onOpenTerms={() => setTermsOpen('terms')}
               onSignOut={handleSignOut}
+              onGoWallet={() => goto('wallet')}
               notify={notify}
             />
           )}

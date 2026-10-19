@@ -8,16 +8,22 @@ import { createClient, type SupabaseClient, type User } from '@supabase/supabase
 
 class HttpError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  code?: string;
+  constructor(status: number, message: string, code?: string) {
     super(message);
     this.status = status;
+    this.code = code;
     Object.setPrototypeOf(this, HttpError.prototype);
   }
 }
 
+// Machine-readable code the app maps to its "Verify your ID" prompt.
+const ID_REQUIRED_CODE = 'identity_not_verified';
+const ID_REQUIRED_MESSAGE = "Add your bank account to verify your ID before withdrawing. It's a one-time check that keeps payouts safe.";
+
 function handleApiError(res: VercelResponse, err: any) {
   if (err instanceof HttpError) {
-    return res.status(err.status).json({ status: false, message: err.message });
+    return res.status(err.status).json({ status: false, message: err.message, ...(err.code ? { code: err.code } : {}) });
   }
   console.error('[API Error: disburse-transfer]', err);
   const raw = String(err?.message || '');
@@ -154,6 +160,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const client = getSupabaseClient(token);
 
+    // 0. Defence in depth: a verified identity is required to withdraw.
+    //    request_cashout() enforces the same rule atomically (migration 012);
+    //    this check also covers a database where 012 is not applied yet, and
+    //    runs before any money is locked or Paystack is called. Fails closed.
+    const { data: kycRow, error: kycErr } = await client
+      .from('profiles')
+      .select('kyc_status')
+      .eq('id', user.id)
+      .maybeSingle();
+    if (kycErr) {
+      console.error('[Cashout identity check failed]', kycErr);
+      throw new HttpError(503, "We couldn't check your account right now. Please try again.");
+    }
+    if (kycRow?.kyc_status !== 'verified') {
+      throw new HttpError(403, ID_REQUIRED_MESSAGE, ID_REQUIRED_CODE);
+    }
+
     // 1. Atomically evaluate all rules & deduct balance in Supabase
     const { data: rpcResult, error: rpcErr } = await client.rpc('request_cashout', {
       p_user_id: user.id,
@@ -164,6 +187,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (rpcErr) {
       const msg = rpcErr.message;
+      if (msg.includes(ID_REQUIRED_CODE)) {
+        throw new HttpError(403, ID_REQUIRED_MESSAGE, ID_REQUIRED_CODE);
+      }
       if (msg.includes('min_withdrawal')) {
         throw new HttpError(400, 'Amount is below the minimum withdrawal.');
       }

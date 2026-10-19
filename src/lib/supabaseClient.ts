@@ -1,5 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { normalizeCategory } from '../config/marketplace';
+import { signupSourceMetadata } from './signupSource';
 
 // Retrieve credentials from environment variables
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
@@ -42,6 +43,8 @@ export interface AuthUserSignup {
   referralCode?: string;
   /** Optional "How did you hear about us?" answer, stored on profiles.heard_about_us */
   heardAboutUs?: string;
+  /** Optional signup answers kept in auth user metadata only (school, school_level, state). */
+  profileExtras?: Record<string, string>;
   /** 'worker' (default) earns from tasks; 'business' posts and funds tasks */
   accountType?: 'worker' | 'business';
   businessName?: string;
@@ -159,9 +162,11 @@ export async function signUpUser(params: AuthUserSignup) {
             full_name: fullName.trim(),
             phone: phone.trim(),
             referred_by_code: referralCode ? referralCode.trim() : null,
+            ...(params.profileExtras || {}),
             heard_about_us: heardAboutUs ? heardAboutUs.trim().slice(0, 120) : null,
             account_type: accountType === 'business' ? 'business' : 'worker',
-            business_name: accountType === 'business' && businessName ? businessName.trim().slice(0, 100) : null
+            business_name: accountType === 'business' && businessName ? businessName.trim().slice(0, 100) : null,
+            ...signupSourceMetadata()
           }
         }
       });
@@ -378,6 +383,63 @@ export async function submitKycRpc(idType: string, idNumber: string) {
   return data;
 }
 
+export interface SubmitResult {
+  success: boolean;
+  completion_id: string;
+  status: 'pending' | 'approved';
+  /** True when the automatic checks approved it on the spot (reward is pending until release_at). */
+  instant?: boolean;
+  credited?: number;
+  release_at?: string;
+  /** 'auto' = system-verified (short window), 'human' = needs a person (long window). */
+  review_window_kind?: 'auto' | 'human';
+  review_deadline_at?: string;
+}
+
+export interface TaskStart {
+  started_at: string;
+  start_ref: string;
+  needs_code: boolean;
+  code_mode: 'shared' | 'unique' | null;
+  approval_mode: 'instant' | 'auto' | 'manual' | null;
+  min_seconds: number;
+  review_window_auto_hours: number;
+  review_window_human_hours: number;
+}
+
+/**
+ * Record that the worker started a task (idempotent; the first start wins).
+ * Used for the minimum-time check and per-worker completion codes.
+ * Returns null if it fails (e.g. migration 011 not applied yet).
+ */
+export async function startTaskRpc(taskId: string): Promise<TaskStart | null> {
+  if (!supabase) return null;
+  const { data, error } = await supabase.rpc('start_task', { p_task_id: taskId });
+  if (error || !data) return null;
+  return data as TaskStart;
+}
+
+/**
+ * Ask the server to fingerprint an uploaded proof screenshot (sha256 computed
+ * server-side from the stored file) so duplicates can be flagged. Best effort:
+ * if it fails, the database falls back to the storage ETag + size.
+ */
+export async function requestProofHash(path: string): Promise<void> {
+  if (!supabase) return;
+  try {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) return;
+    await fetch('/api/proof-hash', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ path }),
+    });
+  } catch {
+    // ignore: fallback fingerprint is used
+  }
+}
+
 const SUBMIT_ERRORS: Record<string, string> = {
   already_submitted: 'You have already submitted proof for this task.',
   task_not_available: 'This task is no longer available.',
@@ -397,12 +459,14 @@ export async function submitTaskProofRpc(params: {
   taskId: string;
   proofText?: string;
   proofScreenshotPath?: string;
-}) {
+  completionCode?: string;
+}): Promise<SubmitResult> {
   if (!supabase) throw new Error('Database is not connected.');
   const { data, error } = await supabase.rpc('submit_task', {
     p_task_id: params.taskId,
     p_proof_text: params.proofText || null,
     p_proof_url: params.proofScreenshotPath || null,
+    p_completion_code: params.completionCode || null,
   });
   if (error) {
     const key = Object.keys(SUBMIT_ERRORS).find(k => error.message.includes(k));
@@ -439,6 +503,8 @@ export async function uploadTaskProofImage(file: File, userId: string): Promise<
 /**
  * Update user full name (the only allowed client profile update).
  */
+export const NAME_LOCKED_MESSAGE = 'Your ID is verified, so your name is locked. Contact support to change your name.';
+
 export async function updateProfileFullName(fullName: string) {
   if (!supabase) throw new Error('Database is not connected.');
   const { data: { user } } = await supabase.auth.getUser();
@@ -449,7 +515,11 @@ export async function updateProfileFullName(fullName: string) {
     .update({ full_name: fullName.trim() })
     .eq('id', user.id);
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    // 012: a verified user's name is locked (trigger trg_guard_verified_full_name)
+    if (error.message.includes('name_locked_verified')) throw new Error(NAME_LOCKED_MESSAGE);
+    throw new Error(error.message);
+  }
   return true;
 }
 
@@ -490,7 +560,7 @@ export async function fetchTaskCompletionsHistory(userId: string, limit: number 
 
   return await supabase
     .from('task_completions')
-    .select('id, task_id, task_title, company, reward_amount, paid_amount, category, status, sla_time, completed_at, review_note, campaign_id')
+    .select('id, task_id, task_title, company, reward_amount, paid_amount, category, status, sla_time, completed_at, review_note, campaign_id, payout_status, review_deadline_at, approval_source')
     .eq('user_id', userId)
     .order('completed_at', { ascending: false })
     .limit(limit);
@@ -532,17 +602,22 @@ export interface DbTask {
 }
 
 /**
- * Fetch active, business-funded tasks from public.tasks
+ * Fetch active, business-funded tasks from public.tasks: the open feed
+ * (spots left), or specific tasks by id (e.g. full ones I hold a spot on).
  */
-export async function fetchActiveTasks(): Promise<DbTask[]> {
+export async function fetchActiveTasks(opts: { ids?: string[] } = {}): Promise<DbTask[]> {
   if (!supabase) return [];
 
   try {
-    const { data, error } = await supabase
+    // Free spots whose accept expired before counting (no-op if none; 013).
+    if (!opts.ids && (await supabase.auth.getSession()).data.session) {
+      await supabase.rpc('release_expired_spot_holds').then(() => undefined, () => undefined);
+    }
+    const base = supabase
       .from('tasks')
       .select('id, title, company, reward, category, time_estimate, sla, spots_left, spots_total, description, steps, platform_icon, proof_type, campaign_id, target_url')
-      .eq('is_active', true)
-      .gt('spots_left', 0)
+      .eq('is_active', true);
+    const { data, error } = await (opts.ids ? base.in('id', opts.ids) : base.gt('spots_left', 0))
       .order('created_at', { ascending: false });
 
     if (error || !data) {
