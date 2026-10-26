@@ -10,7 +10,9 @@ import { ErrorPanel, primaryButtonClass, secondaryButtonClass } from '../compone
 import { HomeTab } from '../components/HomeTab';
 import { TasksTab } from '../components/TasksTab';
 import { WalletTab } from '../components/WalletTab';
-import { CreateCampaignModal } from '../components/BusinessTab';
+import { CreateCampaignModal, PackagesEntry } from '../components/BusinessTab';
+import { PackagesStorefront } from '../components/PackagesStorefront';
+import type { PackageItem } from '../lib/packages';
 import { celebrate, showReward } from '../lib/celebrate';
 import { DEFAULT_MARKETPLACE_SETTINGS } from '../config/marketplace';
 import type { DbTask } from '../lib/supabaseClient';
@@ -60,6 +62,40 @@ const task = (id: string, title: string, company: string, reward: number): DbTas
 });
 const tasks = [task('t1', 'Grocery habits survey', 'FreshCart', 300), task('t2', 'Test our sign-up flow', 'PayLite', 500), task('t3', 'Rate 5 product photos', 'Shoply', 150)];
 
+// Mirrors the 015 seed; prices = slots x reward x 1.25. Content test shown as
+// not yet fillable (worker-count gate).
+const pkg = (slug: string, name: string, description: string, slots: number, reward: number, days: number, available = true): PackageItem => ({
+  id: slug,
+  slug,
+  name,
+  description,
+  slots,
+  rewardPerCompletion: reward,
+  totalPrice: Math.ceil(slots * reward * 1.25),
+  estimatedDeliveryDays: days,
+  available,
+});
+const previewPackages: PackageItem[] = [
+  pkg('10-local-ugc-reels', '10 Local UGC Videos', 'Get 10 authentic vertical videos (unboxings, demos or reactions) made by real Nigerian university students and delivered to you as raw files.', 10, 3500, 4),
+  pkg('campus-feedback-panel', 'Campus Feedback Panel', '25 verified Nigerian students use your product and send private, honest feedback and a short survey. Nothing is posted publicly.', 25, 1500, 3),
+  pkg('product-seeding-pack', 'Product Seeding & Lifestyle Content', 'High-resolution lifestyle product placement photos and short reaction videos from 5 verified students.', 5, 7000, 5),
+  pkg('content-test-panel', 'Content Test Panel', '50 verified students watch your ad, reel or sound and rate how clear, memorable and convincing it is, before you spend on promotion.', 50, 500, 2, false),
+  pkg('event-ground-squad', 'Event Coverage Micro-Team', 'On-the-ground team of verified students covering your activation, pop-up stall, or campus booth with photos, video clips and attendance notes.', 4, 10000, 3),
+];
+const packageTask: DbTask = {
+  ...task('cmp_pkg', 'Campus Feedback Panel: Acme App', 'Acme', 1500),
+  category: 'Product Feedback',
+  spotsLeft: 18,
+  spotsTotal: 25,
+  description: '',
+  steps: [
+    'PROJECT: Acme App',
+    'LOCATION: UniLag',
+    'Use the product for at least 10 minutes. Answer the survey and write 3 honest sentences on what worked, what confused you and whether you\'d use it again. Submit your answers and one screenshot showing you used it. Do not post a review anywhere.',
+  ],
+  targetUrl: 'https://acme.example/app',
+};
+
 const subs: MySubmission[] = [
   { id: 's1', taskId: 't9', taskTitle: 'Grocery habits survey', company: 'FreshCart', reward: 300, paidAmount: null, status: 'pending', reviewNote: null, completedAt: now, payoutStatus: null, reviewDeadlineAt: new Date(Date.now() + 40 * 3600e3).toISOString(), approvalSource: null },
   { id: 's2', taskId: 't8', taskTitle: 'Test our sign-up flow', company: 'PayLite', reward: 500, paidAmount: null, status: 'pending', reviewNote: null, completedAt: now, payoutStatus: null, reviewDeadlineAt: new Date(Date.now() + 40 * 3600e3).toISOString(), approvalSource: null },
@@ -95,6 +131,10 @@ const SCENES = [
   'referral',
   'campaign-live',
   'proof-sent',
+  'packages-entry',
+  'packages',
+  'package-feed',
+  'package-task',
 ] as const;
 type Scene = (typeof SCENES)[number];
 
@@ -207,6 +247,22 @@ export default function EmotePreview({ isDarkMode, onToggleTheme }: { isDarkMode
             <PulseEmote name="determined" size={88} animate="pop" eager alt="" />
             Loading…
           </div>
+        )}
+        {scene === 'packages-entry' && (
+          <div className="space-y-6">
+            <div className="px-1 pt-1">
+              <p className="text-sm text-zinc-500">Acme Ltd</p>
+              <h1 className="text-2xl font-extrabold text-ink dark:text-white">Campaigns</h1>
+            </div>
+            <PackagesEntry onOpen={() => go('packages')} />
+          </div>
+        )}
+        {scene === 'packages' && <PackagesStorefront preview={previewPackages} onBack={() => go('packages-entry')} />}
+        {scene === 'package-feed' && (
+          <TasksTab user={user} tasks={[packageTask, ...tasks]} submissions={[]} selected={null} onSelect={() => {}} onSubmitted={async () => {}} />
+        )}
+        {scene === 'package-task' && (
+          <TasksTab user={user} tasks={[packageTask, ...tasks]} submissions={[]} selected={packageTask} onSelect={() => {}} onSubmitted={async () => {}} />
         )}
         {scene === 'create-campaign' && <CreateCampaignModal open settings={settings} onClose={() => {}} onCreated={async () => {}} notify={() => {}} />}
         {['signup', 'withdraw', 'first-payout', 'referral', 'campaign-live', 'proof-sent'].includes(scene) && (

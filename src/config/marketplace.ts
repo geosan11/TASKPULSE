@@ -304,3 +304,9 @@ export function referralOffer(s: MarketplaceSettings) {
 
 export const formatNaira = (n: number) =>
   `₦${Number(n || 0).toLocaleString('en-NG', { maximumFractionDigits: 2 })}`;
+
+/**
+ * Approved worker-facing review timing line (matches 011 defaults:
+ * trusted_after_tasks = 3, review_window_human_hours = 48, auto = 24).
+ */
+export const WORKER_REVIEW_TIMING = 'Your first 3 tasks are reviewed within 48 hours. After that, most are approved within 24 hours.';

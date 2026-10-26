@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Clock, ExternalLink, ImagePlus, Loader2, Users } from 'lucide-react';
 import { Card, EmptyState, ErrorPanel, ErrorText, inputClass, Label, primaryButtonClass, Segmented, StatusPill, textareaClass } from './ui';
-import { formatNaira, timeLeftLabel } from '../config/marketplace';
+import { formatNaira, timeLeftLabel, WORKER_REVIEW_TIMING } from '../config/marketplace';
 import { requestProofHash, startTaskRpc, submitTaskProofRpc, uploadTaskProofImage, type DbTask, type TaskStart } from '../lib/supabaseClient';
 import { celebrate } from '../lib/celebrate';
 import { markSeen } from '../lib/motion';
@@ -332,6 +332,7 @@ function TaskWorkspace({
           </span>
         </div>
         <TaskSpotsStatus task={task} />
+        {task.campaignId && <p className="text-xs text-zinc-500">{WORKER_REVIEW_TIMING}</p>}
       </div>
 
       <Card>
