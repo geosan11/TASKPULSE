@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, ArrowLeft, Ban, Check, Clock, Image as ImageIcon, Loader2, Pause, Play, Plus, X, Zap } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, ArrowRight, Ban, Check, Clock, Image as ImageIcon, Loader2, Pause, Play, Plus, Sparkles, X, Zap } from 'lucide-react';
 import { EmptyState, ErrorText, inputClass, Label, Modal, primaryButtonClass, secondaryButtonClass, Segmented, StatusPill, textareaClass } from './ui';
 import { SpotsBar } from './SpotsBar';
 import { spotsState } from '../lib/spots';
@@ -44,6 +44,7 @@ import { initializeCampaignFunding, verifyPayment } from '../lib/api';
 import { formatDateTime, type UserProfile } from '../types';
 import { celebrate } from '../lib/celebrate';
 import { PulseEmote } from './PulseEmote';
+import { PackagesStorefront } from './PackagesStorefront';
 
 export function BusinessTab({
   user,
@@ -60,6 +61,7 @@ export function BusinessTab({
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [browsingPackages, setBrowsingPackages] = useState(false);
   const [reviewing, setReviewing] = useState<{ campaignId: string | null; title: string } | null>(null);
 
   const load = useCallback(async () => {
@@ -90,6 +92,18 @@ export function BusinessTab({
     );
   }
 
+  if (browsingPackages) {
+    return (
+      <PackagesStorefront
+        onBack={() => {
+          setBrowsingPackages(false);
+          load();
+        }}
+        notify={notify}
+      />
+    );
+  }
+
   const toReview = campaigns.reduce((n, c) => n + c.slotsPending, 0);
 
   return (
@@ -111,6 +125,26 @@ export function BusinessTab({
           Review{toReview > 0 ? ` (${toReview})` : ''}
         </button>
       </div>
+
+      <button
+        type="button"
+        onClick={() => setBrowsingPackages(true)}
+        className="tactile w-full p-4 rounded-2xl bg-gradient-to-r from-pulse-500/10 via-zinc-100/80 to-pulse-500/5 dark:from-pulse-500/15 dark:via-zinc-900 dark:to-zinc-900 border border-pulse-500/30 flex items-center justify-between text-left group cursor-pointer"
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-pulse-500/20 text-pulse-700 dark:text-pulse-400 flex items-center justify-center shrink-0">
+            <Sparkles className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-extrabold text-ink dark:text-white">Curated Packages</span>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-pulse-500 text-ink uppercase tracking-wider">Turnkey</span>
+            </div>
+            <p className="text-xs text-zinc-500">TikTok UGC, student reviews, campus ambassadors</p>
+          </div>
+        </div>
+        <ArrowRight className="w-4 h-4 text-zinc-400 group-hover:text-ink dark:group-hover:text-white group-hover:translate-x-0.5 transition-all" />
+      </button>
 
       {loading && campaigns.length === 0 ? (
         <div className="flex justify-center py-10">

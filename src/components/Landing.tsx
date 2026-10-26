@@ -54,35 +54,42 @@ export function Landing({
           ['2', 'Send proof'],
           ['3', 'Get paid'],
         ].map(([n, label]) => (
-          <div key={n} className="py-4 rounded-3xl bg-zinc-100 dark:bg-zinc-900">
-            <p className="text-lg font-extrabold text-pulse-600 dark:text-pulse-500">{n}</p>
-            <p className="text-sm font-semibold text-ink dark:text-white">{label}</p>
+          <div key={n} className="py-4 px-2 rounded-2xl bg-zinc-100 dark:bg-zinc-900 border border-zinc-200/50 dark:border-zinc-800/80 flex flex-col items-center justify-center gap-1">
+            <span className="w-7 h-7 rounded-full bg-pulse-500/15 text-pulse-700 dark:text-pulse-400 text-xs font-black flex items-center justify-center">
+              {n}
+            </span>
+            <p className="text-xs sm:text-sm font-bold text-ink dark:text-white">{label}</p>
           </div>
         ))}
       </section>
 
       {tasks.length > 0 && (
         <section className="space-y-3">
-          <h2 className="text-base font-extrabold text-ink dark:text-white px-1">Live now</h2>
-          <div className="rounded-3xl border border-zinc-200 dark:border-zinc-800 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
+          <div className="flex items-center justify-between px-1">
+            <h2 className="text-base font-extrabold text-ink dark:text-white">Live now</h2>
+            <span className="text-xs font-bold text-pulse-600 dark:text-pulse-400">Escrow backed</span>
+          </div>
+          <div className="rounded-3xl border border-zinc-200/80 dark:border-zinc-800 divide-y divide-zinc-200/60 dark:divide-zinc-800/80 overflow-hidden shadow-sm">
             {tasks.slice(0, 3).map(t => (
-              <div key={t.id} className="flex items-center justify-between gap-3 px-5 py-4 bg-white dark:bg-zinc-900">
+              <div key={t.id} className="flex items-center justify-between gap-3 px-5 py-4 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors">
                 <div className="min-w-0">
                   <p className="text-[15px] font-bold text-ink dark:text-white truncate">{t.title}</p>
                   <p className="text-xs text-zinc-500">{spotsState(t.spotsLeft, t.spotsTotal).label}</p>
                 </div>
-                <span className="text-[15px] font-extrabold text-pulse-700 dark:text-pulse-400 shrink-0">{formatNaira(t.reward)}</span>
+                <span className="text-[15px] font-black text-pulse-700 dark:text-pulse-400 shrink-0">{formatNaira(t.reward)}</span>
               </div>
             ))}
           </div>
         </section>
       )}
 
-      <Card className="!bg-ink !border-ink dark:!bg-zinc-900 dark:!border-zinc-800 text-white">
-        <p className="text-sm font-semibold text-pulse-400">For businesses</p>
+      <Card className="!bg-ink !border-zinc-800 dark:!bg-zinc-900 text-white space-y-4 shadow-md">
+        <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-pulse-500/15 text-pulse-400 text-xs font-bold ring-1 ring-inset ring-pulse-500/30">
+          For businesses
+        </div>
         <h2 className="text-xl font-extrabold leading-tight">Real Nigerian people. Real actions. Pay only for approved work.</h2>
-        <p className="text-sm text-zinc-400">
-          Reward × slots + {Math.round(settings.platformFeeRate * 100)}% fee, paid once via Paystack.
+        <p className="text-sm text-zinc-400 leading-relaxed">
+          Reward × slots + {Math.round(settings.platformFeeRate * 100)}% fee, paid once via Paystack. Funds stay in escrow until you approve each submission.
         </p>
         <button type="button" onClick={onPostTasks} className={`${inkButtonClass} !bg-white !text-ink hover:!bg-zinc-200`}>
           Post tasks

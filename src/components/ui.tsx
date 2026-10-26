@@ -8,19 +8,19 @@ import { PulseEmote, type EmoteAnimation, type EmoteName } from './PulseEmote';
 /* ------------------------------------------------------------------ */
 
 export const inputClass =
-  'w-full h-12 px-4 rounded-2xl bg-zinc-100 dark:bg-zinc-900 border border-transparent text-[15px] font-medium text-ink dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500 focus:outline-none focus:border-pulse-500 focus:bg-white dark:focus:bg-zinc-900 transition-colors disabled:opacity-60';
+  'w-full h-12 px-4 rounded-2xl bg-zinc-100 hover:bg-zinc-200/60 dark:bg-zinc-900 dark:hover:bg-zinc-800/60 border border-transparent text-[15px] font-medium text-ink dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500 focus:outline-none focus:border-pulse-500 focus-visible:ring-2 focus-visible:ring-pulse-500/25 focus:bg-white dark:focus:bg-zinc-900 transition-all disabled:opacity-60';
 
 export const textareaClass =
-  'w-full px-4 py-3 rounded-2xl bg-zinc-100 dark:bg-zinc-900 border border-transparent text-[15px] font-medium text-ink dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500 focus:outline-none focus:border-pulse-500 focus:bg-white dark:focus:bg-zinc-900 transition-colors';
+  'w-full px-4 py-3 rounded-2xl bg-zinc-100 hover:bg-zinc-200/60 dark:bg-zinc-900 dark:hover:bg-zinc-800/60 border border-transparent text-[15px] font-medium text-ink dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500 focus:outline-none focus:border-pulse-500 focus-visible:ring-2 focus-visible:ring-pulse-500/25 focus:bg-white dark:focus:bg-zinc-900 transition-all';
 
 const btnBase =
-  'tactile w-full h-12 rounded-full font-bold text-[15px] flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed';
+  'tactile w-full h-12 rounded-full font-bold text-[15px] flex items-center justify-center gap-2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pulse-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-zinc-950 disabled:opacity-40 disabled:cursor-not-allowed';
 
-export const primaryButtonClass = `${btnBase} bg-pulse-500 hover:bg-pulse-600 active:bg-pulse-700 text-ink`;
-export const secondaryButtonClass = `${btnBase} bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-ink dark:text-white`;
-export const inkButtonClass = `${btnBase} bg-ink hover:bg-zinc-800 text-white dark:bg-white dark:hover:bg-zinc-200 dark:text-ink`;
+export const primaryButtonClass = `${btnBase} bg-pulse-500 hover:bg-pulse-600 active:bg-pulse-700 text-ink shadow-sm shadow-pulse-500/20 hover:shadow-pulse-500/30`;
+export const secondaryButtonClass = `${btnBase} bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-ink dark:text-white border border-zinc-200/50 dark:border-zinc-800/80`;
+export const inkButtonClass = `${btnBase} bg-ink hover:bg-zinc-800 text-white dark:bg-white dark:hover:bg-zinc-200 dark:text-ink shadow-sm`;
 export const dangerButtonClass = `${btnBase} bg-transparent border border-red-500/40 text-red-600 dark:text-red-400 hover:bg-red-500/5`;
-export const linkButtonClass = 'text-sm font-bold text-pulse-700 dark:text-pulse-400 cursor-pointer disabled:opacity-40';
+export const linkButtonClass = 'text-sm font-bold text-pulse-700 dark:text-pulse-400 cursor-pointer disabled:opacity-40 hover:underline underline-offset-4';
 
 /* ------------------------------------------------------------------ */
 /* Layout                                                              */
@@ -28,7 +28,7 @@ export const linkButtonClass = 'text-sm font-bold text-pulse-700 dark:text-pulse
 
 export function Card({ children, className = '' }: { children: React.ReactNode; className?: string }) {
   return (
-    <div className={`p-5 rounded-3xl bg-white dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 space-y-4 ${className}`}>
+    <div className={`p-5 rounded-3xl bg-white dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800/90 shadow-[0_2px_8px_rgba(0,0,0,0.02)] dark:shadow-[0_2px_8px_rgba(0,0,0,0.2)] space-y-4 ${className}`}>
       {children}
     </div>
   );
@@ -189,15 +189,15 @@ export function plainStatus(status: string, kind: 'money' | 'submission' | 'camp
 export function StatusBadge({ label, tone }: { label: string; tone: Tone }) {
   const cls =
     tone === 'success'
-      ? 'bg-pulse-500/12 text-pulse-700 dark:text-pulse-400'
+      ? 'bg-pulse-500/12 text-pulse-700 dark:text-pulse-400 ring-1 ring-inset ring-pulse-500/25'
       : tone === 'failed'
-      ? 'bg-red-500/10 text-red-600 dark:text-red-400'
+      ? 'bg-red-500/10 text-red-600 dark:text-red-400 ring-1 ring-inset ring-red-500/20'
       : tone === 'pending'
-      ? 'bg-zinc-200/70 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'
-      : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800/60 dark:text-zinc-400';
+      ? 'bg-zinc-200/70 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 ring-1 ring-inset ring-zinc-400/20'
+      : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800/60 dark:text-zinc-400 ring-1 ring-inset ring-zinc-400/10';
   return (
-    <span className={`inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-semibold whitespace-nowrap ${cls}`}>
-      {tone === 'success' && <Check className="w-3 h-3" strokeWidth={3} />}
+    <span className={`inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full font-bold tracking-tight whitespace-nowrap ${cls}`}>
+      {tone === 'success' && <Check className="w-3 h-3" strokeWidth={2.5} />}
       {label}
     </span>
   );
