@@ -19,7 +19,9 @@
     "telegram:setup": "tsx scripts/telegram-setup.ts",
     "test:pricing": "tsx scripts/tests/pricing.test.ts",
     "test:categories": "tsx scripts/tests/categories.test.ts",
-    "test:approvals": "tsx scripts/tests/approvals.test.ts"
+    "test:approvals": "tsx scripts/tests/approvals.test.ts",
+    "check:migrations": "tsx scripts/check-migration-copies.ts",
+    "test:sql:015": "bash supabase/tests/run-local-015.sh"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
