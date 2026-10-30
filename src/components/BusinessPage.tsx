@@ -392,7 +392,7 @@ export function BusinessPage({
                   <a className="font-bold underline underline-offset-2" href={mailto('TaskPulse first-campaign offer')}>
                     {BUSINESS_CONTACT_EMAIL}
                   </a>{' '}
-                  to agree it before you pay. It isn't applied automatically, and the 25% fee is refunded after the campaign ends.
+                  to agree it before you pay. It isn't applied automatically, and the {feePct}% fee is refunded after the campaign ends.
                 </p>
               </Faq>
             </div>

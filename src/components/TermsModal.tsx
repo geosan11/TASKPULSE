@@ -62,9 +62,11 @@ export function TermsModal({
               {settings.payoutCooldownHours} hours after your first approved task.
             </Section>
             <Section title="4. Referral bonus">
-              When someone joins with your code and gets at least {settings.referralQualifyingTasks} tasks approved by
-              businesses other than you, you receive {formatNaira(settings.referralBonusReferrer)}
-              {settings.referralBonusReferee > 0 ? <> and they receive {formatNaira(settings.referralBonusReferee)}</> : null}.
+              You get {formatNaira(settings.referralBonusReferrer)} once your invited friend completes{' '}
+              {settings.referralQualifyingTasks} approved tasks
+              {settings.referralBonusReferee > 0 ? <> (and they get {formatNaira(settings.referralBonusReferee)})</> : null}. Tasks on
+              campaigns run by you or your friend do not count, and the bonus is added when the payment for their last qualifying
+              task is released to them.
               {settings.referralRequireFeeCover
                 ? ` The bonus is paid once the platform fees from their approved tasks reach the bonus amount (at ${formatNaira(
                     Math.ceil((settings.referralBonusReferrer + settings.referralBonusReferee) / settings.referralQualifyingTasks / settings.platformFeeRate)

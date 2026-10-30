@@ -28,8 +28,15 @@ export const ROUTE_META: Record<string, RouteMeta> = {
     path: '/business',
     title: 'TaskPulse for Businesses — Real Nigerian people. Pay only for approved work.',
     description:
-      'Get survey responses, app tests and product feedback from real people in Nigeria. You set the reward from ₦50, add a 25% platform fee, fund via Paystack and pay only for approved work.',
+      'Get survey responses, app tests and product feedback from real people in Nigeria. You set the reward from ₦50, add a 15% platform fee, fund via Paystack and pay only for approved work.',
     sitemap: { changefreq: 'weekly', priority: 0.9 },
+  },
+  '/packages': {
+    path: '/packages',
+    title: 'Ready-made packages for businesses — TaskPulse',
+    description:
+      'Fixed-price packages done by verified Nigerian students: UGC videos, private product feedback, content tests and event coverage. Pay once via Paystack and review every submission.',
+    sitemap: { changefreq: 'weekly', priority: 0.8 },
   },
   '/terms': {
     path: '/terms',

@@ -38,6 +38,8 @@ import { Celebration } from './components/Celebration';
 import { ProfileTab } from './components/ProfileTab';
 import { BusinessTab } from './components/BusinessTab';
 import { BusinessPage } from './components/BusinessPage';
+import { PublicPackagesPage } from './components/PublicPackagesPage';
+import { cleanPackageSlug, readPendingPackage, setPendingPackage } from './lib/publicPackages';
 import { navigate, usePathname } from './lib/router';
 import { applyRouteHead } from './lib/seo';
 
@@ -286,9 +288,12 @@ export default function App() {
     const linkTask = params.get('task');
     const linkTab = params.get('tab');
     const forBusiness = params.get('for') === 'business';
+    // ?package=<slug> (from /packages without JS): remember it for the Business tab.
+    const linkPackage = cleanPackageSlug(params.get('package'));
+    if (linkPackage) setPendingPackage(linkPackage);
     if (linkTask && /^[A-Za-z0-9_-]{1,50}$/.test(linkTask)) setPendingTaskId(linkTask);
     if (linkTab === 'tasks' || linkTab === 'wallet' || linkTab === 'profile') setPendingTab(linkTab);
-    if (ref || payRef || linkTask || linkTab || forBusiness || params.get('utm_source'))
+    if (ref || payRef || linkTask || linkTab || forBusiness || linkPackage || params.get('package') || params.get('utm_source'))
       window.history.replaceState({}, document.title, window.location.pathname);
 
     if (payRef) {
@@ -387,6 +392,16 @@ export default function App() {
   // Business mode defaults to ON for business accounts until they switch it off.
   const businessMode = Boolean(isBusiness && (businessModePref ?? true));
 
+  // A package picked on /packages before sign-up (e.g. after confirming the
+  // email): land the business on Campaigns, where BusinessTab opens it.
+  useEffect(() => {
+    if (!user || !isBusiness || path !== '/' || !readPendingPackage()) return;
+    setBusinessMode(true);
+    setSelectedTask(null);
+    setActiveTab('tasks');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, isBusiness, path]);
+
   useEffect(() => {
     if (!user || !businessMode) {
       setPendingReviewCount(0);
@@ -436,6 +451,33 @@ export default function App() {
         <Suspense fallback={null}>
           <EmotePreview isDarkMode={isDarkMode} onToggleTheme={() => setIsDarkMode(d => !d)} />
         </Suspense>
+      ) : path === '/packages' ? (
+        <PublicPackagesPage
+          isDarkMode={isDarkMode}
+          signedIn={Boolean(user)}
+          onToggleTheme={() => setIsDarkMode(d => !d)}
+          onGetStarted={slug => {
+            // Remembered across sign-up / email confirmation; BusinessTab opens it.
+            setPendingPackage(slug);
+            if (!user) {
+              openAuth('signup', 'business');
+            } else if (isBusiness) {
+              setBusinessMode(true);
+              goto('tasks');
+              navigate('/');
+            } else {
+              goto('profile');
+              navigate('/');
+              notify('Set up a business account', 'Tap "Post tasks for your business" here. Your package will be waiting in Campaigns.');
+            }
+          }}
+          onWorkerSignUp={() => {
+            if (user) navigate('/');
+            else openAuth('signup', 'worker');
+          }}
+          onSignIn={() => openAuth('signin')}
+          onOpenLegal={tab => setTermsOpen(tab)}
+        />
       ) : path === '/business' ? (
         <BusinessPage
           settings={settings}
@@ -514,6 +556,7 @@ export default function App() {
               onPostTasks={() => openAuth('signup', 'business')}
               onSignIn={() => openAuth('signin')}
               onSeePricing={() => navigate('/business')}
+              onSeePackages={() => navigate('/packages')}
               onOpenTerms={tab => setTermsOpen(tab)}
             />
           ) : (

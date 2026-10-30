@@ -66,6 +66,8 @@ export interface Campaign {
   slots: number;
   rewardBudget: number;
   platformFee: number;
+  /** The rate this campaign was priced at (stored; 25% before 016). */
+  platformFeeRate: number;
   totalCharge: number;
   escrowBalance: number;
   slotsApproved: number;
@@ -149,6 +151,7 @@ export async function fetchMyCampaigns(): Promise<Campaign[]> {
     slots: c.slots,
     rewardBudget: Number(c.reward_budget),
     platformFee: Number(c.platform_fee),
+    platformFeeRate: Number(c.platform_fee_rate),
     totalCharge: Number(c.total_charge),
     escrowBalance: Number(c.escrow_balance),
     slotsApproved: c.slots_approved,
