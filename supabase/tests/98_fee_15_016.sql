@@ -1,4 +1,4 @@
--- LOCAL ONLY. 016: one 15% platform fee, referral bonus without fee cover. Runs after 95_packages_015.sql on the
+-- LOCAL ONLY. 016: one 15% platform fee; referral settings untouched (bonus paused, see 017). Runs after 95_packages_015.sql on the
 -- same database (its 25% package campaigns are the "already created" ones).
 -- Every check raises 'FAILED: ...' on a wrong result; prints PASS at the end.
 \set ON_ERROR_STOP 1
@@ -98,12 +98,12 @@ SELECT pg_temp.ok((pg_temp.as_user('b1500000-0000-0000-0000-000000000001',
 SELECT pg_temp.ok(c.refund_due = 28750 AND c.fee_refund_due = 3750 AND c.escrow_balance = 0, 'refund recorded incl. fee')
   FROM campaigns c WHERE c.id = (SELECT (v->>'campaign_id')::uuid FROM r16 WHERE slug='content-test-panel');
 
--- Referral: N200 to the referrer after the friend's 3rd approved task, even on
--- N50 tasks whose fee (3 x N7.50) is far below the bonus ----------------------
-SELECT pg_temp.ok((SELECT referral_require_fee_cover FROM marketplace_settings WHERE id = 1) = FALSE, 'referral fee cover off');
+-- Referral: 016 must NOT turn the fee-cover check off (the bonus is paused and
+-- ships in 017). On N50 tasks the fee (3 x N7.50) is below the bonus: no pay --
+SELECT pg_temp.ok((SELECT referral_require_fee_cover FROM marketplace_settings WHERE id = 1) = TRUE, 'referral fee cover still on after 016');
 SELECT pg_temp.ok((SELECT column_default FROM information_schema.columns
-                    WHERE table_schema='public' AND table_name='marketplace_settings' AND column_name='referral_require_fee_cover') = 'false',
-                  'referral fee cover default off');
+                    WHERE table_schema='public' AND table_name='marketplace_settings' AND column_name='referral_require_fee_cover') IS DISTINCT FROM 'false',
+                  'referral fee cover default unchanged by 016');
 SELECT pg_temp.ok((SELECT referral_bonus_referrer = 200 AND referral_bonus_referee = 0 AND referral_qualifying_tasks = 3 FROM marketplace_settings WHERE id = 1),
                   'bonus N200 to referrer only, after 3 tasks');
 SELECT pg_temp.ok(position('referral_require_fee_cover' IN pg_get_functiondef('public._maybe_pay_referral(uuid)'::regprocedure)) > 0
@@ -156,16 +156,16 @@ SET ROLE service_role; SELECT process_review_windows(100); RESET ROLE;
 SELECT pg_temp.ok((SELECT bonus_status FROM referrals WHERE referee_id = 'a1600000-0000-0000-0000-000000000002') = 'pending', 'two tasks: no bonus yet');
 SELECT pg_temp.ok((SELECT withdrawable_balance FROM profiles WHERE id = 'a1600000-0000-0000-0000-000000000001') = 0, 'referrer not paid after 2');
 
--- Third task released: N200 to the referrer although the fee earned is N22.50.
+-- Third task released: fee earned is N22.50 < N200, so still no bonus.
 UPDATE task_completions SET review_deadline_at = NOW() - interval '1 second', completed_at = NOW() - interval '49 hours'
  WHERE user_id = 'a1600000-0000-0000-0000-000000000002' AND task_id = (SELECT task FROM k16 WHERE n = 3);
 SET ROLE service_role; SELECT process_review_windows(100); RESET ROLE;
-SELECT pg_temp.ok((SELECT bonus_status = 'paid' AND bonus_referrer_amount = 200 AND bonus_referee_amount = 0
-                     FROM referrals WHERE referee_id = 'a1600000-0000-0000-0000-000000000002'), 'bonus paid after the 3rd approved N50 task');
-SELECT pg_temp.ok((SELECT withdrawable_balance FROM profiles WHERE id = 'a1600000-0000-0000-0000-000000000001') = 200, 'referrer got N200');
+SELECT pg_temp.ok((SELECT bonus_status FROM referrals WHERE referee_id = 'a1600000-0000-0000-0000-000000000002') <> 'paid',
+                  'no bonus after the 3rd N50 task (016 leaves fee cover on)');
+SELECT pg_temp.ok((SELECT withdrawable_balance FROM profiles WHERE id = 'a1600000-0000-0000-0000-000000000001') = 0, 'referrer not paid');
 SELECT pg_temp.ok((SELECT withdrawable_balance FROM profiles WHERE id = 'a1600000-0000-0000-0000-000000000002') = 150, 'friend: 3 x N50, no own bonus');
-SELECT pg_temp.ok((SELECT count(*) FROM transactions WHERE user_id = 'a1600000-0000-0000-0000-000000000001' AND type = 'referral_bonus' AND amount = 200) = 1,
-                  'one N200 referral transaction');
+SELECT pg_temp.ok((SELECT count(*) FROM transactions WHERE user_id = 'a1600000-0000-0000-0000-000000000001' AND type = 'referral_bonus' AND amount = 200) = 0,
+                  'no N200 referral transaction');
 SELECT pg_temp.ok((SELECT count(*) FROM campaign_ledger_check()) = 0, 'ledger still reconciles');
 
 SET client_min_messages = notice;
