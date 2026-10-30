@@ -22,6 +22,7 @@
     "test:approvals": "tsx scripts/tests/approvals.test.ts",
     "check:migrations": "tsx scripts/check-migration-copies.ts",
     "test:sql:015": "bash supabase/tests/run-local-015.sh",
+    "test:sql:016": "bash supabase/tests/run-local-016.sh",
     "test:public-packages": "tsx scripts/tests/public-packages.test.ts"
   },
   "dependencies": {
