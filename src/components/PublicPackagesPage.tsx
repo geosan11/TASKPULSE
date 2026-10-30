@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowRight, Clock, GraduationCap, Moon, PackageCheck, ShieldCheck, Sun, Users } from 'lucide-react';
 import { Card, EmptyState, ErrorPanel } from './ui';
-import { formatNaira } from '../config/marketplace';
+import { PriceBreakdown } from './PriceBreakdown';
 import { navigate } from '../lib/router';
 import { fetchPublicPackages } from '../lib/packages';
 import { daysLabel, deliverableFor, packageSignupHref, studentsLabel, type PublicPackage } from '../lib/publicPackages';
@@ -15,7 +15,7 @@ type LoadState = { kind: 'loading' } | { kind: 'error'; message: string } | { ki
 
 /**
  * Public catalog of ready-made packages at /packages (signed in or not).
- * Shows what the business pays (total_price, fee included), never worker pay.
+ * One all-in price per package (total_price); worker pay only inside "See breakdown".
  */
 export function PublicPackagesPage({
   isDarkMode,
@@ -198,11 +198,7 @@ export function PublicPackagesPage({
                         </dl>
                       </div>
                       <div className="pt-4 border-t border-zinc-100 dark:border-zinc-800/80 space-y-3">
-                        <div>
-                          <p className="text-[11px] font-medium uppercase tracking-wider text-zinc-400">You pay</p>
-                          <p className="text-2xl font-black tracking-tight text-ink dark:text-white">{formatNaira(p.totalPrice)}</p>
-                          <p className="text-xs text-zinc-500">Includes platform fee</p>
-                        </div>
+                        <PriceBreakdown total={p.totalPrice} slots={p.slots} reward={p.rewardPerCompletion} feeRate={p.platformFeeRate} />
                         {cta(p.slug, 'Get started', `${btnPrimary} w-full`, `Get started with ${p.name}`)}
                       </div>
                     </Card>
@@ -219,7 +215,7 @@ export function PublicPackagesPage({
                 <ShieldCheck className="w-4 h-4 text-pulse-600 dark:text-pulse-500" /> Paid once via Paystack, no subscription
               </li>
               <li className="flex items-center gap-1.5">
-                <ShieldCheck className="w-4 h-4 text-pulse-600 dark:text-pulse-500" /> Unused slots refunded
+                <ShieldCheck className="w-4 h-4 text-pulse-600 dark:text-pulse-500" /> One price, nothing added at checkout
               </li>
             </ul>
           </section>

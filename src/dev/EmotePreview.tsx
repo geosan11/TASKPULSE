@@ -62,7 +62,7 @@ const task = (id: string, title: string, company: string, reward: number): DbTas
 });
 const tasks = [task('t1', 'Grocery habits survey', 'FreshCart', 300), task('t2', 'Test our sign-up flow', 'PayLite', 500), task('t3', 'Rate 5 product photos', 'Shoply', 150)];
 
-// Mirrors the 015 seed; prices = slots x reward x 1.25. Content test shown as
+// Mirrors the 015 seed; prices = slots x reward x 1.15 (016). Content test shown as
 // not yet fillable (worker-count gate).
 const pkg = (slug: string, name: string, description: string, slots: number, reward: number, days: number, available = true): PackageItem => ({
   id: slug,
@@ -71,7 +71,8 @@ const pkg = (slug: string, name: string, description: string, slots: number, rew
   description,
   slots,
   rewardPerCompletion: reward,
-  totalPrice: Math.ceil(slots * reward * 1.25),
+  platformFeeRate: 0.15,
+  totalPrice: Math.ceil(slots * reward * 1.15),
   estimatedDeliveryDays: days,
   available,
 });
@@ -143,7 +144,7 @@ function fire(scene: Scene) {
   if (scene === 'withdraw') celebrate('Money on the way!', '₦2,000 to Opay.', { emote: 'done', effect: 'check' });
   if (scene === 'first-payout') celebrate('Your first payout!', '₦1,000 is on the way to Opay.', { emote: 'shocked', then: 'done', effect: 'check' });
   if (scene === 'referral') celebrate('₦200 referral bonus!', 'Someone you invited finished their tasks. Thanks for spreading the word.', { emote: 'love', effect: 'hearts' });
-  if (scene === 'campaign-live') celebrate('Your task is live!', '₦37,500 received. People can start now.', { emote: 'clap', effect: 'confetti' });
+  if (scene === 'campaign-live') celebrate('Your task is live!', '₦34,500 received. People can start now.', { emote: 'clap', effect: 'confetti' });
   if (scene === 'proof-sent') celebrate('Proof sent!', "You'll get ₦300 once FreshCart approves it.", { emote: 'searching', effect: 'bob' });
   if (scene === 'reward') showReward({ title: 'Task approved!', subtitle: 'Grocery habits survey', amount: 300, emote: 'success' });
 }

@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { ANY_PACKAGE, cleanPackageSlug, daysLabel, deliverableFor, packageSignupHref, studentsLabel } from '../../src/lib/publicPackages';
 import { normalizePath, PUBLIC_ROUTES } from '../../src/lib/router';
+import { CHECKOUT_LINE, UNUSED_SLOTS_LINE } from '../../src/components/PriceBreakdown';
 import { ROUTE_META } from '../../src/lib/seo-routes';
 
 let failed = 0;
@@ -43,12 +44,22 @@ const iPk = rw.findIndex(r => r.source === '/packages');
 const iAll = rw.findIndex(r => r.source === '/(.*)');
 check('vercel rewrite /packages -> /packages.html before catch-all', iPk >= 0 && rw[iPk].destination === '/packages.html' && iPk < iAll);
 
-// Never show worker pay on the public page.
+// Worker pay may be fetched, but is only displayed inside the price breakdown.
 const page = fs.readFileSync(path.resolve('src/components/PublicPackagesPage.tsx'), 'utf8');
+const store = fs.readFileSync(path.resolve('src/components/PackagesStorefront.tsx'), 'utf8');
+const breakdown = fs.readFileSync(path.resolve('src/components/PriceBreakdown.tsx'), 'utf8');
 const lib = fs.readFileSync(path.resolve('src/lib/packages.ts'), 'utf8');
 const cols = /PUBLIC_PACKAGE_COLUMNS =\s*'([^']+)'/.exec(lib)?.[1] || '';
-check('public query has no reward column', cols.length > 0 && !/reward/.test(cols), cols);
-check('public page never mentions reward', !/reward/i.test(page));
+check('public query fetches reward + fee rate for the breakdown', /reward_per_completion/.test(cols) && /platform_fee_rate/.test(cols), cols);
+const rewardUses = (s: string) => [...s.matchAll(/rewardPerCompletion/g)].length;
+const breakdownProps = (s: string) => [...s.matchAll(/<PriceBreakdown[^>]*reward=\{[a-z]+\.rewardPerCompletion\}/g)].length;
+check('public page: reward only passed into <PriceBreakdown>', rewardUses(page) > 0 && rewardUses(page) === breakdownProps(page), [rewardUses(page), breakdownProps(page)]);
+check('storefront: reward only passed into <PriceBreakdown>', rewardUses(store) > 0 && rewardUses(store) === breakdownProps(store), [rewardUses(store), breakdownProps(store)]);
+check('no "per student" pay copy', !/per student\b(?!, via)/i.test(store) && !/ each<\/span>/.test(store));
+check('breakdown: worker pay only when open', /\{open && \(\s*<dl[\s\S]*Worker pay[\s\S]*TaskPulse fee[\s\S]*Total/.test(breakdown));
+check('unused-slots line exact', UNUSED_SLOTS_LINE === 'Unused slots are refunded, fee included.');
+check('checkout line', /Nothing is added at checkout/.test(CHECKOUT_LINE) && /Paystack fee/.test(CHECKOUT_LINE));
+check('no hardcoded 25% anywhere in pricing UI', ![page, store, breakdown].some(s => /25\s?%|0\.25/.test(s)));
 check('no urgency / income copy', !/hurry|only \d+ left|limited time|countdown|72h|earn up to|guaranteed/i.test(page));
 
 if (failed) {

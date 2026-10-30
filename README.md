@@ -67,10 +67,10 @@ Checking in daily builds your streak badge. It does not pay cash.
 
 1. Sign up as a business (or switch from Profile → "Open business account").
 2. Create a campaign: title, instructions, category, reward per completion, number of slots, proof type (screenshot / text / link) and an optional link.
-3. Pay through Paystack. **Total = reward × slots × 1.25** (reward budget plus a 25% platform fee **on top**), fee rounded up to the nearest Naira. The worker always receives the full reward. Example: 100 responses × ₦300 = ₦30,000 + ₦7,500 fee = **₦37,500** (₦375 per approved response).
+3. Pay through Paystack. **Total = reward × slots × 1.15** (reward budget plus a 15% platform fee **on top**, set by `marketplace_settings.platform_fee_rate`; 016 changed it from 25%), fee rounded up to the nearest Naira. The worker always receives the full reward. Example: 100 responses × ₦300 = ₦30,000 + ₦4,500 fee = **₦34,500** (₦345 per approved response). Campaigns created before 016 keep the 25% they were priced at.
 4. Your task goes live as soon as the payment is verified.
 5. Review submissions in the Business tab. **Approve** pays the worker from your campaign escrow. **Reject** (with a note) frees the slot for someone else.
-6. Pause, resume or cancel at any time. Cancelling records a refund for the unused slots: their rewards **and their share of the 25% fee** (`refund_fee_on_unused`). Submissions still awaiting review keep their reward reserved; rejecting them after cancelling adds to the refund. Payments that arrive for an already-funded or deleted campaign, and underpayments, are listed for a full refund. Refunds are issued by the owner from the Paystack dashboard and recorded with `record_campaign_refund()` / `record_payment_refund()`; `admin_refunds_owed()` lists everything owed.
+6. Pause, resume or cancel at any time. Cancelling records a refund for the unused slots: their rewards **and their share of the platform fee** (at the campaign's own stored rate) (`refund_fee_on_unused`). Submissions still awaiting review keep their reward reserved; rejecting them after cancelling adds to the refund. Payments that arrive for an already-funded or deleted campaign, and underpayments, are listed for a full refund. Refunds are issued by the owner from the Paystack dashboard and recorded with `record_campaign_refund()` / `record_payment_refund()`; `admin_refunds_owed()` lists everything owed.
 
 Admins (`profiles.role = 'admin'`) can review any submission.
 
@@ -92,7 +92,7 @@ enforced inside Postgres functions, so the browser can't bypass it:
 | `refund_fee_on_unused` | true (009) |
 | `referral_qualifying_tasks` | 3 |
 | `referral_max_bonuses_per_referrer` | 50 |
-| `platform_fee_rate` | 0.25 |
+| `platform_fee_rate` | 0.15 (016; was 0.25) |
 | `min_reward_per_task` / `max_reward_per_task` | 50 / 5000 |
 | `min_campaign_slots` / `max_campaign_slots` | 5 / 10000 |
 

@@ -52,7 +52,7 @@ export const DEFAULT_MARKETPLACE_SETTINGS: MarketplaceSettings = {
   referralBonusReferee: 0,
   referralQualifyingTasks: 3,
   referralMaxBonusesPerReferrer: 50,
-  platformFeeRate: 0.25,
+  platformFeeRate: 0.15,
   minRewardPerTask: 50,
   maxRewardPerTask: 5000,
   minCampaignSlots: 5,

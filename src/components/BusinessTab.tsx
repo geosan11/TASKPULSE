@@ -45,6 +45,7 @@ import { formatDateTime, type UserProfile } from '../types';
 import { celebrate } from '../lib/celebrate';
 import { PulseEmote } from './PulseEmote';
 import { PackagesStorefront } from './PackagesStorefront';
+import { PriceBreakdown } from './PriceBreakdown';
 import { packagesEnabled } from '../lib/packages';
 import { ANY_PACKAGE, clearPendingPackage, readPendingPackage } from '../lib/publicPackages';
 
@@ -236,7 +237,8 @@ function CampaignCard({
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
-  const cancelRefund = computeCancelRefund(c, settings.platformFeeRate, settings.refundFeeOnUnused);
+  // Refunds use the rate the campaign was priced at (server: _fee_refund_for), not today's rate.
+  const cancelRefund = computeCancelRefund(c, Number.isFinite(c.platformFeeRate) ? c.platformFeeRate : settings.platformFeeRate, settings.refundFeeOnUnused);
   const refundOwed = Math.max(0, c.refundDue - c.refundedAmount);
 
   const fund = async () => {
@@ -634,22 +636,19 @@ export function CreateCampaignModal({
       </div>
 
       <div className="p-4 rounded-2xl bg-zinc-100 dark:bg-zinc-900 space-y-1.5 text-sm">
-        <div className="flex justify-between text-zinc-500">
-          <span>Rewards</span>
-          <span>{formatNaira(cost.rewardBudget)}</span>
-        </div>
-        <div className="flex justify-between text-zinc-500">
-          <span>Fee ({feePct}%)</span>
-          <span>{formatNaira(cost.platformFee)}</span>
-        </div>
-        <div className="flex justify-between font-extrabold text-ink dark:text-white text-base pt-1.5">
-          <span>Total</span>
-          <span>{formatNaira(cost.total)}</span>
-        </div>
+        <PriceBreakdown
+          total={cost.total}
+          slots={Math.max(0, Math.floor(slotsNum || 0))}
+          reward={Math.max(0, Math.floor(rewardNum || 0))}
+          feeRate={settings.platformFeeRate}
+          label="Total"
+          size="md"
+          showUnusedLine={settings.refundFeeOnUnused}
+        />
         {rewardNum > 0 && (
           <p className="text-xs text-zinc-500 pt-1.5">
             Each approved response costs you {formatNaira(cost.costPerResponse)}: the worker gets the full {formatNaira(rewardNum)}, plus our{' '}
-            {feePct}% fee ({formatNaira(cost.feePerResponse)}). Unused slots are refunded{settings.refundFeeOnUnused ? ' with their fee' : ''} if you end the campaign.
+            {feePct}% fee ({formatNaira(cost.feePerResponse)}).
           </p>
         )}
       </div>

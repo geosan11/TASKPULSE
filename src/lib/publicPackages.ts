@@ -1,7 +1,7 @@
 /**
  * Pure helpers for the public /packages page (no Supabase import, so they
- * run under tsx tests). The public page shows what a business pays, never
- * what a worker is paid: there is no reward field here on purpose.
+ * run under tsx tests). The public page shows one all-in price; worker pay
+ * (slots x reward) is only shown inside the "See breakdown" panel.
  */
 export interface PublicPackage {
   id: string;
@@ -11,6 +11,9 @@ export interface PublicPackage {
   category: string | null;
   slots: number;
   totalPrice: number;
+  /** Worker pay per completion. Only shown inside the price breakdown. */
+  rewardPerCompletion: number;
+  platformFeeRate: number;
   proofType: string | null;
   proofRequirements: Record<string, unknown> | null;
   estimatedDeliveryDays: number;

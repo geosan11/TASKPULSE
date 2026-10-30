@@ -3,8 +3,8 @@ import { ArrowLeft, CheckCircle2, Clock, Loader2, Sparkles, ShieldCheck, Users }
 import { supabase } from '../lib/supabaseClient';
 import { initializeCampaignFunding } from '../lib/api';
 import { fetchPackages, type PackageItem } from '../lib/packages';
-import { formatNaira } from '../config/marketplace';
 import { Card, EmptyState, ErrorText, inputClass, Label, Modal, primaryButtonClass, textareaClass } from './ui';
+import { PriceBreakdown } from './PriceBreakdown';
 
 const PACKAGE_TAGS: Record<string, { label: string; cls: string }> = {
   '10-local-ugc-reels': { label: 'UGC Video', cls: 'bg-rose-500/10 text-rose-600 dark:text-rose-400 ring-rose-500/20' },
@@ -121,20 +121,11 @@ export function PackagesStorefront({
                     <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300">
                       <Users className="w-3.5 h-3.5 text-pulse-600 dark:text-pulse-400" /> {p.slots} verified students
                     </span>
-                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-pulse-500/10 text-pulse-700 dark:text-pulse-400 font-bold">
-                      {formatNaira(p.rewardPerCompletion)} per student
-                    </span>
                   </div>
                 </div>
 
                 <div className="pt-4 border-t border-zinc-100 dark:border-zinc-800/80 space-y-3">
-                  <div className="flex items-baseline justify-between">
-                    <div>
-                      <p className="text-[11px] font-medium uppercase tracking-wider text-zinc-400">Total charge</p>
-                      <p className="text-2xl font-black text-ink dark:text-white tracking-tight">{formatNaira(p.totalPrice)}</p>
-                    </div>
-                    <p className="text-xs font-medium text-zinc-400 text-right">Fee included · Escrow funded</p>
-                  </div>
+                  <PriceBreakdown total={p.totalPrice} slots={p.slots} reward={p.rewardPerCompletion} feeRate={p.platformFeeRate} label="Total charge" />
                   <button
                     type="button"
                     onClick={() => setSelected(p)}
@@ -218,13 +209,13 @@ function OrderModal({
         <>
           <div className="p-3.5 rounded-2xl bg-zinc-100 dark:bg-zinc-900 border border-zinc-200/60 dark:border-zinc-800 space-y-1.5 -mt-1">
             <div className="flex items-center justify-between text-xs font-semibold text-zinc-500">
-              <span>{pkg.slots} students · {formatNaira(pkg.rewardPerCompletion)} each</span>
+              <span>{pkg.slots} verified students</span>
               <span className="flex items-center gap-1 text-pulse-600 dark:text-pulse-400 font-bold">
                 <ShieldCheck className="w-3.5 h-3.5" /> Escrow protected
               </span>
             </div>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-snug">
-              Approved work is paid to real Nigerian bank accounts via Paystack checkout. Unused slots are refundable.
+              Approved work is paid to real Nigerian bank accounts via Paystack checkout.
             </p>
           </div>
 
@@ -244,12 +235,8 @@ function OrderModal({
             <Label hint="Optional">Brief for students</Label>
             <textarea className={textareaClass} rows={3} value={brief} onChange={e => setBrief(e.target.value)} maxLength={1500} placeholder="Key points to show or questions you want answered" />
           </div>
-          <div className="flex items-center justify-between p-3 rounded-2xl bg-pulse-500/8 border border-pulse-500/20">
-            <div>
-              <span className="text-xs font-semibold text-zinc-500">Total charge</span>
-              <p className="text-xs text-zinc-400">Includes 25% platform fee</p>
-            </div>
-            <span className="text-xl font-black text-ink dark:text-white tracking-tight">{formatNaira(pkg.totalPrice)}</span>
+          <div className="p-3 rounded-2xl bg-pulse-500/8 border border-pulse-500/20">
+            <PriceBreakdown total={pkg.totalPrice} slots={pkg.slots} reward={pkg.rewardPerCompletion} feeRate={pkg.platformFeeRate} label="Total charge" size="md" />
           </div>
           {error && <ErrorText>{error}</ErrorText>}
           <button type="button" onClick={submit} disabled={busy} className={primaryButtonClass}>
