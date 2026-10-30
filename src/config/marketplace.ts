@@ -58,7 +58,7 @@ export const DEFAULT_MARKETPLACE_SETTINGS: MarketplaceSettings = {
   minCampaignSlots: 5,
   maxCampaignSlots: 10000,
   refundFeeOnUnused: true,
-  referralRequireFeeCover: true,
+  referralRequireFeeCover: false,
   reviewWindowAutoHours: 24,
   reviewWindowHumanHours: 48,
   holdFlaggedForReview: false,

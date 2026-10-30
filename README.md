@@ -51,12 +51,12 @@ Withdrawal rules (anti-fraud):
 
 ### Referral bonus
 
-Invite a friend with your link. When they have **3 tasks approved by
-businesses other than you**, you get **₦200** (the friend's own bonus is ₦0 by
-default; `referral_bonus_referee`). To stop bonus farming, the bonus is only
-paid once the platform fee earned from the friend's approved tasks covers it
-(`referral_require_fee_cover`): at ₦267+ per task that is exactly 3 tasks; on
-cheaper tasks it takes more. Bonuses are capped per referrer (50 by default).
+Invite a friend with your link. You get **₦200** once your invited friend
+completes **3 approved tasks**, whatever the task rewards (016 switched
+`referral_require_fee_cover` off). Tasks for the friend's or your own business
+do not count, and the bonus is added when the 3rd task's payout is released
+after its review window. The friend's own bonus is ₦0 (`referral_bonus_referee`)
+and bonuses are capped per referrer (50 by default).
 Nobody pays to join, so referrals never involve deposits.
 
 ### Daily check-in
@@ -88,7 +88,7 @@ enforced inside Postgres functions, so the browser can't bypass it:
 | `max_withdrawals_per_day` | 2 |
 | `payout_cooldown_hours` | 48 |
 | `referral_bonus_referrer` / `referral_bonus_referee` | 200 / 0 (009) |
-| `referral_require_fee_cover` | true (009) |
+| `referral_require_fee_cover` | false (016; was true in 009) |
 | `refund_fee_on_unused` | true (009) |
 | `referral_qualifying_tasks` | 3 |
 | `referral_max_bonuses_per_referrer` | 50 |
