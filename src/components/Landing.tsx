@@ -11,6 +11,7 @@ export function Landing({
   onPostTasks,
   onSignIn,
   onSeePricing,
+  onSeePackages,
   onOpenTerms,
 }: {
   settings: MarketplaceSettings;
@@ -19,6 +20,7 @@ export function Landing({
   onPostTasks: () => void;
   onSignIn: () => void;
   onSeePricing: () => void;
+  onSeePackages?: () => void;
   onOpenTerms: (tab: 'terms' | 'privacy') => void;
 }) {
   return (
@@ -104,6 +106,18 @@ export function Landing({
         >
           See pricing and how it works
         </a>
+        {onSeePackages && (
+          <a
+            href="/packages"
+            onClick={e => {
+              e.preventDefault();
+              onSeePackages();
+            }}
+            className="block text-center text-sm font-bold text-zinc-300 underline-offset-2 hover:underline"
+          >
+            Browse ready-made packages
+          </a>
+        )}
       </Card>
 
       <footer className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs font-semibold text-zinc-500">

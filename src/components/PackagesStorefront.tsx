@@ -38,8 +38,11 @@ export function PackagesStorefront({
   onBack,
   notify,
   preview,
+  openSlug,
 }: {
   onBack?: () => void;
+  /** Open this package's order form once loaded (picked on the public /packages page). */
+  openSlug?: string | null;
   notify?: (title: string, subtitle: string) => void;
   /** Dev preview only: render these instead of loading from Supabase. */
   preview?: PackageItem[];
@@ -56,13 +59,19 @@ export function PackagesStorefront({
       const res = await fetchPackages();
       if (cancelled) return;
       // 'missing' = migration 015 not run yet: show the empty state, not an error.
-      if (res.status === 'ok') setPackages(res.packages);
+      if (res.status === 'ok') {
+        setPackages(res.packages);
+        const picked = openSlug ? res.packages.find(p => p.slug === openSlug) : undefined;
+        if (picked?.available) setSelected(picked);
+      }
       else if (res.status === 'error') setLoadError(res.message);
       setLoading(false);
     })();
     return () => {
       cancelled = true;
     };
+    // openSlug is only read on first load on purpose.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preview]);
 
   return (

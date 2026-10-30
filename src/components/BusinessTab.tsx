@@ -46,6 +46,7 @@ import { celebrate } from '../lib/celebrate';
 import { PulseEmote } from './PulseEmote';
 import { PackagesStorefront } from './PackagesStorefront';
 import { packagesEnabled } from '../lib/packages';
+import { ANY_PACKAGE, clearPendingPackage, readPendingPackage } from '../lib/publicPackages';
 
 export function BusinessTab({
   user,
@@ -63,6 +64,8 @@ export function BusinessTab({
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [browsingPackages, setBrowsingPackages] = useState(false);
+  // Package picked on the public /packages page (possibly before sign-up).
+  const [openSlug, setOpenSlug] = useState<string | null>(null);
   // Hidden until migration 015 has been run (packages table missing = no entry).
   const [packagesOn, setPackagesOn] = useState(false);
   const [reviewing, setReviewing] = useState<{ campaignId: string | null; title: string } | null>(null);
@@ -77,6 +80,16 @@ export function BusinessTab({
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (!isBusiness) return;
+    // Consume the /packages hand-off once (also covers "just became a business").
+    const pending = readPendingPackage();
+    if (!pending) return;
+    clearPendingPackage();
+    setOpenSlug(pending);
+    setBrowsingPackages(true);
+  }, [isBusiness]);
 
   useEffect(() => {
     if (!isBusiness) return;
@@ -109,8 +122,10 @@ export function BusinessTab({
   if (browsingPackages) {
     return (
       <PackagesStorefront
+        openSlug={openSlug && openSlug !== ANY_PACKAGE ? openSlug : null}
         onBack={() => {
           setBrowsingPackages(false);
+          setOpenSlug(null);
           load();
         }}
         notify={notify}

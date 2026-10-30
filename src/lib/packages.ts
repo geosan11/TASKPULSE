@@ -1,4 +1,5 @@
 import { supabase } from './supabaseClient';
+import type { PublicPackage, PublicPackagesResult } from './publicPackages';
 
 /** One row of the packages catalog (015), shaped for the storefront. */
 export interface PackageItem {
@@ -74,3 +75,36 @@ export async function fetchPackages(): Promise<PackagesResult> {
     })),
   };
 }
+
+/**
+ * Public /packages page (anon key). Deliberately does NOT select
+ * reward_per_completion: never show worker pay on the public page.
+ */
+export const PUBLIC_PACKAGE_COLUMNS =
+  'id, slug, name, description, category, slots, total_price, proof_type, proof_requirements, estimated_delivery_days';
+
+export async function fetchPublicPackages(): Promise<PublicPackagesResult> {
+  if (!supabase) return { status: 'error', message: 'Packages are not available right now. Please try again later.' };
+  const { data, error } = await supabase.from('packages').select(PUBLIC_PACKAGE_COLUMNS).eq('is_active', true).order('sort_order');
+  if (error) {
+    // Table not there yet: treat as "no packages" rather than an error.
+    if (isMissingRelation(error)) return { status: 'ok', packages: [] };
+    return { status: 'error', message: 'Could not load packages. Check your connection and try again.' };
+  }
+  return {
+    status: 'ok',
+    packages: (data || []).map((p: any) => ({
+      id: p.id,
+      slug: p.slug,
+      name: p.name,
+      description: p.description || '',
+      category: p.category ?? null,
+      slots: Number(p.slots) || 0,
+      totalPrice: Number(p.total_price) || 0,
+      proofType: p.proof_type ?? null,
+      proofRequirements: p.proof_requirements && typeof p.proof_requirements === 'object' ? p.proof_requirements : null,
+      estimatedDeliveryDays: Number(p.estimated_delivery_days) || 0,
+    })),
+  };
+}
+

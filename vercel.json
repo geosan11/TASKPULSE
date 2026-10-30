@@ -12,6 +12,10 @@
       "destination": "/business.html"
     },
     {
+      "source": "/packages",
+      "destination": "/packages.html"
+    },
+    {
       "source": "/terms",
       "destination": "/terms.html"
     },

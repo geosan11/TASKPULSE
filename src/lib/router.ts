@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
  * Vercel rewrites every non-file path to index.html, so these work on a
  * direct load; navigate() switches pages without a reload.
  */
-export const PUBLIC_ROUTES = ['/', '/business', '/terms', '/privacy'] as const;
+export const PUBLIC_ROUTES = ['/', '/business', '/packages', '/terms', '/privacy'] as const;
 export type PublicRoute = (typeof PUBLIC_ROUTES)[number];
 
 export function normalizePath(pathname: string): string {
