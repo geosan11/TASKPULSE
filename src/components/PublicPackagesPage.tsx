@@ -88,6 +88,16 @@ export function PublicPackagesPage({
             </a>
             <nav className="flex items-center gap-1 sm:gap-2 text-sm font-semibold">
               <a
+                href="/"
+                onClick={e => {
+                  e.preventDefault();
+                  navigate('/');
+                }}
+                className="hidden sm:inline-flex h-10 items-center px-3 rounded-full text-zinc-600 dark:text-zinc-300 hover:text-ink dark:hover:text-white"
+              >
+                Home
+              </a>
+              <a
                 href="/business"
                 onClick={e => {
                   e.preventDefault();
@@ -96,6 +106,16 @@ export function PublicPackagesPage({
                 className="hidden sm:inline-flex h-10 items-center px-3 rounded-full text-zinc-600 dark:text-zinc-300 hover:text-ink dark:hover:text-white"
               >
                 Custom tasks
+              </a>
+              <a
+                href="/packages"
+                onClick={e => {
+                  e.preventDefault();
+                  navigate('/packages');
+                }}
+                className="hidden sm:inline-flex h-10 items-center px-3 rounded-full text-zinc-600 dark:text-zinc-300 hover:text-ink dark:hover:text-white"
+              >
+                Packages
               </a>
               <button
                 type="button"
@@ -122,7 +142,7 @@ export function PublicPackagesPage({
             <h1 className="text-[32px] sm:text-[48px] leading-[1.08] font-extrabold tracking-tight max-w-3xl">
               Pick a package. <span className="text-pulse-600 dark:text-pulse-500">Verified students do the work.</span>
             </h1>
-            <p className="text-base sm:text-lg text-zinc-600 dark:text-zinc-400 max-w-2xl">
+            <p className="text-base sm:text-lg text-zinc-600 dark:text-zinc-400 max-w-2xl leading-relaxed">
               Fixed-price bundles for content, feedback and events. Tell us about your product, pay once via Paystack, and review every piece of work before
               it is paid.
             </p>
@@ -218,6 +238,75 @@ export function PublicPackagesPage({
                 <ShieldCheck className="w-4 h-4 text-pulse-600 dark:text-pulse-500" /> One price, nothing added at checkout
               </li>
             </ul>
+
+            {/* How Packages Work & Package Types */}
+            <div className="mt-14 space-y-12 border-t border-zinc-100 dark:border-zinc-800/80 pt-12">
+              <div className="space-y-4 max-w-2xl">
+                <h2 className="text-2xl sm:text-3xl font-extrabold text-ink dark:text-white">
+                  How ready-made packages work
+                </h2>
+                <p className="text-zinc-600 dark:text-zinc-400 text-sm sm:text-base leading-relaxed">
+                  Packages are fixed bundles of work done by verified Nigerian students. Each package opens for orders once enough students have joined TaskPulse to deliver it.
+                </p>
+                <div className="grid sm:grid-cols-3 gap-4 pt-2">
+                  <div className="p-4 rounded-2xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 space-y-2">
+                    <span className="w-8 h-8 rounded-full bg-pulse-500/15 text-pulse-700 dark:text-pulse-400 text-xs font-black flex items-center justify-center">1</span>
+                    <h3 className="font-bold text-ink dark:text-white text-sm">Choose deliverable</h3>
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
+                      Pick private product feedback, a content test, or campus event support, each with one clear price.
+                    </p>
+                  </div>
+                  <div className="p-4 rounded-2xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 space-y-2">
+                    <span className="w-8 h-8 rounded-full bg-pulse-500/15 text-pulse-700 dark:text-pulse-400 text-xs font-black flex items-center justify-center">2</span>
+                    <h3 className="font-bold text-ink dark:text-white text-sm">Verified students</h3>
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
+                      Verified students on TaskPulse work through your brief and send their proof.
+                    </p>
+                  </div>
+                  <div className="p-4 rounded-2xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 space-y-2">
+                    <span className="w-8 h-8 rounded-full bg-pulse-500/15 text-pulse-700 dark:text-pulse-400 text-xs font-black flex items-center justify-center">3</span>
+                    <h3 className="font-bold text-ink dark:text-white text-sm">Review & approve</h3>
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
+                      Review each submission in your dashboard before it is paid. Unused slots are refunded, fee included.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <h2 className="text-2xl sm:text-3xl font-extrabold text-ink dark:text-white">
+                  Package types
+                </h2>
+                <div className="grid sm:grid-cols-3 gap-4">
+                  <div className="p-5 rounded-3xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 space-y-2">
+                    <h3 className="font-extrabold text-ink dark:text-white text-base">Private Product Feedback</h3>
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
+                      Detailed user feedback panels from targeted Nigerian students sharing honest thoughts and usability observations in private.
+                    </p>
+                  </div>
+                  <div className="p-5 rounded-3xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 space-y-2">
+                    <h3 className="font-extrabold text-ink dark:text-white text-base">Content Tests</h3>
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
+                      Objective clarity, messaging, and appeal ratings on your landing pages, ad creatives, or copy before you spend on marketing.
+                    </p>
+                  </div>
+                  <div className="p-5 rounded-3xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 space-y-2">
+                    <h3 className="font-extrabold text-ink dark:text-white text-base">Event Coverage</h3>
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
+                      In-person student brand teams for campus activations, event attendance check-ins, and raw mobile footage transfers.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Student verification and review rules */}
+              <div className="rounded-3xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 p-6 space-y-3">
+                <h3 className="font-extrabold text-ink dark:text-white text-base">How the work is delivered</h3>
+                <p className="text-xs sm:text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                  Every package is done by verified students in Nigeria. You receive the work through your TaskPulse dashboard, and payment for each slot is held until you review and approve the submission. Unused slots are refunded to the card or account you paid with.
+                </p>
+              </div>
+            </div>
           </section>
 
           {/* Worker strip */}
@@ -248,7 +337,37 @@ export function PublicPackagesPage({
             <p className="flex items-center gap-2">
               <ShieldCheck className="w-4 h-4" /> © {new Date().getFullYear()} TaskPulse by GEOSAN NEXGEN INNOVATIONS
             </p>
-            <div className="flex gap-4 font-semibold">
+            <div className="flex flex-wrap gap-4 font-semibold">
+              <a
+                href="/"
+                onClick={e => {
+                  e.preventDefault();
+                  navigate('/');
+                }}
+                className="hover:text-ink dark:hover:text-white"
+              >
+                Home
+              </a>
+              <a
+                href="/business"
+                onClick={e => {
+                  e.preventDefault();
+                  navigate('/business');
+                }}
+                className="hover:text-ink dark:hover:text-white"
+              >
+                For Businesses
+              </a>
+              <a
+                href="/packages"
+                onClick={e => {
+                  e.preventDefault();
+                  navigate('/packages');
+                }}
+                className="hover:text-ink dark:hover:text-white"
+              >
+                Packages
+              </a>
               <a
                 href="/terms"
                 onClick={e => {

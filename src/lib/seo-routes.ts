@@ -12,43 +12,47 @@ export interface RouteMeta {
   path: string;
   title: string;
   description: string;
-  /** Include in sitemap.xml */
-  sitemap?: { changefreq: 'daily' | 'weekly' | 'monthly' | 'yearly'; priority: number };
+  /**
+   * sitemap.xml <lastmod> (YYYY-MM-DD, WAT): the date this page's visible content
+   * last changed. Bump it by hand when you change the page's copy. Vercel builds
+   * have no git history, so this is set here rather than read from git.
+   */
+  lastmod: string;
 }
 
 export const ROUTE_META: Record<string, RouteMeta> = {
   '/': {
     path: '/',
+    lastmod: '2026-10-31',
     title: 'TaskPulse — Get paid for real tasks in Nigeria. No deposit, ever.',
     description:
-      'Free-to-join Nigerian micro-task marketplace. Complete surveys, app tests and product feedback for real businesses and get paid to your bank. No deposit, ever.',
-    sitemap: { changefreq: 'daily', priority: 1.0 },
+      'Nigerian micro-task marketplace. Complete legit paid surveys, app tests and feedback for businesses. Paid to your bank. Free to join, no deposit ever.',
   },
   '/business': {
     path: '/business',
+    lastmod: '2026-10-31',
     title: 'TaskPulse for Businesses — Real Nigerian people. Pay only for approved work.',
     description:
-      'Get survey responses, app tests and product feedback from real people in Nigeria. You set the reward from ₦50, add a 15% platform fee, fund via Paystack and pay only for approved work.',
-    sitemap: { changefreq: 'weekly', priority: 0.9 },
+      'Recruit app testers in Nigeria, run surveys and usability testing. You set rewards from ₦50 + 15% fee, fund via Paystack, pay only for approved work.',
   },
   '/packages': {
     path: '/packages',
+    lastmod: '2026-10-31',
     title: 'Ready-made packages for businesses — TaskPulse',
     description:
       'Fixed-price packages done by verified Nigerian students: UGC videos, private product feedback, content tests and event coverage. Pay once via Paystack and review every submission.',
-    sitemap: { changefreq: 'weekly', priority: 0.8 },
   },
   '/terms': {
     path: '/terms',
+    lastmod: '2026-10-30',
     title: 'Terms of Service — TaskPulse',
     description: 'The rules for workers and businesses on TaskPulse: earning, withdrawals, referral bonus, campaign fees, refunds and tasks that are not allowed.',
-    sitemap: { changefreq: 'monthly', priority: 0.3 },
   },
   '/privacy': {
     path: '/privacy',
+    lastmod: '2026-10-17',
     title: 'Privacy Policy (NDPA) — TaskPulse',
     description: 'How TaskPulse collects, uses and protects your personal data under the Nigeria Data Protection Act, and how to exercise your rights.',
-    sitemap: { changefreq: 'monthly', priority: 0.3 },
   },
 };
 

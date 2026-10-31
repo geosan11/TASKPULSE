@@ -110,6 +110,16 @@ export function BusinessPage({
               />
             </a>
             <nav className="flex items-center gap-1 sm:gap-2 text-sm font-semibold">
+              <a
+                href="/packages"
+                onClick={e => {
+                  e.preventDefault();
+                  navigate('/packages');
+                }}
+                className="hidden sm:inline-flex h-10 items-center px-3 rounded-full text-zinc-600 dark:text-zinc-300 hover:text-ink dark:hover:text-white"
+              >
+                Ready-made packages
+              </a>
               <a href="#pricing" className="hidden sm:inline-flex h-10 items-center px-3 rounded-full text-zinc-600 dark:text-zinc-300 hover:text-ink dark:hover:text-white">
                 Pricing
               </a>
@@ -148,8 +158,7 @@ export function BusinessPage({
                 <span className="text-pulse-600 dark:text-pulse-500">Pay only for approved work.</span>
               </h1>
               <p className="text-base sm:text-lg text-zinc-600 dark:text-zinc-400 max-w-xl">
-                Get survey responses, app tests, honest product feedback and field checks from real people across Nigeria. Fund once with Paystack, review
-                every proof, and only approved work is paid.
+                Find app testers in Nigeria for beta and usability testing, run market research, or collect honest product feedback from real people across Nigeria. Fund once with Paystack, review every proof, and pay only for work you approve.
               </p>
               <div className="flex flex-col sm:flex-row gap-3">
                 {signUpLink(ctaLabel, btnPrimary)}
@@ -297,17 +306,17 @@ export function BusinessPage({
               </div>
             </div>
 
-            {/* First-campaign offer */}
+            {/* Escrow and refunds (replaces the old first-campaign zero-fee offer) */}
             <div className="rounded-3xl bg-pulse-500 text-ink p-6 sm:p-8 grid md:grid-cols-[1fr_auto] gap-6 items-center">
               <div className="space-y-2">
-                <p className="text-sm font-extrabold uppercase tracking-wider">First-campaign offer for new businesses. Contact us</p>
-                <p className="text-2xl sm:text-3xl font-extrabold leading-tight">Your first campaign with zero platform fee. Pay only for approved responses, and get every unused naira back.</p>
+                <p className="text-sm font-extrabold uppercase tracking-wider">Escrow protection & refunds</p>
+                <p className="text-2xl sm:text-3xl font-extrabold leading-tight">Pay only for approved responses, and get every unused naira back.</p>
                 <p className="text-[15px] font-medium text-ink/80">
-                  Your first responses arrive within 72 hours of going live. We agree the offer with you by email before you pay, and the fee is refunded once the campaign ends. It isn't applied automatically at checkout.
+                  You fund your campaign up front via Paystack. Your budget stays protected in escrow: workers are paid only after you review and approve their proof. If you end a campaign before all slots are completed, the unused rewards{settings.refundFeeOnUnused ? ' and their share of the platform fee' : ''} are refunded to you.
                 </p>
               </div>
-              <a href={mailto('TaskPulse first-campaign offer')} className={`${btn} bg-ink text-white hover:bg-zinc-800`}>
-                <Mail className="w-4 h-4" /> Ask about the offer
+              <a href={mailto('TaskPulse campaign inquiry')} className={`${btn} bg-ink text-white hover:bg-zinc-800`}>
+                <Mail className="w-4 h-4" /> Talk to us
               </a>
             </div>
           </section>
@@ -386,13 +395,22 @@ export function BusinessPage({
                   collect honest opinions privately, or App Tests to have people try your app and report what happened.
                 </p>
               </Faq>
-              <Faq q="What is the first-campaign offer?">
+              <Faq q="Can I recruit app testers in Nigeria for Google Play closed testing (12 testers for 14 days)?">
                 <p>
-                  On your first campaign we charge zero platform fee, so you pay only the rewards for responses you approve, and every unused naira comes back to you. First responses arrive within 72 hours of going live. Email{' '}
-                  <a className="font-bold underline underline-offset-2" href={mailto('TaskPulse first-campaign offer')}>
-                    {BUSINESS_CONTACT_EMAIL}
-                  </a>{' '}
-                  to agree it before you pay. It isn't applied automatically, and the {feePct}% fee is refunded after the campaign ends.
+                  Yes. Under Google Play's closed-testing policy, new personal developer accounts must run a closed test with at least 12 opted-in testers for 14 consecutive days before applying for production access.
+                </p>
+                <p>
+                  You can post an App Test task asking real people in Nigeria with Android phones to opt in to your closed test, install your app and keep using it for the 14 days, and pay only for the proof you approve. We can't promise that every tester stays for the full 14 days, and we make no promise about Google Play approval or any review outcome. Check Google's Play Console help for the current rule.
+                </p>
+              </Faq>
+              <Faq q="Can I conduct market research and product feedback in Nigeria?">
+                <p>
+                  Yes. You can run market research surveys, gather honest product feedback in Nigeria, or request usability testing on your website, app, or prototype. All feedback is collected privately and delivered directly to your dashboard.
+                </p>
+              </Faq>
+              <Faq q="How does campaign escrow and refund protection work?">
+                <p>
+                  You pay only for responses you approve. The campaign reward budget is held safely in escrow and paid out to workers only after your approval. If you end a campaign early, any rewards for unused slots{settings.refundFeeOnUnused ? ` and their share of the ${feePct}% platform fee` : ''} are refunded to the card or account you paid with.
                 </p>
               </Faq>
             </div>
@@ -421,7 +439,37 @@ export function BusinessPage({
             <p className="flex items-center gap-2">
               <ShieldCheck className="w-4 h-4" /> © {new Date().getFullYear()} TaskPulse by GEOSAN NEXGEN INNOVATIONS
             </p>
-            <div className="flex gap-4 font-semibold">
+            <div className="flex flex-wrap gap-4 font-semibold">
+              <a
+                href="/"
+                onClick={e => {
+                  e.preventDefault();
+                  navigate('/');
+                }}
+                className="hover:text-ink dark:hover:text-white"
+              >
+                Home
+              </a>
+              <a
+                href="/business"
+                onClick={e => {
+                  e.preventDefault();
+                  navigate('/business');
+                }}
+                className="hover:text-ink dark:hover:text-white"
+              >
+                For Businesses
+              </a>
+              <a
+                href="/packages"
+                onClick={e => {
+                  e.preventDefault();
+                  navigate('/packages');
+                }}
+                className="hover:text-ink dark:hover:text-white"
+              >
+                Packages
+              </a>
               <a
                 href="/terms"
                 onClick={e => {

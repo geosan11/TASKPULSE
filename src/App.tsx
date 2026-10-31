@@ -67,7 +67,7 @@ const lagosToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Afr
 
 export default function App() {
   const path = usePathname();
-  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => localStorage.getItem('taskpulse_theme') !== 'light');
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => (typeof window !== 'undefined' ? localStorage.getItem('taskpulse_theme') !== 'light' : false));
   const [isOnline, setIsOnline] = useState<boolean>(() => (typeof navigator !== 'undefined' ? navigator.onLine : true));
   const [settings, setSettings] = useState<MarketplaceSettings>(DEFAULT_MARKETPLACE_SETTINGS);
   const [activeTab, setActiveTab] = useState<Tab>('home');
@@ -85,7 +85,7 @@ export default function App() {
   const [authOpen, setAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>('signup');
   const [authAccountType, setAuthAccountType] = useState<AccountType>('worker');
-  const [referralCode, setReferralCode] = useState<string>(() => localStorage.getItem('taskpulse_ref_code') || '');
+  const [referralCode, setReferralCode] = useState<string>(() => (typeof window !== 'undefined' ? localStorage.getItem('taskpulse_ref_code') || '' : ''));
   const [termsOpen, setTermsOpen] = useState<null | 'terms' | 'privacy'>(null);
   const [pendingBusinessIntent, setPendingBusinessIntent] = useState(false);
   const [selectedTask, setSelectedTask] = useState<DbTask | null>(null);
@@ -93,11 +93,12 @@ export default function App() {
   const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
   const [pendingTab, setPendingTab] = useState<Tab | null>(null);
   const [businessModePref, setBusinessModePref] = useState<boolean | null>(() => {
+    if (typeof window === 'undefined') return null;
     const v = localStorage.getItem('taskpulse_business_mode');
     return v === null ? null : v === '1';
   });
   const setBusinessMode = (on: boolean) => {
-    localStorage.setItem('taskpulse_business_mode', on ? '1' : '0');
+    if (typeof window !== 'undefined') localStorage.setItem('taskpulse_business_mode', on ? '1' : '0');
     setBusinessModePref(on);
   };
 

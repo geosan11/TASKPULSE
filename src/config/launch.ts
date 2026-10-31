@@ -44,7 +44,7 @@ export const INTL_COPY: Record<
     sheetTitle: 'TaskPulse is going international',
     sheetBody:
       'Reach real Nigerian users for app tests, surveys and market feedback, and pay only for approved work. ' +
-      'Join early and your first campaign has zero platform fee.',
+      'Every unused naira is refunded if you finish early.',
     sheetButton: 'Got it',
   },
 };
