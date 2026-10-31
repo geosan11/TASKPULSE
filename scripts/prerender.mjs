@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -17,29 +16,6 @@ if (!fs.existsSync(distDir) || !fs.existsSync(ssrEntryPath)) {
 const { render, ROUTE_META, canonicalFor } = await import(`file://${ssrEntryPath}?t=${Date.now()}`);
 
 const escapeAttr = s => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
-
-const SOURCE_FILES = {
-  '/': ['src/components/Landing.tsx', 'src/App.tsx'],
-  '/business': ['src/components/BusinessPage.tsx'],
-  '/packages': ['src/components/PublicPackagesPage.tsx'],
-  '/terms': ['src/components/TermsModal.tsx', 'src/components/LegalPage.tsx'],
-  '/privacy': ['src/components/TermsModal.tsx', 'src/components/LegalPage.tsx'],
-};
-
-function getLastmod(route) {
-  const files = SOURCE_FILES[route] || [];
-  try {
-    const out = execSync(`git log -1 --format=%cs -- ${files.join(' ')}`, {
-      cwd: rootDir,
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'ignore'],
-    }).trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(out)) return out;
-  } catch {
-    // Git unavailable or shallow clone without history
-  }
-  return new Date().toISOString().slice(0, 10);
-}
 
 // 1. Prerender the 5 public routes
 const template = fs.readFileSync(path.join(distDir, 'index.html'), 'utf8');
@@ -227,7 +203,8 @@ let sitemapXml = '<?xml version="1.0" encoding="UTF-8"?>\n';
 sitemapXml += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n';
 for (const r of routes) {
   const url = canonicalFor(r);
-  const lastmod = getLastmod(r);
+  const lastmod = ROUTE_META[r].lastmod;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(lastmod || '')) throw new Error(`ROUTE_META[${r}].lastmod must be YYYY-MM-DD`);
   sitemapXml += '  <url>\n';
   sitemapXml += `    <loc>${url}</loc>\n`;
   sitemapXml += `    <lastmod>${lastmod}</lastmod>\n`;
