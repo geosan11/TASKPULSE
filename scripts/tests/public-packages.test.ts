@@ -42,7 +42,7 @@ const vercel = JSON.parse(fs.readFileSync(path.resolve('vercel.json'), 'utf8'));
 const rw: { source: string; destination: string }[] = vercel.rewrites;
 const iPk = rw.findIndex(r => r.source === '/packages');
 const iAll = rw.findIndex(r => r.source === '/(.*)');
-check('vercel rewrite /packages -> /packages.html before catch-all', iPk >= 0 && rw[iPk].destination === '/packages.html' && iPk < iAll);
+check('vercel rewrite /packages -> /packages.html (no catch-all)', iPk >= 0 && rw[iPk].destination === '/packages.html' && iAll === -1);
 
 // Worker pay may be fetched, but is only displayed inside the price breakdown.
 const page = fs.readFileSync(path.resolve('src/components/PublicPackagesPage.tsx'), 'utf8');

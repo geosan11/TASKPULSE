@@ -21,14 +21,14 @@ export const ROUTE_META: Record<string, RouteMeta> = {
     path: '/',
     title: 'TaskPulse — Get paid for real tasks in Nigeria. No deposit, ever.',
     description:
-      'Free-to-join Nigerian micro-task marketplace. Complete surveys, app tests and product feedback for real businesses and get paid to your bank. No deposit, ever.',
+      'Nigerian micro-task marketplace. Complete legit paid surveys, app tests and feedback for businesses. Paid to your bank. Free to join, no deposit ever.',
     sitemap: { changefreq: 'daily', priority: 1.0 },
   },
   '/business': {
     path: '/business',
     title: 'TaskPulse for Businesses — Real Nigerian people. Pay only for approved work.',
     description:
-      'Get survey responses, app tests and product feedback from real people in Nigeria. You set the reward from ₦50, add a 15% platform fee, fund via Paystack and pay only for approved work.',
+      'Recruit app testers in Nigeria, run surveys and usability testing. You set rewards from ₦50 + 15% fee, fund via Paystack, pay only for approved work.',
     sitemap: { changefreq: 'weekly', priority: 0.9 },
   },
   '/packages': {

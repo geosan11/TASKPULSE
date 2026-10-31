@@ -3,18 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- Defaults for "/". src/lib/seo.ts updates these per route at runtime and
-         vite.config.ts writes per-route copies (business.html, terms.html,
-         privacy.html) for link-preview crawlers that do not run JavaScript. -->
+    <!-- Defaults for "/". src/lib/seo.ts updates these per route at runtime.
+         scripts/prerender.mjs (run by `npm run build`) writes the prerendered body and
+         per-route head tags into dist/index.html, business.html, packages.html,
+         terms.html and privacy.html, plus dist/404.html and dist/sitemap.xml. -->
     <title>TaskPulse — Get paid for real tasks in Nigeria. No deposit, ever.</title>
-    <meta name="description" content="Free-to-join Nigerian micro-task marketplace. Complete surveys, app tests and product feedback for real businesses and get paid to your bank. No deposit, ever." />
+    <meta name="description" content="Nigerian micro-task marketplace. Complete legit paid surveys, app tests and feedback for businesses. Paid to your bank. Free to join, no deposit ever." />
     <meta name="robots" content="index, follow" />
     <link rel="canonical" href="https://www.taskpulse.website/" />
     <meta property="og:site_name" content="TaskPulse" />
     <meta property="og:type" content="website" />
     <meta property="og:locale" content="en_NG" />
     <meta property="og:title" content="TaskPulse — Get paid for real tasks in Nigeria. No deposit, ever." />
-    <meta property="og:description" content="Free-to-join Nigerian micro-task marketplace. Complete surveys, app tests and product feedback for real businesses and get paid to your bank. No deposit, ever." />
+    <meta property="og:description" content="Nigerian micro-task marketplace. Complete legit paid surveys, app tests and feedback for businesses. Paid to your bank. Free to join, no deposit ever." />
     <meta property="og:url" content="https://www.taskpulse.website/" />
     <meta property="og:image" content="https://www.taskpulse.website/og-image.png" />
     <meta property="og:image:width" content="1200" />
@@ -22,7 +23,7 @@
     <meta property="og:image:alt" content="TaskPulse — real people, real actions, paid for approved work" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="TaskPulse — Get paid for real tasks in Nigeria. No deposit, ever." />
-    <meta name="twitter:description" content="Free-to-join Nigerian micro-task marketplace. Complete surveys, app tests and product feedback for real businesses and get paid to your bank. No deposit, ever." />
+    <meta name="twitter:description" content="Nigerian micro-task marketplace. Complete legit paid surveys, app tests and feedback for businesses. Paid to your bank. Free to join, no deposit ever." />
     <meta name="twitter:image" content="https://www.taskpulse.website/og-image.png" />
     <meta name="theme-color" content="#00C853" />
     <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
@@ -49,7 +50,7 @@
   </head>
   <body>
     <noscript>
-      <h1>TaskPulse</h1>
+      <p><strong>TaskPulse</strong></p>
       <p>Get paid for real tasks in Nigeria. No deposit, ever. <a href="/business">TaskPulse for Businesses</a></p>
     </noscript>
     <div id="root"></div>

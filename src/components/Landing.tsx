@@ -33,8 +33,8 @@ export function Landing({
             <br />
             <span className="text-pulse-600 dark:text-pulse-500">No deposit, ever.</span>
           </h1>
-          <p className="text-[15px] text-zinc-500 dark:text-zinc-400 max-w-[300px] mx-auto">
-            Do simple tasks for real businesses. Get paid to your bank.
+          <p className="text-[15px] text-zinc-500 dark:text-zinc-400 max-w-[340px] mx-auto leading-relaxed">
+            Free-to-join Nigerian micro-task marketplace. Earn money online in Nigeria without investment: complete legit paid surveys in Nigeria, test apps, and share product feedback for real businesses. Paid to your Nigerian bank account after approval.
           </p>
         </div>
         <div className="space-y-3 pt-1">
@@ -63,6 +63,36 @@ export function Landing({
             <p className="text-xs sm:text-sm font-bold text-ink dark:text-white">{label}</p>
           </div>
         ))}
+      </section>
+
+      {/* Task Types & Student Opportunities */}
+      <section className="space-y-4">
+        <div className="space-y-1">
+          <h2 className="text-lg font-extrabold text-ink dark:text-white">Student jobs in Nigeria & flexible tasks</h2>
+          <p className="text-sm text-zinc-500 dark:text-zinc-400 leading-relaxed">
+            Looking for flexible student jobs in Nigeria or side income in your free time? TaskPulse lets students and everyday Nigerians do paid micro-tasks on their phone, with nothing to pay upfront.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 gap-2.5 text-sm">
+          <div className="p-3.5 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 space-y-1">
+            <p className="font-bold text-ink dark:text-white">Legit paid surveys in Nigeria</p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
+              Answer short surveys for real businesses that want to hear from people in Nigeria. No fee to join, and no promises about how much you will make.
+            </p>
+          </div>
+          <div className="p-3.5 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 space-y-1">
+            <p className="font-bold text-ink dark:text-white">App tests & usability feedback</p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
+              Try new apps and websites, go through sign-up or checkout, and report what worked and where you got stuck.
+            </p>
+          </div>
+          <div className="p-3.5 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 space-y-1">
+            <p className="font-bold text-ink dark:text-white">Private product feedback</p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
+              Give honest, private feedback on products, packaging and ideas, straight to the business that asked.
+            </p>
+          </div>
+        </div>
       </section>
 
       {tasks.length > 0 && (
@@ -120,9 +150,40 @@ export function Landing({
         )}
       </Card>
 
-      <footer className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs font-semibold text-zinc-500">
+      {/* Worker FAQ */}
+      <section className="space-y-3">
+        <h2 className="text-base font-extrabold text-ink dark:text-white">Frequently asked questions</h2>
+        <div className="space-y-2 text-xs sm:text-sm">
+          <div className="p-3.5 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 space-y-1">
+            <h3 className="font-bold text-ink dark:text-white">Is TaskPulse free to join?</h3>
+            <p className="text-zinc-500 dark:text-zinc-400 leading-relaxed">
+              Yes. TaskPulse is completely free to join. There are no registration fees, deposit requirements, or paid level upgrades. Anyone who asks you to pay to join TaskPulse is an impersonator.
+            </p>
+          </div>
+          <div className="p-3.5 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 space-y-1">
+            <h3 className="font-bold text-ink dark:text-white">How and when do I get paid?</h3>
+            <p className="text-zinc-500 dark:text-zinc-400 leading-relaxed">
+              When you submit valid proof, the business reviews your submission. If it is approved, the reward goes to your TaskPulse balance, and you can withdraw it to a Nigerian bank account in your own name.
+            </p>
+          </div>
+          <div className="p-3.5 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 space-y-1">
+            <h3 className="font-bold text-ink dark:text-white">What tasks are not allowed?</h3>
+            <p className="text-zinc-500 dark:text-zinc-400 leading-relaxed">
+              Paid public reviews or star ratings, fake accounts, and bought follows, likes or subscribers are not allowed. Report any task that asks for those.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <footer className="flex flex-wrap justify-center gap-x-4 gap-y-2 text-xs font-semibold text-zinc-500 pt-2 border-t border-zinc-200/60 dark:border-zinc-800/80">
+        <a href="/" onClick={e => { e.preventDefault(); }} className="hover:text-ink dark:hover:text-white">
+          Home
+        </a>
         <a href="/business" onClick={e => { e.preventDefault(); onSeePricing(); }} className="hover:text-ink dark:hover:text-white">
-          For businesses
+          For Businesses
+        </a>
+        <a href="/packages" onClick={e => { e.preventDefault(); if (onSeePackages) onSeePackages(); }} className="hover:text-ink dark:hover:text-white">
+          Packages
         </a>
         <a href="/terms" onClick={e => { e.preventDefault(); onOpenTerms('terms'); }} className="hover:text-ink dark:hover:text-white">
           Terms

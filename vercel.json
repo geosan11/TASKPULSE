@@ -2,6 +2,7 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "framework": "vite",
+  "trailingSlash": false,
   "rewrites": [
     {
       "source": "/api/(.*)",
@@ -22,10 +23,6 @@
     {
       "source": "/privacy",
       "destination": "/privacy.html"
-    },
-    {
-      "source": "/(.*)",
-      "destination": "/index.html"
     }
   ],
   "crons": [

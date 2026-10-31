@@ -5,9 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
-    "build": "vite build",
+    "build": "vite build && vite build --ssr src/entry-server.tsx --outDir dist-ssr && node scripts/prerender.mjs",
     "preview": "vite preview",
-    "clean": "rm -rf dist server.js",
+    "clean": "rm -rf dist dist-ssr server.js",
     "lint": "tsc --noEmit",
     "reconcile": "tsx scripts/reconcile-pending.ts",
     "test:sql": "bash supabase/tests/run-local.sh",
@@ -23,7 +23,8 @@
     "check:migrations": "tsx scripts/check-migration-copies.ts",
     "test:sql:015": "bash supabase/tests/run-local-015.sh",
     "test:sql:016": "bash supabase/tests/run-local-016.sh",
-    "test:public-packages": "tsx scripts/tests/public-packages.test.ts"
+    "test:public-packages": "tsx scripts/tests/public-packages.test.ts",
+    "test:prerender": "tsx scripts/tests/prerender.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
